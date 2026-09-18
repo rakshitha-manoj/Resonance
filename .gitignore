@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.tflite
+data/raw/
+data/processed/
+.vscode/
+*.log
