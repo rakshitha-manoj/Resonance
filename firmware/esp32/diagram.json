@@ -7,6 +7,8 @@
     { "type": "wokwi-mpu6050", "id": "mpu", "top": -20, "left": 200, "attrs": {} }
   ],
   "connections": [
+    [ "esp:TX0", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX0", "$serialMonitor:TX", "", [] ],
     [ "esp:3V3", "mpu:VCC", "red", [] ],
     [ "esp:GND.1", "mpu:GND", "black", [] ],
     [ "esp:D21", "mpu:SDA", "green", [] ],
