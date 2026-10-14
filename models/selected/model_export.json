@@ -1,0 +1,151 @@
+{
+ "model_type": "decision_tree",
+ "config": "dt_d3",
+ "params": {
+  "max_depth": 3
+ },
+ "class_order": [
+  "normal",
+  "abnormal",
+  "faulty"
+ ],
+ "input_features": [
+  "ax_std",
+  "ax_kurt",
+  "ax_domfreq",
+  "ay_std",
+  "ay_kurt",
+  "ay_domfreq",
+  "az_std",
+  "az_kurt",
+  "az_domfreq",
+  "gx_std",
+  "gx_kurt",
+  "gx_domfreq",
+  "gy_std",
+  "gy_kurt",
+  "gy_domfreq",
+  "gz_std",
+  "gz_kurt",
+  "gz_domfreq"
+ ],
+ "n_input_features": 18,
+ "comparison_rule": "go left if x[feature] <= threshold else right; thresholds are float32 (rounded down so float32 x <= threshold matches sklearn exactly); inputs cast to float32",
+ "vote_rule": "n/a (single tree: output the leaf class)",
+ "trees": [
+  {
+   "n_nodes": 11,
+   "feature_index": [
+    6,
+    8,
+    9,
+    -1,
+    -1,
+    -1,
+    7,
+    11,
+    -1,
+    -1,
+    -1
+   ],
+   "feature_name": [
+    "az_std",
+    "az_domfreq",
+    "gx_std",
+    null,
+    null,
+    null,
+    "az_kurt",
+    "gx_domfreq",
+    null,
+    null,
+    null
+   ],
+   "threshold": [
+    354.2550048828125,
+    13.671875,
+    59.12877655029297,
+    null,
+    null,
+    null,
+    -1.191633701324463,
+    15.625,
+    null,
+    null,
+    null
+   ],
+   "left": [
+    1,
+    2,
+    3,
+    -1,
+    -1,
+    -1,
+    7,
+    8,
+    -1,
+    -1,
+    -1
+   ],
+   "right": [
+    6,
+    5,
+    4,
+    -1,
+    -1,
+    -1,
+    10,
+    9,
+    -1,
+    -1,
+    -1
+   ],
+   "leaf_class": [
+    null,
+    null,
+    null,
+    0,
+    1,
+    2,
+    null,
+    null,
+    1,
+    2,
+    2
+   ]
+  }
+ ],
+ "used_feature_indices": [
+  6,
+  7,
+  8,
+  9,
+  11
+ ],
+ "used_feature_names": [
+  "az_std",
+  "az_kurt",
+  "az_domfreq",
+  "gx_std",
+  "gx_domfreq"
+ ],
+ "firmware_must_compute": {
+  "az": [
+   "std",
+   "kurt",
+   "domfreq"
+  ],
+  "gx": [
+   "std",
+   "domfreq"
+  ]
+ },
+ "firmware_axes_needed": [
+  "az",
+  "gx"
+ ],
+ "firmware_needs_fft_axes": [
+  "az",
+  "gx"
+ ]
+}

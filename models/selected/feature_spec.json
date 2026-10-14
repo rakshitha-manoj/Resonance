@@ -1,0 +1,103 @@
+{
+  "fs_hz": 100,
+  "window_n": 128,
+  "axis_order": [
+    "ax",
+    "ay",
+    "az",
+    "gx",
+    "gy",
+    "gz"
+  ],
+  "classes": [
+    "normal",
+    "abnormal",
+    "faulty"
+  ],
+  "input_units": "raw int16 counts as read from MPU6050 (no scaling to g or deg/s)",
+  "window_layout": "6 axes, 128 consecutive samples each, non-overlapping windows",
+  "input_columns": [
+    "ax_std",
+    "ax_kurt",
+    "ax_domfreq",
+    "ay_std",
+    "ay_kurt",
+    "ay_domfreq",
+    "az_std",
+    "az_kurt",
+    "az_domfreq",
+    "gx_std",
+    "gx_kurt",
+    "gx_domfreq",
+    "gy_std",
+    "gy_kurt",
+    "gy_domfreq",
+    "gz_std",
+    "gz_kurt",
+    "gz_domfreq"
+  ],
+  "n_input_columns": 18,
+  "used_feature_columns": [
+    "az_std",
+    "az_kurt",
+    "az_domfreq",
+    "gx_std",
+    "gx_domfreq"
+  ],
+  "firmware_must_compute": {
+    "az": [
+      "std",
+      "kurt",
+      "domfreq"
+    ],
+    "gx": [
+      "std",
+      "domfreq"
+    ]
+  },
+  "formulas": {
+    "std": "sqrt(mean((x-mean(x))^2)), population (ddof=0), mean removed",
+    "kurt": "excess kurtosis: mean((x-mu)^4)/var^2 - 3 with population moments; 0 if var==0",
+    "domfreq": "(argmax over k=1..64 of |rfft(x-mean(x))[k]|) * FS / N (bin 0 excluded; first max wins ties)"
+  },
+  "sensor_configuration": {
+    "accel_full_scale": "+/-2 g (AFS_SEL=0, 16384 LSB/g)",
+    "gyro_full_scale": "+/-250 deg/s (FS_SEL=0, 131 LSB/(deg/s))",
+    "note": "defaults set by electroniccats MPU6050 initialize(); all thresholds are in raw counts under these settings and are invalid under other ranges"
+  },
+  "sampling_requirement": {
+    "fs_hz": 100,
+    "uniform": true,
+    "timer_driven": true,
+    "domfreq_bin_spacing_hz": 0.78125,
+    "note": "exactly 100 Hz, uniformly spaced (timer-driven); domfreq thresholds assume bin spacing FS/N = 0.78125 Hz. The current Phase 1 firmware uses delay(10) plus read/print time, so its actual rate is below 100 Hz and must be changed in Phase 4"
+  },
+  "offset_test_scope": "The offset test shows the 18 mean-removed features are invariant to constant per-axis offsets BY CONSTRUCTION. It does NOT test axis rotation / mounting orientation changes, sensitivity/gain (scale) errors, or temperature drift; these are open questions for Phase 6 hardware validation.",
+  "used_features": [
+    "az_std",
+    "az_kurt",
+    "az_domfreq",
+    "gx_std",
+    "gx_domfreq"
+  ],
+  "firmware_axes_needed": [
+    "az",
+    "gx"
+  ],
+  "firmware_needs_fft_axes": [
+    "az",
+    "gx"
+  ],
+  "rms_excluded": "raw rms includes the DC term (gravity, mounting orientation, sensor offset/calibration), which differs on real hardware; the 24-feature model's top split was on az_rms (DC dominated). rms is intentionally not an input.",
+  "band_energy": null,
+  "comparison_rule": "go left if x[feature] <= threshold else right; thresholds are float32 (rounded down so float32 x <= threshold matches sklearn exactly); inputs cast to float32",
+  "vote_rule": "n/a (single tree: output the leaf class)",
+  "model": {
+    "name": "dt_d3",
+    "family": "tree",
+    "file": "model.joblib",
+    "export_file": "model_export.json",
+    "trained_on": "all 150 recordings"
+  },
+  "scaler": null
+}
