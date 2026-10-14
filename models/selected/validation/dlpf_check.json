@@ -1,0 +1,944 @@
+{
+  "meta": {
+    "method": "FFT x10 upsample (odd reflect pad 640 each side, Nyquist bin split, crop) -> causal IIR at 1 kHz with steady-state initial conditions at sample 0 -> take every 10th sample (aligned to original sample times) -> round/clip int16 -> same 40x128 windows -> same feature definitions",
+    "fs_hz": 100,
+    "fs_upsampled_hz": 1000,
+    "n_windows": 6000,
+    "n_recordings": 150,
+    "deployed_model_in_sample_note": "the deployed model was trained on all 150 recordings, so its accuracy on this dataset is in-sample and optimistic; flip counts are the primary metric",
+    "limitation": "the upsampled signal is band-limited to <50 Hz (original Nyquist); the real sensor sees wideband input at 1 kHz before filtering, so aliasing of >50 Hz content into the 100 Hz samples is not reproduced",
+    "roundtrip": {
+      "max_abs_error_before_rounding": 1.2732925824820995e-11,
+      "max_abs_error_after_rounding": 0.0,
+      "windows_identical": true,
+      "features_identical": true,
+      "predictions_identical": true
+    },
+    "tree_nodes": {
+      "0": {
+        "feature": "az_std",
+        "threshold": 354.25502014160156
+      },
+      "1": {
+        "feature": "az_domfreq",
+        "threshold": 13.671875
+      },
+      "2": {
+        "feature": "gx_std",
+        "threshold": 59.1287784576416
+      },
+      "6": {
+        "feature": "az_kurt",
+        "threshold": -1.191633701324463
+      },
+      "7": {
+        "feature": "gx_domfreq",
+        "threshold": 15.625
+      }
+    },
+    "unfiltered_in_sample_accuracy": 0.9523333333333334,
+    "runtime_s": 7.8
+  },
+  "variants": {
+    "A": {
+      "description": "2nd-order Butterworth LP, 44 Hz accel / 42 Hz gyro (CFG=3 emulation)",
+      "order": 2,
+      "fc_hz_by_axis": {
+        "ax": 44,
+        "ay": 44,
+        "az": 44,
+        "gx": 42,
+        "gy": 42,
+        "gz": 42
+      },
+      "coefficients_by_axis": {
+        "ax": {
+          "b": [
+            0.01591455666471031,
+            0.03182911332942062,
+            0.01591455666471031
+          ],
+          "a": [
+            1.0,
+            -1.6127790453709436,
+            0.6764372720297849
+          ]
+        },
+        "ay": {
+          "b": [
+            0.01591455666471031,
+            0.03182911332942062,
+            0.01591455666471031
+          ],
+          "a": [
+            1.0,
+            -1.6127790453709436,
+            0.6764372720297849
+          ]
+        },
+        "az": {
+          "b": [
+            0.01591455666471031,
+            0.03182911332942062,
+            0.01591455666471031
+          ],
+          "a": [
+            1.0,
+            -1.6127790453709436,
+            0.6764372720297849
+          ]
+        },
+        "gx": {
+          "b": [
+            0.014613775028958187,
+            0.029227550057916375,
+            0.014613775028958187
+          ],
+          "a": [
+            1.0,
+            -1.6301025942910772,
+            0.6885576944069098
+          ]
+        },
+        "gy": {
+          "b": [
+            0.014613775028958187,
+            0.029227550057916375,
+            0.014613775028958187
+          ],
+          "a": [
+            1.0,
+            -1.6301025942910772,
+            0.6885576944069098
+          ]
+        },
+        "gz": {
+          "b": [
+            0.014613775028958187,
+            0.029227550057916375,
+            0.014613775028958187
+          ],
+          "a": [
+            1.0,
+            -1.6301025942910772,
+            0.6885576944069098
+          ]
+        }
+      },
+      "group_delay_ms_at_low_freq": {
+        "ax": 5.085671346689259,
+        "ay": 5.085671346689259,
+        "az": 5.085671346689259,
+        "gx": 5.331177992260405,
+        "gy": 5.331177992260405,
+        "gz": 5.331177992260405
+      },
+      "gain_at_fc": {
+        "ax": 0.7071067811865475,
+        "ay": 0.7071067811865475,
+        "az": 0.7071067811865475,
+        "gx": 0.7071067811865465,
+        "gy": 0.7071067811865465,
+        "gz": 0.7071067811865465
+      },
+      "gain_at_hz": {
+        "freqs": [
+          5,
+          10,
+          20,
+          30,
+          40,
+          50
+        ],
+        "accel_axis": [
+          0.9999187140956213,
+          0.9987005195294715,
+          0.9797192916195216,
+          0.9079045239981461,
+          0.7715223855287485,
+          0.6108399145828147
+        ],
+        "gyro_axis": [
+          0.9999018683170743,
+          0.9984318074238924,
+          0.9756679597745093,
+          0.8918100856094643,
+          0.7410630463613325,
+          0.5746468164623943
+        ]
+      },
+      "deployed_model": {
+        "n_flips": 10,
+        "flip_pct": 0.16666666666666669,
+        "flip_matrix_from_row_to_col": {
+          "classes": [
+            "normal",
+            "abnormal",
+            "faulty"
+          ],
+          "counts": [
+            [
+              0,
+              2,
+              0
+            ],
+            [
+              4,
+              0,
+              0
+            ],
+            [
+              1,
+              3,
+              0
+            ]
+          ]
+        },
+        "flips_by_true_label": {
+          "normal": {
+            "windows": 2000,
+            "flips": 3,
+            "flip_rate": 0.0015
+          },
+          "abnormal": {
+            "windows": 2000,
+            "flips": 3,
+            "flip_rate": 0.0015
+          },
+          "faulty": {
+            "windows": 2000,
+            "flips": 4,
+            "flip_rate": 0.002
+          }
+        },
+        "in_sample_accuracy_unfiltered": 0.9523333333333334,
+        "in_sample_accuracy_filtered": 0.951,
+        "flip_cause_first_changed_branch": {
+          "node0: az_std <= 354.255": 7,
+          "node2: gx_std <= 59.1288": 2,
+          "node6: az_kurt <= -1.19163": 1
+        }
+      },
+      "feature_shifts_by_class": {
+        "normal": {
+          "az_std": {
+            "median_ratio_filt_over_unfilt": 0.9958803028083005,
+            "p10_ratio": 0.9896694313798977,
+            "p90_ratio": 0.9998569983875248
+          },
+          "az_kurt": {
+            "median_change": -0.013500835731447003,
+            "median_unfilt": -1.3791495886132958,
+            "median_filt": -1.3960090391218904
+          },
+          "az_domfreq": {
+            "fraction_changed": 0.004,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.003125
+          },
+          "gx_std": {
+            "median_ratio_filt_over_unfilt": 0.9791584187666786,
+            "p10_ratio": 0.9386048489748433,
+            "p90_ratio": 0.9938837513890424
+          },
+          "gx_domfreq": {
+            "fraction_changed": 0.006,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.080078125
+          }
+        },
+        "abnormal": {
+          "az_std": {
+            "median_ratio_filt_over_unfilt": 0.9984696628698269,
+            "p10_ratio": 0.995139143672115,
+            "p90_ratio": 1.0016694518135576
+          },
+          "az_kurt": {
+            "median_change": -0.0021817415181055733,
+            "median_unfilt": -1.463052210624284,
+            "median_filt": -1.4670709744407433
+          },
+          "az_domfreq": {
+            "fraction_changed": 0.0045,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.003515625
+          },
+          "gx_std": {
+            "median_ratio_filt_over_unfilt": 0.9944716219297236,
+            "p10_ratio": 0.9825005686354038,
+            "p90_ratio": 1.0001885765817795
+          },
+          "gx_domfreq": {
+            "fraction_changed": 0.0065,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.005078125
+          }
+        },
+        "faulty": {
+          "az_std": {
+            "median_ratio_filt_over_unfilt": 0.9889541443993921,
+            "p10_ratio": 0.9185468716163819,
+            "p90_ratio": 0.9989469104627786
+          },
+          "az_kurt": {
+            "median_change": -0.0062186952932543615,
+            "median_unfilt": 1.8409571723646043,
+            "median_filt": 1.7924058018001583
+          },
+          "az_domfreq": {
+            "fraction_changed": 0.0135,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.017578125
+          },
+          "gx_std": {
+            "median_ratio_filt_over_unfilt": 0.9685535334751367,
+            "p10_ratio": 0.8977019683014552,
+            "p90_ratio": 0.9954428041342687
+          },
+          "gx_domfreq": {
+            "fraction_changed": 0.011,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.084375
+          }
+        }
+      },
+      "path_changed_windows": 33,
+      "cv": {
+        "scheme": "grouped stratified 5-fold over 150 recordings, 10 recordings/class per test fold, 10 repeats, seeds 42+7000+r; dt depth 3 trained on UNFILTERED train folds",
+        "mean_accuracy_unfiltered": 0.9333,
+        "mean_accuracy_filtered": 0.9350166666666666,
+        "paired_mean_diff_filtered_minus_unfiltered": 0.0017166666666666552,
+        "se_over_10_repeat_means": 0.00021523745142012102,
+        "se_over_50_folds_note": "folds and repeats reuse the same recordings, so both SEs understate true uncertainty",
+        "se_over_50_folds": 0.0004450598064221447,
+        "min_repeat_diff": 0.0008333333333332416,
+        "max_repeat_diff": 0.0033333333333332993,
+        "mean_flip_rate_test_folds": 0.0037333333333333333,
+        "repeat_means_unfiltered": [
+          0.9345000000000001,
+          0.93,
+          0.9343333333333333,
+          0.9343333333333333,
+          0.9355,
+          0.9276666666666668,
+          0.9318333333333333,
+          0.932,
+          0.9363333333333334,
+          0.9365
+        ],
+        "repeat_means_filtered": [
+          0.9353333333333333,
+          0.9313333333333332,
+          0.9358333333333334,
+          0.9358333333333333,
+          0.9373333333333334,
+          0.931,
+          0.9336666666666666,
+          0.9331666666666667,
+          0.9385,
+          0.9381666666666668
+        ]
+      }
+    },
+    "B": {
+      "description": "1st-order LP, 44 Hz accel / 42 Hz gyro",
+      "order": 1,
+      "fc_hz_by_axis": {
+        "ax": 44,
+        "ay": 44,
+        "az": 44,
+        "gx": 42,
+        "gy": 42,
+        "gz": 42
+      },
+      "coefficients_by_axis": {
+        "ax": {
+          "b": [
+            0.12212725997579801,
+            0.12212725997579801,
+            0.0
+          ],
+          "a": [
+            1.0,
+            -0.7557454800484039,
+            0.0
+          ]
+        },
+        "ay": {
+          "b": [
+            0.12212725997579801,
+            0.12212725997579801,
+            0.0
+          ],
+          "a": [
+            1.0,
+            -0.7557454800484039,
+            0.0
+          ]
+        },
+        "az": {
+          "b": [
+            0.12212725997579801,
+            0.12212725997579801,
+            0.0
+          ],
+          "a": [
+            1.0,
+            -0.7557454800484039,
+            0.0
+          ]
+        },
+        "gx": {
+          "b": [
+            0.11716772726099084,
+            0.11716772726099084,
+            0.0
+          ],
+          "a": [
+            1.0,
+            -0.7656645454780182,
+            0.0
+          ]
+        },
+        "gy": {
+          "b": [
+            0.11716772726099084,
+            0.11716772726099084,
+            0.0
+          ],
+          "a": [
+            1.0,
+            -0.7656645454780182,
+            0.0
+          ]
+        },
+        "gz": {
+          "b": [
+            0.11716772726099084,
+            0.11716772726099084,
+            0.0
+          ],
+          "a": [
+            1.0,
+            -0.7656645454780182,
+            0.0
+          ]
+        }
+      },
+      "group_delay_ms_at_low_freq": {
+        "ax": 3.5921442604137415,
+        "ay": 3.5921442604137415,
+        "az": 3.5921442604137415,
+        "gx": 3.7651418330289856,
+        "gy": 3.7651418330289856,
+        "gz": 3.7651418330289856
+      },
+      "gain_at_fc": {
+        "ax": 0.7071067811865476,
+        "ay": 0.7071067811865476,
+        "az": 0.7071067811865476,
+        "gx": 0.7071067811865474,
+        "gy": 0.7071067811865474,
+        "gz": 0.7071067811865474
+      },
+      "gain_at_hz": {
+        "freqs": [
+          5,
+          10,
+          20,
+          30,
+          40,
+          50
+        ],
+        "accel_axis": [
+          0.9936847599132307,
+          0.975421883725742,
+          0.9111554754511274,
+          0.8271252618576729,
+          0.7403130784179742,
+          0.6599297529072027
+        ],
+        "gyro_axis": [
+          0.9930675436143427,
+          0.9730917023031727,
+          0.9036107068318469,
+          0.8145186000390356,
+          0.7243251780868699,
+          0.6422696654166133
+        ]
+      },
+      "deployed_model": {
+        "n_flips": 35,
+        "flip_pct": 0.5833333333333334,
+        "flip_matrix_from_row_to_col": {
+          "classes": [
+            "normal",
+            "abnormal",
+            "faulty"
+          ],
+          "counts": [
+            [
+              0,
+              0,
+              0
+            ],
+            [
+              31,
+              0,
+              0
+            ],
+            [
+              1,
+              3,
+              0
+            ]
+          ]
+        },
+        "flips_by_true_label": {
+          "normal": {
+            "windows": 2000,
+            "flips": 3,
+            "flip_rate": 0.0015
+          },
+          "abnormal": {
+            "windows": 2000,
+            "flips": 25,
+            "flip_rate": 0.0125
+          },
+          "faulty": {
+            "windows": 2000,
+            "flips": 7,
+            "flip_rate": 0.0035
+          }
+        },
+        "in_sample_accuracy_unfiltered": 0.9523333333333334,
+        "in_sample_accuracy_filtered": 0.948,
+        "flip_cause_first_changed_branch": {
+          "node0: az_std <= 354.255": 18,
+          "node2: gx_std <= 59.1288": 16,
+          "node6: az_kurt <= -1.19163": 1
+        }
+      },
+      "feature_shifts_by_class": {
+        "normal": {
+          "az_std": {
+            "median_ratio_filt_over_unfilt": 0.9783516752040557,
+            "p10_ratio": 0.9645856241149231,
+            "p90_ratio": 0.9890311410191386
+          },
+          "az_kurt": {
+            "median_change": -0.018830690965928154,
+            "median_unfilt": -1.3791495886132958,
+            "median_filt": -1.4007848468816468
+          },
+          "az_domfreq": {
+            "fraction_changed": 0.003,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.00234375
+          },
+          "gx_std": {
+            "median_ratio_filt_over_unfilt": 0.9548531392049151,
+            "p10_ratio": 0.9102169052575185,
+            "p90_ratio": 0.9777268820231416
+          },
+          "gx_domfreq": {
+            "fraction_changed": 0.0045,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.101171875
+          }
+        },
+        "abnormal": {
+          "az_std": {
+            "median_ratio_filt_over_unfilt": 0.9831082453180854,
+            "p10_ratio": 0.9663871459309722,
+            "p90_ratio": 0.9936555796492862
+          },
+          "az_kurt": {
+            "median_change": -0.004769468405184107,
+            "median_unfilt": -1.463052210624284,
+            "median_filt": -1.4694323348721452
+          },
+          "az_domfreq": {
+            "fraction_changed": 0.0025,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.001953125
+          },
+          "gx_std": {
+            "median_ratio_filt_over_unfilt": 0.9733459615883058,
+            "p10_ratio": 0.9555955187221716,
+            "p90_ratio": 0.9912208645874817
+          },
+          "gx_domfreq": {
+            "fraction_changed": 0.003,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.00234375
+          }
+        },
+        "faulty": {
+          "az_std": {
+            "median_ratio_filt_over_unfilt": 0.9468698317367407,
+            "p10_ratio": 0.8382558770938885,
+            "p90_ratio": 0.9860373813350775
+          },
+          "az_kurt": {
+            "median_change": -0.03324714076552315,
+            "median_unfilt": 1.8409571723646043,
+            "median_filt": 1.6716045116024834
+          },
+          "az_domfreq": {
+            "fraction_changed": 0.0085,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.012890625
+          },
+          "gx_std": {
+            "median_ratio_filt_over_unfilt": 0.9227598533791574,
+            "p10_ratio": 0.8315250415388964,
+            "p90_ratio": 0.9783126385053704
+          },
+          "gx_domfreq": {
+            "fraction_changed": 0.012,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.098046875
+          }
+        }
+      },
+      "path_changed_windows": 116,
+      "cv": {
+        "scheme": "grouped stratified 5-fold over 150 recordings, 10 recordings/class per test fold, 10 repeats, seeds 42+7000+r; dt depth 3 trained on UNFILTERED train folds",
+        "mean_accuracy_unfiltered": 0.9333,
+        "mean_accuracy_filtered": 0.9374833333333333,
+        "paired_mean_diff_filtered_minus_unfiltered": 0.004183333333333294,
+        "se_over_10_repeat_means": 0.001052759454545901,
+        "se_over_50_folds_note": "folds and repeats reuse the same recordings, so both SEs understate true uncertainty",
+        "se_over_50_folds": 0.001760213151904068,
+        "min_repeat_diff": -0.0013333333333332975,
+        "max_repeat_diff": 0.00983333333333325,
+        "mean_flip_rate_test_folds": 0.013583333333333334,
+        "repeat_means_unfiltered": [
+          0.9345000000000001,
+          0.93,
+          0.9343333333333333,
+          0.9343333333333333,
+          0.9355,
+          0.9276666666666668,
+          0.9318333333333333,
+          0.932,
+          0.9363333333333334,
+          0.9365
+        ],
+        "repeat_means_filtered": [
+          0.9361666666666666,
+          0.9386666666666666,
+          0.9385,
+          0.9441666666666666,
+          0.9396666666666667,
+          0.9331666666666667,
+          0.933,
+          0.9361666666666666,
+          0.9401666666666667,
+          0.9351666666666667
+        ]
+      }
+    },
+    "C": {
+      "description": "2nd-order Butterworth LP, 21 Hz accel / 20 Hz gyro (CFG=4 stress case)",
+      "order": 2,
+      "fc_hz_by_axis": {
+        "ax": 21,
+        "ay": 21,
+        "az": 21,
+        "gx": 20,
+        "gy": 20,
+        "gz": 20
+      },
+      "coefficients_by_axis": {
+        "ax": {
+          "b": [
+            0.003976271707581659,
+            0.007952543415163318,
+            0.003976271707581659
+          ],
+          "a": [
+            1.0,
+            -1.8138707726054697,
+            0.8297758594357962
+          ]
+        },
+        "ay": {
+          "b": [
+            0.003976271707581659,
+            0.007952543415163318,
+            0.003976271707581659
+          ],
+          "a": [
+            1.0,
+            -1.8138707726054697,
+            0.8297758594357962
+          ]
+        },
+        "az": {
+          "b": [
+            0.003976271707581659,
+            0.007952543415163318,
+            0.003976271707581659
+          ],
+          "a": [
+            1.0,
+            -1.8138707726054697,
+            0.8297758594357962
+          ]
+        },
+        "gx": {
+          "b": [
+            0.0036216815149286417,
+            0.007243363029857283,
+            0.0036216815149286417
+          ],
+          "a": [
+            1.0,
+            -1.8226949251963083,
+            0.8371816512560226
+          ]
+        },
+        "gy": {
+          "b": [
+            0.0036216815149286417,
+            0.007243363029857283,
+            0.0036216815149286417
+          ],
+          "a": [
+            1.0,
+            -1.8226949251963083,
+            0.8371816512560226
+          ]
+        },
+        "gz": {
+          "b": [
+            0.0036216815149286417,
+            0.007243363029857283,
+            0.0036216815149286417
+          ],
+          "a": [
+            1.0,
+            -1.8226949251963083,
+            0.8371816512560226
+          ]
+        }
+      },
+      "group_delay_ms_at_low_freq": {
+        "ax": 10.728743594644298,
+        "ay": 10.728743594644298,
+        "az": 10.728743594644298,
+        "gx": 11.269514454361424,
+        "gy": 11.269514454361424,
+        "gz": 11.269514454361424
+      },
+      "gain_at_fc": {
+        "ax": 0.7071067811865472,
+        "ay": 0.7071067811865472,
+        "az": 0.7071067811865472,
+        "gx": 0.7071067811865482,
+        "gy": 0.7071067811865482,
+        "gz": 0.7071067811865482
+      },
+      "gain_at_hz": {
+        "freqs": [
+          5,
+          10,
+          20,
+          30,
+          40,
+          50
+        ],
+        "accel_axis": [
+          0.9984057615036547,
+          0.9753482753212315,
+          0.7407899547624818,
+          0.4389410138332719,
+          0.2638301606948611,
+          0.171434104315798
+        ],
+        "gyro_axis": [
+          0.99806214644475,
+          0.9702550731696501,
+          0.7071067811865482,
+          0.4050203026567182,
+          0.24073085396784105,
+          0.1558613883726125
+        ]
+      },
+      "deployed_model": {
+        "n_flips": 54,
+        "flip_pct": 0.8999999999999999,
+        "flip_matrix_from_row_to_col": {
+          "classes": [
+            "normal",
+            "abnormal",
+            "faulty"
+          ],
+          "counts": [
+            [
+              0,
+              0,
+              0
+            ],
+            [
+              46,
+              0,
+              1
+            ],
+            [
+              4,
+              3,
+              0
+            ]
+          ]
+        },
+        "flips_by_true_label": {
+          "normal": {
+            "windows": 2000,
+            "flips": 3,
+            "flip_rate": 0.0015
+          },
+          "abnormal": {
+            "windows": 2000,
+            "flips": 39,
+            "flip_rate": 0.0195
+          },
+          "faulty": {
+            "windows": 2000,
+            "flips": 12,
+            "flip_rate": 0.006
+          }
+        },
+        "in_sample_accuracy_unfiltered": 0.9523333333333334,
+        "in_sample_accuracy_filtered": 0.9453333333333334,
+        "flip_cause_first_changed_branch": {
+          "node2: gx_std <= 59.1288": 27,
+          "node0: az_std <= 354.255": 24,
+          "node6: az_kurt <= -1.19163": 3
+        }
+      },
+      "feature_shifts_by_class": {
+        "normal": {
+          "az_std": {
+            "median_ratio_filt_over_unfilt": 0.9756606448474453,
+            "p10_ratio": 0.9482156915138663,
+            "p90_ratio": 0.9914536885681596
+          },
+          "az_kurt": {
+            "median_change": -0.05068753874089482,
+            "median_unfilt": -1.3791495886132958,
+            "median_filt": -1.4332032238340118
+          },
+          "az_domfreq": {
+            "fraction_changed": 0.0075,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.005859375
+          },
+          "gx_std": {
+            "median_ratio_filt_over_unfilt": 0.9214243863121436,
+            "p10_ratio": 0.8127453936630831,
+            "p90_ratio": 0.9680346016497736
+          },
+          "gx_domfreq": {
+            "fraction_changed": 0.0105,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.1
+          }
+        },
+        "abnormal": {
+          "az_std": {
+            "median_ratio_filt_over_unfilt": 0.9860396150388299,
+            "p10_ratio": 0.952864265663022,
+            "p90_ratio": 0.9995174980314867
+          },
+          "az_kurt": {
+            "median_change": -0.01135647411344809,
+            "median_unfilt": -1.463052210624284,
+            "median_filt": -1.4783960419863817
+          },
+          "az_domfreq": {
+            "fraction_changed": 0.0095,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.007421875
+          },
+          "gx_std": {
+            "median_ratio_filt_over_unfilt": 0.9628990457525632,
+            "p10_ratio": 0.9239053656613923,
+            "p90_ratio": 0.9957557602902395
+          },
+          "gx_domfreq": {
+            "fraction_changed": 0.01,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.0078125
+          }
+        },
+        "faulty": {
+          "az_std": {
+            "median_ratio_filt_over_unfilt": 0.890215629601926,
+            "p10_ratio": 0.4875968662262314,
+            "p90_ratio": 0.9875493185170889
+          },
+          "az_kurt": {
+            "median_change": -0.06159558072966198,
+            "median_unfilt": 1.8409571723646043,
+            "median_filt": 1.6725911051190305
+          },
+          "az_domfreq": {
+            "fraction_changed": 0.026,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.0359375
+          },
+          "gx_std": {
+            "median_ratio_filt_over_unfilt": 0.8172647782496032,
+            "p10_ratio": 0.47681324320652696,
+            "p90_ratio": 0.9719026621661047
+          },
+          "gx_domfreq": {
+            "fraction_changed": 0.046,
+            "median_change_hz": 0.0,
+            "mean_abs_change_hz": 0.32109375
+          }
+        }
+      },
+      "path_changed_windows": 259,
+      "cv": {
+        "scheme": "grouped stratified 5-fold over 150 recordings, 10 recordings/class per test fold, 10 repeats, seeds 42+7000+r; dt depth 3 trained on UNFILTERED train folds",
+        "mean_accuracy_unfiltered": 0.9333,
+        "mean_accuracy_filtered": 0.9356,
+        "paired_mean_diff_filtered_minus_unfiltered": 0.0022999999999999353,
+        "se_over_10_repeat_means": 0.0012474170845054322,
+        "se_over_50_folds_note": "folds and repeats reuse the same recordings, so both SEs understate true uncertainty",
+        "se_over_50_folds": 0.002157957378020121,
+        "min_repeat_diff": -0.0023333333333332984,
+        "max_repeat_diff": 0.008000000000000007,
+        "mean_flip_rate_test_folds": 0.017966666666666666,
+        "repeat_means_unfiltered": [
+          0.9345000000000001,
+          0.93,
+          0.9343333333333333,
+          0.9343333333333333,
+          0.9355,
+          0.9276666666666668,
+          0.9318333333333333,
+          0.932,
+          0.9363333333333334,
+          0.9365
+        ],
+        "repeat_means_filtered": [
+          0.9328333333333333,
+          0.9368333333333332,
+          0.9359999999999999,
+          0.9423333333333334,
+          0.9385,
+          0.9349999999999999,
+          0.9301666666666666,
+          0.9343333333333333,
+          0.9358333333333333,
+          0.9341666666666667
+        ]
+      }
+    }
+  }
+}
