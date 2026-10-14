@@ -1,0 +1,180 @@
+{
+  "rule": "symmetric 2-of-3 over last 3 raw classes; state starts normal; no majority keeps state",
+  "protocol": "OOF predictions, grouped stratified 5-fold over 150 recordings (10 rec/class per test fold), 10 repeats seeds 42+8000+r, DecisionTreeClassifier(max_depth=3, random_state=42), 18 features; values averaged over repeats (hist = mean count per repeat; nan = no detections)",
+  "onset_sequence": "last 10 windows of normal recording j%50 + 40 fault windows + first 10 of normal recording (j+25)%50, j over 100 fault recordings; delay in windows from onset (0 = first fault window); recovery = windows after fault end until state normal (0 = first tail window); misses excluded from mean/median; recs_with_alarm is a count of 50 normal recordings; spurious_changes_per_sequence = state changes from an initial normal state minus the 2 required (onset, recovery); extra delay = per-sequence smoothed minus raw delay to true class, counts per 100 sequences; the 2 transitions per 60-window sequence are far denser than in deployment, so the excl-first-window accuracy isolates the 1-window lag",
+  "repeats": 10,
+  "results": {
+    "a_normal": {
+      "episodes": {
+        "raw": 0.5,
+        "smoothed": 0.174
+      },
+      "recs_with_alarm": {
+        "raw": 5.1,
+        "smoothed": 3.8
+      },
+      "frac_non_normal": {
+        "raw": 0.041600000000000005,
+        "smoothed": 0.04
+      },
+      "state_changes": {
+        "raw": 0.96,
+        "smoothed": 0.30599999999999994
+      }
+    },
+    "b_onset": {
+      "delay_to_true_class": {
+        "raw": {
+          "mean": 0.7777777777777779,
+          "median": 0.0,
+          "misses": 1.0,
+          "hist": {
+            "0": 85.7,
+            "1": 4.6,
+            "2": 2.5,
+            "3": 0.7,
+            "4": 0.4,
+            "5-9": 2.9,
+            "10-19": 0.4,
+            "20-39": 1.8,
+            "miss": 1.0
+          }
+        },
+        "smoothed": {
+          "mean": 1.886631622345908,
+          "median": 1.0,
+          "misses": 1.1,
+          "hist": {
+            "0": 3.4,
+            "1": 78.3,
+            "2": 6.1,
+            "3": 2.9,
+            "4": 1.9,
+            "5-9": 2.3,
+            "10-19": 2.2,
+            "20-39": 1.8,
+            "miss": 1.1
+          }
+        }
+      },
+      "delay_to_non_normal": {
+        "raw": {
+          "mean": 0.6919191919191918,
+          "median": 0.0,
+          "misses": 1.0,
+          "hist": {
+            "0": 88.0,
+            "1": 5.0,
+            "2": 0.7,
+            "3": 0.0,
+            "4": 0.4,
+            "5-9": 3.0,
+            "10-19": 0.2,
+            "20-39": 1.7,
+            "miss": 1.0
+          }
+        },
+        "smoothed": {
+          "mean": 1.777313955885384,
+          "median": 1.0,
+          "misses": 1.1,
+          "hist": {
+            "0": 5.5,
+            "1": 77.4,
+            "2": 6.9,
+            "3": 1.8,
+            "4": 1.9,
+            "5-9": 1.6,
+            "10-19": 2.0,
+            "20-39": 1.8,
+            "miss": 1.1
+          }
+        }
+      },
+      "recovery_delay": {
+        "raw": {
+          "mean": 0.012414965986394556,
+          "median": 0.0,
+          "misses": 3.0,
+          "hist": {
+            "0": 95.8,
+            "1": 1.2,
+            "2": 0.0,
+            "3": 0.0,
+            "4": 0.0,
+            "5-9": 0.0,
+            "10-19": 0.0,
+            "20-39": 0.0,
+            "miss": 3.0
+          }
+        },
+        "smoothed": {
+          "mean": 0.9538052721088436,
+          "median": 1.0,
+          "misses": 3.0,
+          "hist": {
+            "0": 7.3,
+            "1": 88.5,
+            "2": 0.8,
+            "3": 0.0,
+            "4": 0.0,
+            "5-9": 0.4,
+            "10-19": 0.0,
+            "20-39": 0.0,
+            "miss": 3.0
+          }
+        }
+      }
+    },
+    "b_onset_counts": {
+      "spurious_changes_per_sequence": {
+        "raw": 3.418,
+        "smoothed": 1.011
+      },
+      "lead_in_false_alarm_episodes": {
+        "raw": 0.16599999999999998,
+        "smoothed": 0.062
+      }
+    },
+    "b_extra_delay_smoothed_minus_raw": {
+      "neg": 0.0,
+      "0": 3.4,
+      "1": 87.2,
+      "2": 5.8,
+      "3": 0.0,
+      "4+": 2.5,
+      "missed_only_smoothed": 0.1,
+      "missed_only_raw": 0.0,
+      "missed_both": 1.0
+    },
+    "c_accuracy": {
+      "all_sequences_a_plus_b": {
+        "raw": 0.9382125,
+        "smoothed": 0.9269125
+      },
+      "all_sequences_excl_first_window_after_each_transition": {
+        "raw": 0.9389999999999998,
+        "smoothed": 0.9493076923076924
+      },
+      "fault_segments_only": {
+        "raw": 0.918425,
+        "smoothed": 0.9152000000000001
+      },
+      "normal_recordings_only": {
+        "raw": 0.9583999999999999,
+        "smoothed": 0.96
+      }
+    }
+  },
+  "recordings": {
+    "consistently_misclassified_mean_error_ge_0.5": 4,
+    "partially_misclassified_0_lt_mean_error_lt_0.5": 53,
+    "never_misclassified": 93,
+    "consistently_misclassified_by_class": {
+      "0": 2,
+      "1": 2,
+      "2": 0
+    },
+    "frac_of_error_windows_isolated_single": 0.3246780315146812
+  }
+}

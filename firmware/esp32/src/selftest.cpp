@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "features.h"
+#include "smooth.h"
 #include "selftest_data.h"
 
 void setup() {
@@ -41,6 +42,42 @@ void setup() {
         Serial.printf("max diff %s abs=%.6g rel=%.3g\r\n", used_features[j], max_abs[j], max_rel[j]);
     Serial.printf("feature us avg=%u max=%u, tree us avg=%u max=%u\r\n",
                   (unsigned)(feat_sum / ST_N), (unsigned)feat_max, (unsigned)(tree_sum / ST_N), (unsigned)tree_max);
+
+    Serial.printf("seq windows=%d segments=%d\r\n", SQ_N, SQ_NSEG);
+    int8_t hist[3] = {-1, -1, -1};
+    int state = 0, prev_raw = 0, prev_state = 0;
+    int raw_bad = 0, state_bad = 0, raw_ch = 0, state_ch = 0;
+    int raw_got[SQ_N], state_got[SQ_N];
+    for (int w = 0; w < SQ_N; w++) {
+        float f[5];
+        features(sq_az[w], sq_gx[w], f);
+        int c = classify(f);
+        state = smooth_update(hist, c, state);
+        raw_got[w] = c;
+        state_got[w] = state;
+        if (c != sq_raw[w]) raw_bad++;
+        if (state != sq_state[w]) state_bad++;
+        if (w > 0 && c != prev_raw) raw_ch++;
+        if (w > 0 && state != prev_state) state_ch++;
+        if (w == 0 || c != prev_raw || state != prev_state)
+            Serial.printf("seq w=%d label=%d raw=%d state=%d want_raw=%d want_state=%d\r\n", w, sq_label[w], c, state, sq_raw[w], sq_state[w]);
+        prev_raw = c;
+        prev_state = state;
+    }
+    Serial.printf("seq raw match %d/%d, state match %d/%d\r\n", SQ_N - raw_bad, SQ_N, SQ_N - state_bad, SQ_N);
+    Serial.printf("seq raw class changes %d, state changes %d\r\n", raw_ch, state_ch);
+    for (int s = 0; s < SQ_NSEG; s++) {
+        int b = sq_seg_start[s];
+        int e = s + 1 < SQ_NSEG ? sq_seg_start[s + 1] : SQ_N;
+        int L = sq_label[b];
+        int dr = -1, ds = -1;
+        for (int w = b; w < e; w++) {
+            if (dr < 0 && raw_got[w] == L) dr = w - b;
+            if (ds < 0 && state_got[w] == L) ds = w - b;
+        }
+        Serial.printf("seq segment %d label=%d start=%d delay raw=%d state=%d\r\n", s, L, b, dr, ds);
+    }
+    Serial.printf("seq done %s\r\n", raw_bad == 0 && state_bad == 0 ? "PASS" : "FAIL");
 }
 
 void loop() {
