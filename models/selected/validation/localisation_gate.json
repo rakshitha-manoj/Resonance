@@ -1,0 +1,1819 @@
+{
+ "meta": {
+  "task": "T1 localisation gate",
+  "runtime_s": 745.2,
+  "excitation_scale_reasoning": {
+   "S0_g2_per_Hz": 2.550152793539186e-07,
+   "base_rms_mg_in_2_12Hz": 1.5969197830633781,
+   "reference_building": {
+    "f1_hz": 7.0,
+    "zeta": 0.02,
+    "target_top_floor_az_std_counts": 173.0
+   },
+   "level_multiplier": "log-uniform (0.6, 1.7) on base-acceleration amplitude, per building",
+   "text": "Base-equivalent ambient excitation (wind/traffic/occupant activity) of about 1.6 mg rms in 2-12 Hz (flat one-sided PSD S0=2.55e-07 g^2/Hz) is amplified by the first-mode resonance (quality factor 1/(2*zeta), 17-50) to an expected roof signal-only az_std of ~173 counts (~10.5 mg rms) for the reference building (f1=7 Hz, zeta=2%). 173 counts is the geometric middle of the required 100-300 count range and sits inside the generator's 'normal' class amplitude (150-500 counts peak = 106-354 rms). S0 is computed analytically from that amplitude target (reference_psd()) and was fixed before any detection result existed; per-building level multiplier 0.6-1.7 plus the f1 and zeta spread give the remaining variation. The same S0 is used for the broadband (2-45 Hz) variant, so broadband has more total power."
+  },
+  "gx_note": "gx is MODELLED, NOT PHYSICAL (as in generate.py): gain U(0.02,0.2) x floor lateral signal + noise sigma U(5,20) + constant offset N(0,15). Only gx_std and gx_domfreq reach the tree.",
+  "az_note": "az = lateral (sway) absolute floor acceleration; counts 16384/g; DLPF 2nd-order Butterworth 44 Hz at 1 kHz (CFG=3 emulation, copied from dlpf_check.py) then decimated to 100 Hz; sensor noise per node sigma U(20,60) added after decimation.",
+  "method_fixed_in_advance": {
+   "windows_per_assessment": 30,
+   "noise_estimate": "separate 30-window noise-only commissioning recording per building: noise_var_k = mean over windows of az_std^2",
+   "s_k": "sqrt(max(mean(az_std_k^2) - noise_var_k, 1.0))",
+   "ratio": "r_k = s_k/s_(k-1), k=2..10; r_1 = s_1/median(s_1..s_10) (no sensor below storey 1)",
+   "baseline": "r0 from a healthy recording of the same building, different excitation seed (exc_id 0 vs 1)",
+   "DI": "DI_k = log(r_k/r0_k); predicted storey = argmax|DI_k|; alarm if max|DI_k| > threshold",
+   "threshold": "95.0th percentile of max|DI| over 500 healthy calibration buildings (seeds disjoint from scoring); broadband variant recalibrated on 300 broadband healthy buildings",
+   "scoring": "100 fresh buildings per storey per damage level (different building seeds per cell); false alarm on 1500 fresh healthy assessments",
+   "top1_definition": "unconditional (all damaged buildings regardless of alarm); conditional-on-alarm also reported",
+   "pass_criterion": "30% loss, default excitation: top-1 >= 0.70 AND within-one >= 0.90 AND false alarm <= 0.05"
+  },
+  "seed_blocks": {
+   "calib": 100000,
+   "score30": 200000,
+   "score15": 300000,
+   "fa": 400000,
+   "b_calib": 500000,
+   "b_score30": 600000,
+   "b_score15": 700000,
+   "b_fa": 800000,
+   "partB": 900000,
+   "noise": 950000,
+   "expl1": 1000000,
+   "expl2": 1100000
+  },
+  "burn_in_note": "6.4 s of 1 kHz signal discarded. The structural response is computed as the stationary (periodic) frequency-domain solution so it has no structural transient; the burn-in absorbs the DLPF start-up transient.",
+  "excitation_bands_hz": {
+   "default": [
+    2.0,
+    12.0
+   ],
+   "broadband": [
+    2.0,
+    45.0
+   ]
+  },
+  "damping": "single modal damping ratio per building (U 1-3%) applied to all modes",
+  "impact_assumption": "impact f0 per recording drawn from generator ranges 4-12 Hz or 14-30 Hz (50/50); spikes added after decimation to az and gain*spikes to gx of one floor; rate U(0.8,2.0)/s",
+  "strong_excitation_definition": "3x/5x = base-acceleration amplitude multiplier applied to every building"
+ },
+ "sanity_checks_building_sim": {
+  "f1_eig_max_rel_err": 6.18148572859113e-14,
+  "f1_spectral_peaks_target_vs_measured": [
+   [
+    9.711,
+    9.717
+   ],
+   [
+    8.048,
+    7.983
+   ],
+   [
+    8.122,
+    8.13
+   ],
+   [
+    6.847,
+    6.934
+   ],
+   [
+    8.073,
+    8.008
+   ],
+   [
+    8.342,
+    8.301
+   ]
+  ],
+  "damage_lowers_f1": true,
+  "deterministic_and_batch_independent": true,
+  "dlpf_gain_measured": {
+   "2.0": 0.9999979194086784,
+   "5.0": 0.9999187140956208,
+   "10.0": 0.9987005195294707,
+   "44.0": 0.707106781186548
+  },
+  "top_floor_az_std_signal_only": {
+   "p10": 111.24913771059151,
+   "median": 180.63186634389137,
+   "p90": 284.1182407301616,
+   "frac_in_100_300": 0.86,
+   "sim_over_analytic_mean": 0.9974604459874317
+  }
+ },
+ "tree_check": {
+  "dataset_windows_checked": 6000,
+  "feature_code_vs_csv_windows": 858,
+  "export_vs_joblib_vs_model_h_identical": true,
+  "simulated_windows_checked": 1000,
+  "dataset_accuracy_vs_labels_in_sample": 0.9523333333333334,
+  "smoothing_python_vs_scalar_port": "identical on 200 random sequences"
+ },
+ "part_A": {
+  "default": {
+   "excitation": "default",
+   "threshold_p95_max_abs_DI": 0.156602731361401,
+   "n_calibration_buildings": 500,
+   "calibration_alarm_rate_at_threshold": 0.05,
+   "n_healthy_assessments": 1500,
+   "false_alarm_rate": 0.07466666666666667,
+   "healthy_max_abs_DI_percentiles": {
+    "50": 0.05630303046144999,
+    "90": 0.13815350363878234,
+    "95": 0.17761897570005333,
+    "99": 0.26236195160047066
+   },
+   "levels": {
+    "30%": {
+     "n": 1000,
+     "top1": 0.452,
+     "within1": 0.481,
+     "detect": 0.168,
+     "top1_given_alarm": 0.5773809523809523,
+     "per_storey": {
+      "1": {
+       "n": 100,
+       "top1": 0.9,
+       "within1": 0.96,
+       "detect": 0.49
+      },
+      "2": {
+       "n": 100,
+       "top1": 0.91,
+       "within1": 1.0,
+       "detect": 0.44
+      },
+      "3": {
+       "n": 100,
+       "top1": 0.72,
+       "within1": 0.82,
+       "detect": 0.12
+      },
+      "4": {
+       "n": 100,
+       "top1": 0.56,
+       "within1": 0.58,
+       "detect": 0.1
+      },
+      "5": {
+       "n": 100,
+       "top1": 0.41,
+       "within1": 0.41,
+       "detect": 0.12
+      },
+      "6": {
+       "n": 100,
+       "top1": 0.36,
+       "within1": 0.37,
+       "detect": 0.14
+      },
+      "7": {
+       "n": 100,
+       "top1": 0.38,
+       "within1": 0.38,
+       "detect": 0.09
+      },
+      "8": {
+       "n": 100,
+       "top1": 0.16,
+       "within1": 0.16,
+       "detect": 0.12
+      },
+      "9": {
+       "n": 100,
+       "top1": 0.09,
+       "within1": 0.09,
+       "detect": 0.04
+      },
+      "10": {
+       "n": 100,
+       "top1": 0.03,
+       "within1": 0.04,
+       "detect": 0.02
+      }
+     },
+     "predicted_storey_histogram": [
+      414,
+      243,
+      120,
+      69,
+      47,
+      40,
+      38,
+      16,
+      10,
+      3
+     ]
+    },
+    "15%": {
+     "n": 1000,
+     "top1": 0.248,
+     "within1": 0.32,
+     "detect": 0.072,
+     "top1_given_alarm": 0.18055555555555555,
+     "per_storey": {
+      "1": {
+       "n": 100,
+       "top1": 0.7,
+       "within1": 0.83,
+       "detect": 0.1
+      },
+      "2": {
+       "n": 100,
+       "top1": 0.63,
+       "within1": 0.95,
+       "detect": 0.07
+      },
+      "3": {
+       "n": 100,
+       "top1": 0.44,
+       "within1": 0.57,
+       "detect": 0.1
+      },
+      "4": {
+       "n": 100,
+       "top1": 0.33,
+       "within1": 0.38,
+       "detect": 0.06
+      },
+      "5": {
+       "n": 100,
+       "top1": 0.16,
+       "within1": 0.17,
+       "detect": 0.06
+      },
+      "6": {
+       "n": 100,
+       "top1": 0.13,
+       "within1": 0.16,
+       "detect": 0.04
+      },
+      "7": {
+       "n": 100,
+       "top1": 0.07,
+       "within1": 0.1,
+       "detect": 0.06
+      },
+      "8": {
+       "n": 100,
+       "top1": 0.0,
+       "within1": 0.0,
+       "detect": 0.07
+      },
+      "9": {
+       "n": 100,
+       "top1": 0.02,
+       "within1": 0.04,
+       "detect": 0.04
+      },
+      "10": {
+       "n": 100,
+       "top1": 0.0,
+       "within1": 0.0,
+       "detect": 0.12
+      }
+     },
+     "predicted_storey_histogram": [
+      475,
+      269,
+      126,
+      60,
+      30,
+      24,
+      9,
+      3,
+      2,
+      2
+     ]
+    }
+   },
+   "f1_shift": {
+    "30%": {
+     "mean_shift_hz_by_storey": {
+      "1": -0.2735058140246523,
+      "2": -0.2614700220403577,
+      "3": -0.23519421785338998,
+      "4": -0.2068033492324847,
+      "5": -0.16935801885209187,
+      "6": -0.12074455006263488,
+      "7": -0.08997677516841308,
+      "8": -0.051888196902285945,
+      "9": -0.02574526834921513,
+      "10": -0.006469393500166199
+     },
+     "mean_relative_shift_pct_by_storey": {
+      "1": -3.8805720258764187,
+      "2": -3.6975104868881536,
+      "3": -3.3779607442478676,
+      "4": -2.9432164431969525,
+      "5": -2.422887643647873,
+      "6": -1.8553626227163458,
+      "7": -1.2872316403105184,
+      "8": -0.7705659811488732,
+      "9": -0.35731150968453845,
+      "10": -0.09128289421427128
+     },
+     "mean_abs_shift_hz_overall": 0.14411556059856917,
+     "max_abs_shift_hz": 0.38597898744889036,
+     "bin_hz": 0.78125,
+     "frac_buildings_abs_shift_over_one_bin": 0.0,
+     "frac_buildings_abs_shift_over_half_bin": 0.0,
+     "mean_abs_shift_over_bin": 0.18446791756616854
+    },
+    "15%": {
+     "mean_shift_hz_by_storey": {
+      "1": -0.11071486395198347,
+      "2": -0.11506641451280057,
+      "3": -0.09954452689447951,
+      "4": -0.08679724238986866,
+      "5": -0.07261694496622954,
+      "6": -0.053775864867772194,
+      "7": -0.03712485064776252,
+      "8": -0.021245346042423074,
+      "9": -0.010236779275848474,
+      "10": -0.0026238783492271624
+     },
+     "mean_relative_shift_pct_by_storey": {
+      "1": -1.6405990864881492,
+      "2": -1.5658463731078363,
+      "3": -1.4287161333257572,
+      "4": -1.240066984650988,
+      "5": -1.0149590051558188,
+      "6": -0.771957323819202,
+      "7": -0.5320101613121518,
+      "8": -0.31678138488778335,
+      "9": -0.14647647577014036,
+      "10": -0.037437800508471175
+     },
+     "mean_abs_shift_hz_overall": 0.06097467118983952,
+     "max_abs_shift_hz": 0.16401519681154397,
+     "bin_hz": 0.78125,
+     "frac_buildings_abs_shift_over_one_bin": 0.0,
+     "frac_buildings_abs_shift_over_half_bin": 0.0,
+     "mean_abs_shift_over_bin": 0.07804757912299459
+    }
+   }
+  },
+  "broadband_sensitivity": {
+   "excitation": "broadband",
+   "threshold_p95_max_abs_DI": 0.15767269838817857,
+   "n_calibration_buildings": 300,
+   "calibration_alarm_rate_at_threshold": 0.05,
+   "n_healthy_assessments": 600,
+   "false_alarm_rate": 0.058333333333333334,
+   "healthy_max_abs_DI_percentiles": {
+    "50": 0.05495714556954324,
+    "90": 0.12946195439566266,
+    "95": 0.16855662992782058,
+    "99": 0.2276518139804317
+   },
+   "levels": {
+    "30%": {
+     "n": 1000,
+     "top1": 0.223,
+     "within1": 0.362,
+     "detect": 0.087,
+     "top1_given_alarm": 0.3563218390804598,
+     "per_storey": {
+      "1": {
+       "n": 100,
+       "top1": 0.7,
+       "within1": 0.93,
+       "detect": 0.29
+      },
+      "2": {
+       "n": 100,
+       "top1": 0.47,
+       "within1": 0.96,
+       "detect": 0.21
+      },
+      "3": {
+       "n": 100,
+       "top1": 0.15,
+       "within1": 0.35,
+       "detect": 0.05
+      },
+      "4": {
+       "n": 100,
+       "top1": 0.08,
+       "within1": 0.26,
+       "detect": 0.03
+      },
+      "5": {
+       "n": 100,
+       "top1": 0.08,
+       "within1": 0.18,
+       "detect": 0.05
+      },
+      "6": {
+       "n": 100,
+       "top1": 0.12,
+       "within1": 0.15,
+       "detect": 0.05
+      },
+      "7": {
+       "n": 100,
+       "top1": 0.04,
+       "within1": 0.16,
+       "detect": 0.08
+      },
+      "8": {
+       "n": 100,
+       "top1": 0.06,
+       "within1": 0.09,
+       "detect": 0.05
+      },
+      "9": {
+       "n": 100,
+       "top1": 0.15,
+       "within1": 0.16,
+       "detect": 0.03
+      },
+      "10": {
+       "n": 100,
+       "top1": 0.38,
+       "within1": 0.38,
+       "detect": 0.03
+      }
+     },
+     "predicted_storey_histogram": [
+      614,
+      129,
+      62,
+      31,
+      27,
+      47,
+      18,
+      13,
+      17,
+      42
+     ]
+    },
+    "15%": {
+     "n": 1000,
+     "top1": 0.133,
+     "within1": 0.267,
+     "detect": 0.057,
+     "top1_given_alarm": 0.17543859649122806,
+     "per_storey": {
+      "1": {
+       "n": 100,
+       "top1": 0.71,
+       "within1": 0.89,
+       "detect": 0.1
+      },
+      "2": {
+       "n": 100,
+       "top1": 0.32,
+       "within1": 0.95,
+       "detect": 0.09
+      },
+      "3": {
+       "n": 100,
+       "top1": 0.06,
+       "within1": 0.23,
+       "detect": 0.07
+      },
+      "4": {
+       "n": 100,
+       "top1": 0.04,
+       "within1": 0.13,
+       "detect": 0.07
+      },
+      "5": {
+       "n": 100,
+       "top1": 0.04,
+       "within1": 0.13,
+       "detect": 0.04
+      },
+      "6": {
+       "n": 100,
+       "top1": 0.03,
+       "within1": 0.07,
+       "detect": 0.06
+      },
+      "7": {
+       "n": 100,
+       "top1": 0.01,
+       "within1": 0.1,
+       "detect": 0.05
+      },
+      "8": {
+       "n": 100,
+       "top1": 0.01,
+       "within1": 0.01,
+       "detect": 0.02
+      },
+      "9": {
+       "n": 100,
+       "top1": 0.02,
+       "within1": 0.06,
+       "detect": 0.05
+      },
+      "10": {
+       "n": 100,
+       "top1": 0.09,
+       "within1": 0.1,
+       "detect": 0.02
+      }
+     },
+     "predicted_storey_histogram": [
+      686,
+      124,
+      39,
+      24,
+      27,
+      58,
+      8,
+      16,
+      6,
+      12
+     ]
+    }
+   },
+   "f1_shift": {
+    "30%": {
+     "mean_shift_hz_by_storey": {
+      "1": -0.24843742183568035,
+      "2": -0.25090497792809674,
+      "3": -0.22397562285316688,
+      "4": -0.2025904343722099,
+      "5": -0.16985984740409735,
+      "6": -0.13107978827421352,
+      "7": -0.09059386823226388,
+      "8": -0.05468348601386929,
+      "9": -0.024578567425960575,
+      "10": -0.006450853248863329
+     },
+     "mean_relative_shift_pct_by_storey": {
+      "1": -3.880572025876611,
+      "2": -3.697510486888049,
+      "3": -3.377960744247928,
+      "4": -2.9432164431970667,
+      "5": -2.422887643647905,
+      "6": -1.855362622716501,
+      "7": -1.2872316403106085,
+      "8": -0.7705659811491711,
+      "9": -0.35731150968473696,
+      "10": -0.09128289421416888
+     },
+     "mean_abs_shift_hz_overall": 0.14031548675884217,
+     "max_abs_shift_hz": 0.3853231716126526,
+     "bin_hz": 0.78125,
+     "frac_buildings_abs_shift_over_one_bin": 0.0,
+     "frac_buildings_abs_shift_over_half_bin": 0.0,
+     "mean_abs_shift_over_bin": 0.17960382305131797
+    },
+    "15%": {
+     "mean_shift_hz_by_storey": {
+      "1": -0.11599015139666774,
+      "2": -0.10997211023319904,
+      "3": -0.10170828301651269,
+      "4": -0.08348219757888643,
+      "5": -0.07034346249010227,
+      "6": -0.05455011705142395,
+      "7": -0.03486864680633086,
+      "8": -0.022258717188877987,
+      "9": -0.010574993733969666,
+      "10": -0.002580272167343738
+     },
+     "mean_relative_shift_pct_by_storey": {
+      "1": -1.640599086487714,
+      "2": -1.565846373107526,
+      "3": -1.4287161333256821,
+      "4": -1.240066984651174,
+      "5": -1.0149590051557293,
+      "6": -0.7719573238189608,
+      "7": -0.5320101613120559,
+      "8": -0.31678138488713165,
+      "9": -0.14647647577012182,
+      "10": -0.03743780050856689
+     },
+     "mean_abs_shift_hz_overall": 0.060632895166331434,
+     "max_abs_shift_hz": 0.16318155956350822,
+     "bin_hz": 0.78125,
+     "frac_buildings_abs_shift_over_one_bin": 0.0,
+     "frac_buildings_abs_shift_over_half_bin": 0.0,
+     "mean_abs_shift_over_bin": 0.07761010581290423
+    }
+   }
+  },
+  "criterion_results": {
+   "top1_ge_0.70": false,
+   "within1_ge_0.90": false,
+   "false_alarm_le_0.05": false
+  },
+  "criterion_values": {
+   "top1_30": 0.452,
+   "within1_30": 0.481,
+   "false_alarm": 0.07466666666666667
+  }
+ },
+ "part_B": {
+  "scenarios": {
+   "healthy": {
+    "raw": {
+     "floor1": {
+      "normal": 0.9583333333333334,
+      "abnormal": 0.0,
+      "faulty": 0.041666666666666664
+     },
+     "floor2": {
+      "normal": 0.9898333333333333,
+      "abnormal": 0.0,
+      "faulty": 0.010166666666666666
+     },
+     "floor3": {
+      "normal": 0.9963333333333333,
+      "abnormal": 0.00016666666666666666,
+      "faulty": 0.0035
+     },
+     "floor4": {
+      "normal": 0.9966666666666667,
+      "abnormal": 0.0015,
+      "faulty": 0.0018333333333333333
+     },
+     "floor5": {
+      "normal": 0.9878333333333333,
+      "abnormal": 0.008,
+      "faulty": 0.004166666666666667
+     },
+     "floor6": {
+      "normal": 0.9786666666666667,
+      "abnormal": 0.012333333333333333,
+      "faulty": 0.009
+     },
+     "floor7": {
+      "normal": 0.9653333333333334,
+      "abnormal": 0.020166666666666666,
+      "faulty": 0.0145
+     },
+     "floor8": {
+      "normal": 0.9483333333333334,
+      "abnormal": 0.028,
+      "faulty": 0.023666666666666666
+     },
+     "floor9": {
+      "normal": 0.9416666666666667,
+      "abnormal": 0.030166666666666668,
+      "faulty": 0.028166666666666666
+     },
+     "floor10": {
+      "normal": 0.9348333333333333,
+      "abnormal": 0.033666666666666664,
+      "faulty": 0.0315
+     }
+    },
+    "smoothed_2of3": {
+     "floor1": {
+      "normal": 0.9813333333333333,
+      "abnormal": 0.0,
+      "faulty": 0.018666666666666668
+     },
+     "floor2": {
+      "normal": 0.9971666666666666,
+      "abnormal": 0.0,
+      "faulty": 0.0028333333333333335
+     },
+     "floor3": {
+      "normal": 0.9993333333333333,
+      "abnormal": 0.0,
+      "faulty": 0.0006666666666666666
+     },
+     "floor4": {
+      "normal": 0.9991666666666666,
+      "abnormal": 0.00016666666666666666,
+      "faulty": 0.0006666666666666666
+     },
+     "floor5": {
+      "normal": 0.9956666666666667,
+      "abnormal": 0.003,
+      "faulty": 0.0013333333333333333
+     },
+     "floor6": {
+      "normal": 0.993,
+      "abnormal": 0.0035,
+      "faulty": 0.0035
+     },
+     "floor7": {
+      "normal": 0.984,
+      "abnormal": 0.011333333333333334,
+      "faulty": 0.004666666666666667
+     },
+     "floor8": {
+      "normal": 0.9738333333333333,
+      "abnormal": 0.014,
+      "faulty": 0.012166666666666666
+     },
+     "floor9": {
+      "normal": 0.9701666666666666,
+      "abnormal": 0.016,
+      "faulty": 0.013833333333333333
+     },
+     "floor10": {
+      "normal": 0.9663333333333334,
+      "abnormal": 0.019166666666666665,
+      "faulty": 0.0145
+     }
+    },
+    "n_windows_per_floor": 6000,
+    "median_az_std_by_floor": [
+     56.0449158512439,
+     66.76588255828757,
+     83.83583693645262,
+     99.69858748778847,
+     114.96750852683434,
+     129.94635806751614,
+     142.72000950783828,
+     152.26467088143562,
+     158.62424630075924,
+     163.0589849837138
+    ]
+   },
+   "damage_30pct": {
+    "raw": {
+     "floor1": {
+      "normal": 0.9563333333333334,
+      "abnormal": 0.0,
+      "faulty": 0.043666666666666666
+     },
+     "floor2": {
+      "normal": 0.9911666666666666,
+      "abnormal": 0.0,
+      "faulty": 0.008833333333333334
+     },
+     "floor3": {
+      "normal": 0.996,
+      "abnormal": 0.00016666666666666666,
+      "faulty": 0.003833333333333333
+     },
+     "floor4": {
+      "normal": 0.9965,
+      "abnormal": 0.0015,
+      "faulty": 0.002
+     },
+     "floor5": {
+      "normal": 0.9885,
+      "abnormal": 0.008,
+      "faulty": 0.0035
+     },
+     "floor6": {
+      "normal": 0.9793333333333333,
+      "abnormal": 0.013166666666666667,
+      "faulty": 0.0075
+     },
+     "floor7": {
+      "normal": 0.9671666666666666,
+      "abnormal": 0.02,
+      "faulty": 0.012833333333333334
+     },
+     "floor8": {
+      "normal": 0.9515,
+      "abnormal": 0.027333333333333334,
+      "faulty": 0.021166666666666667
+     },
+     "floor9": {
+      "normal": 0.9453333333333334,
+      "abnormal": 0.027666666666666666,
+      "faulty": 0.027
+     },
+     "floor10": {
+      "normal": 0.9391666666666667,
+      "abnormal": 0.03133333333333333,
+      "faulty": 0.0295
+     }
+    },
+    "smoothed_2of3": {
+     "floor1": {
+      "normal": 0.9815,
+      "abnormal": 0.0,
+      "faulty": 0.0185
+     },
+     "floor2": {
+      "normal": 0.9976666666666667,
+      "abnormal": 0.0,
+      "faulty": 0.0023333333333333335
+     },
+     "floor3": {
+      "normal": 0.9991666666666666,
+      "abnormal": 0.0,
+      "faulty": 0.0008333333333333334
+     },
+     "floor4": {
+      "normal": 0.999,
+      "abnormal": 0.0003333333333333333,
+      "faulty": 0.0006666666666666666
+     },
+     "floor5": {
+      "normal": 0.9951666666666666,
+      "abnormal": 0.0045,
+      "faulty": 0.0003333333333333333
+     },
+     "floor6": {
+      "normal": 0.9921666666666666,
+      "abnormal": 0.006333333333333333,
+      "faulty": 0.0015
+     },
+     "floor7": {
+      "normal": 0.983,
+      "abnormal": 0.011833333333333333,
+      "faulty": 0.005166666666666667
+     },
+     "floor8": {
+      "normal": 0.9753333333333334,
+      "abnormal": 0.015333333333333332,
+      "faulty": 0.009333333333333334
+     },
+     "floor9": {
+      "normal": 0.9723333333333334,
+      "abnormal": 0.013833333333333333,
+      "faulty": 0.013833333333333333
+     },
+     "floor10": {
+      "normal": 0.9655,
+      "abnormal": 0.021333333333333333,
+      "faulty": 0.013166666666666667
+     }
+    },
+    "n_windows_per_floor": 6000,
+    "median_az_std_by_floor": [
+     56.12569563466903,
+     66.67067184503927,
+     82.86589592654872,
+     98.93776067046034,
+     113.58260290803929,
+     127.79058861952021,
+     140.3219248992682,
+     149.5841484556347,
+     156.6009888780809,
+     160.6805800325613
+    ]
+   },
+   "strong_2x": {
+    "raw": {
+     "floor1": {
+      "normal": 0.998,
+      "abnormal": 0.0,
+      "faulty": 0.002
+     },
+     "floor2": {
+      "normal": 0.9951666666666666,
+      "abnormal": 0.0036666666666666666,
+      "faulty": 0.0011666666666666668
+     },
+     "floor3": {
+      "normal": 0.9588333333333333,
+      "abnormal": 0.019833333333333335,
+      "faulty": 0.021333333333333333
+     },
+     "floor4": {
+      "normal": 0.8975,
+      "abnormal": 0.0465,
+      "faulty": 0.056
+     },
+     "floor5": {
+      "normal": 0.817,
+      "abnormal": 0.074,
+      "faulty": 0.109
+     },
+     "floor6": {
+      "normal": 0.7381666666666666,
+      "abnormal": 0.1,
+      "faulty": 0.16183333333333333
+     },
+     "floor7": {
+      "normal": 0.6698333333333333,
+      "abnormal": 0.11616666666666667,
+      "faulty": 0.214
+     },
+     "floor8": {
+      "normal": 0.612,
+      "abnormal": 0.13783333333333334,
+      "faulty": 0.25016666666666665
+     },
+     "floor9": {
+      "normal": 0.5888333333333333,
+      "abnormal": 0.1295,
+      "faulty": 0.2816666666666667
+     },
+     "floor10": {
+      "normal": 0.5678333333333333,
+      "abnormal": 0.13533333333333333,
+      "faulty": 0.29683333333333334
+     }
+    },
+    "smoothed_2of3": {
+     "floor1": {
+      "normal": 0.9993333333333333,
+      "abnormal": 0.0,
+      "faulty": 0.0006666666666666666
+     },
+     "floor2": {
+      "normal": 0.9985,
+      "abnormal": 0.0011666666666666668,
+      "faulty": 0.0003333333333333333
+     },
+     "floor3": {
+      "normal": 0.979,
+      "abnormal": 0.0095,
+      "faulty": 0.0115
+     },
+     "floor4": {
+      "normal": 0.942,
+      "abnormal": 0.020833333333333332,
+      "faulty": 0.03716666666666667
+     },
+     "floor5": {
+      "normal": 0.867,
+      "abnormal": 0.043833333333333335,
+      "faulty": 0.08916666666666667
+     },
+     "floor6": {
+      "normal": 0.795,
+      "abnormal": 0.0645,
+      "faulty": 0.1405
+     },
+     "floor7": {
+      "normal": 0.7266666666666667,
+      "abnormal": 0.07166666666666667,
+      "faulty": 0.20166666666666666
+     },
+     "floor8": {
+      "normal": 0.6681666666666667,
+      "abnormal": 0.092,
+      "faulty": 0.23983333333333334
+     },
+     "floor9": {
+      "normal": 0.6421666666666667,
+      "abnormal": 0.08516666666666667,
+      "faulty": 0.27266666666666667
+     },
+     "floor10": {
+      "normal": 0.622,
+      "abnormal": 0.091,
+      "faulty": 0.287
+     }
+    },
+    "n_windows_per_floor": 6000,
+    "median_az_std_by_floor": [
+     82.31799357736068,
+     112.10691651347523,
+     148.77719032535643,
+     185.03815615051565,
+     218.50614547912167,
+     249.32451689816625,
+     275.5263409989045,
+     295.6497767643914,
+     309.68875219364224,
+     316.71491873722283
+    ]
+   },
+   "strong_3x": {
+    "raw": {
+     "floor1": {
+      "normal": 0.9991666666666666,
+      "abnormal": 0.0003333333333333333,
+      "faulty": 0.0005
+     },
+     "floor2": {
+      "normal": 0.9488333333333333,
+      "abnormal": 0.020166666666666666,
+      "faulty": 0.031
+     },
+     "floor3": {
+      "normal": 0.8273333333333334,
+      "abnormal": 0.06166666666666667,
+      "faulty": 0.111
+     },
+     "floor4": {
+      "normal": 0.6771666666666667,
+      "abnormal": 0.1055,
+      "faulty": 0.21733333333333332
+     },
+     "floor5": {
+      "normal": 0.5465,
+      "abnormal": 0.1405,
+      "faulty": 0.313
+     },
+     "floor6": {
+      "normal": 0.452,
+      "abnormal": 0.163,
+      "faulty": 0.385
+     },
+     "floor7": {
+      "normal": 0.37783333333333335,
+      "abnormal": 0.17883333333333334,
+      "faulty": 0.44333333333333336
+     },
+     "floor8": {
+      "normal": 0.325,
+      "abnormal": 0.1845,
+      "faulty": 0.4905
+     },
+     "floor9": {
+      "normal": 0.2945,
+      "abnormal": 0.18383333333333332,
+      "faulty": 0.5216666666666666
+     },
+     "floor10": {
+      "normal": 0.2776666666666667,
+      "abnormal": 0.1815,
+      "faulty": 0.5408333333333334
+     }
+    },
+    "smoothed_2of3": {
+     "floor1": {
+      "normal": 0.9998333333333334,
+      "abnormal": 0.00016666666666666666,
+      "faulty": 0.0
+     },
+     "floor2": {
+      "normal": 0.9736666666666667,
+      "abnormal": 0.009333333333333334,
+      "faulty": 0.017
+     },
+     "floor3": {
+      "normal": 0.8796666666666667,
+      "abnormal": 0.03166666666666667,
+      "faulty": 0.08866666666666667
+     },
+     "floor4": {
+      "normal": 0.7335,
+      "abnormal": 0.0655,
+      "faulty": 0.201
+     },
+     "floor5": {
+      "normal": 0.5965,
+      "abnormal": 0.0915,
+      "faulty": 0.312
+     },
+     "floor6": {
+      "normal": 0.5033333333333333,
+      "abnormal": 0.10883333333333334,
+      "faulty": 0.3878333333333333
+     },
+     "floor7": {
+      "normal": 0.435,
+      "abnormal": 0.1165,
+      "faulty": 0.4485
+     },
+     "floor8": {
+      "normal": 0.37583333333333335,
+      "abnormal": 0.12416666666666666,
+      "faulty": 0.5
+     },
+     "floor9": {
+      "normal": 0.3428333333333333,
+      "abnormal": 0.124,
+      "faulty": 0.5331666666666667
+     },
+     "floor10": {
+      "normal": 0.3273333333333333,
+      "abnormal": 0.1195,
+      "faulty": 0.5531666666666667
+     }
+    },
+    "n_windows_per_floor": 6000,
+    "median_az_std_by_floor": [
+     113.22052318104379,
+     162.11915056943806,
+     218.21679541539504,
+     273.2483261682461,
+     324.76894100670086,
+     371.36619145850295,
+     411.0420732789262,
+     440.74274421296576,
+     462.37181666463306,
+     472.7202552952666
+    ]
+   },
+   "strong_5x": {
+    "raw": {
+     "floor1": {
+      "normal": 0.9526666666666667,
+      "abnormal": 0.007333333333333333,
+      "faulty": 0.04
+     },
+     "floor2": {
+      "normal": 0.7175,
+      "abnormal": 0.05316666666666667,
+      "faulty": 0.22933333333333333
+     },
+     "floor3": {
+      "normal": 0.47383333333333333,
+      "abnormal": 0.117,
+      "faulty": 0.4091666666666667
+     },
+     "floor4": {
+      "normal": 0.3025,
+      "abnormal": 0.16733333333333333,
+      "faulty": 0.5301666666666667
+     },
+     "floor5": {
+      "normal": 0.197,
+      "abnormal": 0.195,
+      "faulty": 0.608
+     },
+     "floor6": {
+      "normal": 0.1415,
+      "abnormal": 0.20783333333333334,
+      "faulty": 0.6506666666666666
+     },
+     "floor7": {
+      "normal": 0.09916666666666667,
+      "abnormal": 0.2115,
+      "faulty": 0.6893333333333334
+     },
+     "floor8": {
+      "normal": 0.07283333333333333,
+      "abnormal": 0.207,
+      "faulty": 0.7201666666666666
+     },
+     "floor9": {
+      "normal": 0.06183333333333333,
+      "abnormal": 0.2005,
+      "faulty": 0.7376666666666667
+     },
+     "floor10": {
+      "normal": 0.054,
+      "abnormal": 0.19733333333333333,
+      "faulty": 0.7486666666666667
+     }
+    },
+    "smoothed_2of3": {
+     "floor1": {
+      "normal": 0.97,
+      "abnormal": 0.0031666666666666666,
+      "faulty": 0.026833333333333334
+     },
+     "floor2": {
+      "normal": 0.7616666666666667,
+      "abnormal": 0.0245,
+      "faulty": 0.21383333333333332
+     },
+     "floor3": {
+      "normal": 0.5201666666666667,
+      "abnormal": 0.065,
+      "faulty": 0.41483333333333333
+     },
+     "floor4": {
+      "normal": 0.34883333333333333,
+      "abnormal": 0.106,
+      "faulty": 0.5451666666666667
+     },
+     "floor5": {
+      "normal": 0.22666666666666666,
+      "abnormal": 0.13216666666666665,
+      "faulty": 0.6411666666666667
+     },
+     "floor6": {
+      "normal": 0.17016666666666666,
+      "abnormal": 0.14116666666666666,
+      "faulty": 0.6886666666666666
+     },
+     "floor7": {
+      "normal": 0.12433333333333334,
+      "abnormal": 0.14033333333333334,
+      "faulty": 0.7353333333333333
+     },
+     "floor8": {
+      "normal": 0.09666666666666666,
+      "abnormal": 0.13516666666666666,
+      "faulty": 0.7681666666666667
+     },
+     "floor9": {
+      "normal": 0.08633333333333333,
+      "abnormal": 0.12883333333333333,
+      "faulty": 0.7848333333333334
+     },
+     "floor10": {
+      "normal": 0.08216666666666667,
+      "abnormal": 0.12416666666666666,
+      "faulty": 0.7936666666666666
+     }
+    },
+    "n_windows_per_floor": 6000,
+    "median_az_std_by_floor": [
+     179.9823160795667,
+     265.0872093599422,
+     359.663832720171,
+     452.3971990600811,
+     538.8289287839515,
+     617.1285129168486,
+     682.2240199544517,
+     732.0122684082417,
+     768.5117814341271,
+     785.903803635215
+    ]
+   },
+   "noise_only": {
+    "raw": {
+     "floor1": {
+      "normal": 0.25683333333333336,
+      "abnormal": 0.0,
+      "faulty": 0.7431666666666666
+     },
+     "floor2": {
+      "normal": 0.25833333333333336,
+      "abnormal": 0.0,
+      "faulty": 0.7416666666666667
+     },
+     "floor3": {
+      "normal": 0.26416666666666666,
+      "abnormal": 0.0,
+      "faulty": 0.7358333333333333
+     },
+     "floor4": {
+      "normal": 0.2605,
+      "abnormal": 0.0,
+      "faulty": 0.7395
+     },
+     "floor5": {
+      "normal": 0.2638333333333333,
+      "abnormal": 0.0,
+      "faulty": 0.7361666666666666
+     },
+     "floor6": {
+      "normal": 0.26166666666666666,
+      "abnormal": 0.0,
+      "faulty": 0.7383333333333333
+     },
+     "floor7": {
+      "normal": 0.25216666666666665,
+      "abnormal": 0.0,
+      "faulty": 0.7478333333333333
+     },
+     "floor8": {
+      "normal": 0.25883333333333336,
+      "abnormal": 0.0,
+      "faulty": 0.7411666666666666
+     },
+     "floor9": {
+      "normal": 0.2673333333333333,
+      "abnormal": 0.0,
+      "faulty": 0.7326666666666667
+     },
+     "floor10": {
+      "normal": 0.26316666666666666,
+      "abnormal": 0.0,
+      "faulty": 0.7368333333333333
+     }
+    },
+    "smoothed_2of3": {
+     "floor1": {
+      "normal": 0.20433333333333334,
+      "abnormal": 0.0,
+      "faulty": 0.7956666666666666
+     },
+     "floor2": {
+      "normal": 0.20433333333333334,
+      "abnormal": 0.0,
+      "faulty": 0.7956666666666666
+     },
+     "floor3": {
+      "normal": 0.20666666666666667,
+      "abnormal": 0.0,
+      "faulty": 0.7933333333333333
+     },
+     "floor4": {
+      "normal": 0.20533333333333334,
+      "abnormal": 0.0,
+      "faulty": 0.7946666666666666
+     },
+     "floor5": {
+      "normal": 0.20883333333333334,
+      "abnormal": 0.0,
+      "faulty": 0.7911666666666667
+     },
+     "floor6": {
+      "normal": 0.20533333333333334,
+      "abnormal": 0.0,
+      "faulty": 0.7946666666666666
+     },
+     "floor7": {
+      "normal": 0.199,
+      "abnormal": 0.0,
+      "faulty": 0.801
+     },
+     "floor8": {
+      "normal": 0.202,
+      "abnormal": 0.0,
+      "faulty": 0.798
+     },
+     "floor9": {
+      "normal": 0.21316666666666667,
+      "abnormal": 0.0,
+      "faulty": 0.7868333333333334
+     },
+     "floor10": {
+      "normal": 0.20633333333333334,
+      "abnormal": 0.0,
+      "faulty": 0.7936666666666666
+     }
+    },
+    "n_windows_per_floor": 6000,
+    "median_az_std_by_floor": [
+     39.44893037542874,
+     37.363398173059636,
+     41.14110121857236,
+     40.3733971493859,
+     37.95530682330255,
+     39.51706537260425,
+     40.44030252088879,
+     39.33075921097712,
+     39.863130559262814,
+     39.52649847580318
+    ]
+   },
+   "impact_one_floor": {
+    "impacted_floor_all_floors_pooled": {
+     "raw": {
+      "normal": 0.1635,
+      "abnormal": 0.004,
+      "faulty": 0.8325
+     },
+     "smoothed_2of3": {
+      "normal": 0.12533333333333332,
+      "abnormal": 0.001,
+      "faulty": 0.8736666666666667
+     }
+    },
+    "impacted_floor_by_floor": {
+     "raw": {
+      "floor1": {
+       "normal": 0.14666666666666667,
+       "abnormal": 0.0,
+       "faulty": 0.8533333333333334
+      },
+      "floor2": {
+       "normal": 0.20166666666666666,
+       "abnormal": 0.008333333333333333,
+       "faulty": 0.79
+      },
+      "floor3": {
+       "normal": 0.19333333333333333,
+       "abnormal": 0.0033333333333333335,
+       "faulty": 0.8033333333333333
+      },
+      "floor4": {
+       "normal": 0.17333333333333334,
+       "abnormal": 0.0,
+       "faulty": 0.8266666666666667
+      },
+      "floor5": {
+       "normal": 0.15333333333333332,
+       "abnormal": 0.0,
+       "faulty": 0.8466666666666667
+      },
+      "floor6": {
+       "normal": 0.17833333333333334,
+       "abnormal": 0.005,
+       "faulty": 0.8166666666666667
+      },
+      "floor7": {
+       "normal": 0.165,
+       "abnormal": 0.005,
+       "faulty": 0.83
+      },
+      "floor8": {
+       "normal": 0.12666666666666668,
+       "abnormal": 0.0016666666666666668,
+       "faulty": 0.8716666666666667
+      },
+      "floor9": {
+       "normal": 0.12666666666666668,
+       "abnormal": 0.008333333333333333,
+       "faulty": 0.865
+      },
+      "floor10": {
+       "normal": 0.17,
+       "abnormal": 0.008333333333333333,
+       "faulty": 0.8216666666666667
+      }
+     },
+     "smoothed_2of3": {
+      "floor1": {
+       "normal": 0.12166666666666667,
+       "abnormal": 0.0,
+       "faulty": 0.8783333333333333
+      },
+      "floor2": {
+       "normal": 0.15833333333333333,
+       "abnormal": 0.005,
+       "faulty": 0.8366666666666667
+      },
+      "floor3": {
+       "normal": 0.13,
+       "abnormal": 0.0,
+       "faulty": 0.87
+      },
+      "floor4": {
+       "normal": 0.14166666666666666,
+       "abnormal": 0.0,
+       "faulty": 0.8583333333333333
+      },
+      "floor5": {
+       "normal": 0.10666666666666667,
+       "abnormal": 0.0,
+       "faulty": 0.8933333333333333
+      },
+      "floor6": {
+       "normal": 0.14166666666666666,
+       "abnormal": 0.0,
+       "faulty": 0.8583333333333333
+      },
+      "floor7": {
+       "normal": 0.13333333333333333,
+       "abnormal": 0.0,
+       "faulty": 0.8666666666666667
+      },
+      "floor8": {
+       "normal": 0.09333333333333334,
+       "abnormal": 0.0,
+       "faulty": 0.9066666666666666
+      },
+      "floor9": {
+       "normal": 0.08666666666666667,
+       "abnormal": 0.005,
+       "faulty": 0.9083333333333333
+      },
+      "floor10": {
+       "normal": 0.14,
+       "abnormal": 0.0,
+       "faulty": 0.86
+      }
+     }
+    },
+    "other_floors_by_floor": {
+     "raw": {
+      "floor1": {
+       "normal": 0.9566666666666667,
+       "abnormal": 0.0,
+       "faulty": 0.043333333333333335
+      },
+      "floor2": {
+       "normal": 0.9892592592592593,
+       "abnormal": 0.0,
+       "faulty": 0.01074074074074074
+      },
+      "floor3": {
+       "normal": 0.9961111111111111,
+       "abnormal": 0.00018518518518518518,
+       "faulty": 0.003703703703703704
+      },
+      "floor4": {
+       "normal": 0.9964814814814815,
+       "abnormal": 0.0016666666666666668,
+       "faulty": 0.001851851851851852
+      },
+      "floor5": {
+       "normal": 0.9879629629629629,
+       "abnormal": 0.007962962962962963,
+       "faulty": 0.004074074074074074
+      },
+      "floor6": {
+       "normal": 0.977037037037037,
+       "abnormal": 0.013148148148148148,
+       "faulty": 0.009814814814814814
+      },
+      "floor7": {
+       "normal": 0.9651851851851851,
+       "abnormal": 0.020555555555555556,
+       "faulty": 0.01425925925925926
+      },
+      "floor8": {
+       "normal": 0.9477777777777778,
+       "abnormal": 0.028888888888888888,
+       "faulty": 0.023333333333333334
+      },
+      "floor9": {
+       "normal": 0.9440740740740741,
+       "abnormal": 0.027962962962962964,
+       "faulty": 0.027962962962962964
+      },
+      "floor10": {
+       "normal": 0.9340740740740741,
+       "abnormal": 0.03388888888888889,
+       "faulty": 0.03203703703703704
+      }
+     },
+     "smoothed_2of3": {
+      "floor1": {
+       "normal": 0.9801851851851852,
+       "abnormal": 0.0,
+       "faulty": 0.019814814814814816
+      },
+      "floor2": {
+       "normal": 0.9968518518518519,
+       "abnormal": 0.0,
+       "faulty": 0.003148148148148148
+      },
+      "floor3": {
+       "normal": 0.9992592592592593,
+       "abnormal": 0.0,
+       "faulty": 0.0007407407407407407
+      },
+      "floor4": {
+       "normal": 0.9990740740740741,
+       "abnormal": 0.00018518518518518518,
+       "faulty": 0.0007407407407407407
+      },
+      "floor5": {
+       "normal": 0.9959259259259259,
+       "abnormal": 0.002962962962962963,
+       "faulty": 0.0011111111111111111
+      },
+      "floor6": {
+       "normal": 0.9922222222222222,
+       "abnormal": 0.0038888888888888888,
+       "faulty": 0.0038888888888888888
+      },
+      "floor7": {
+       "normal": 0.9846296296296296,
+       "abnormal": 0.011851851851851851,
+       "faulty": 0.0035185185185185185
+      },
+      "floor8": {
+       "normal": 0.9718518518518519,
+       "abnormal": 0.015,
+       "faulty": 0.013148148148148148
+      },
+      "floor9": {
+       "normal": 0.9722222222222222,
+       "abnormal": 0.013703703703703704,
+       "faulty": 0.014074074074074074
+      },
+      "floor10": {
+       "normal": 0.965,
+       "abnormal": 0.019814814814814816,
+       "faulty": 0.015185185185185185
+      }
+     }
+    },
+    "n_buildings": 200
+   }
+  },
+  "P1": {
+   "statement": "noise-only windows are classified faulty about 70% of the time (az_std<=354, az_domfreq>13.67 Hz)",
+   "faulty_fraction": 0.7393166666666666,
+   "class_fractions": {
+    "normal": 0.2606833333333333,
+    "abnormal": 0.0,
+    "faulty": 0.7393166666666666
+   },
+   "fraction_az_std_le_threshold": 1.0,
+   "fraction_az_domfreq_gt_13p67": 0.7393166666666666,
+   "analytic_expectation_for_white_noise": "argmax uniform over 64 bins; bins 1..17 are <=13.67 Hz so faulty = 1-17/64 = 0.7344",
+   "rule": "CONFIRMED if |faulty fraction - 0.70| <= 0.05 (decided before running)",
+   "verdict": "CONFIRMED"
+  },
+  "P2": {
+   "statement": "in strong building-wide events the top floors report faulty first (az_std>354 with az_kurt>-1.19 -> faulty)",
+   "scan_by_multiplier": {
+    "healthy": {
+     "faulty_fraction_by_floor": [
+      0.041666666666666664,
+      0.010166666666666666,
+      0.0035,
+      0.0018333333333333333,
+      0.004166666666666667,
+      0.009,
+      0.0145,
+      0.023666666666666666,
+      0.028166666666666666,
+      0.0315
+     ],
+     "frac_windows_az_std_over_354_by_floor": [
+      0.0,
+      0.0,
+      0.00016666666666666666,
+      0.002,
+      0.009,
+      0.019333333333333334,
+      0.031166666666666665,
+      0.04566666666666667,
+      0.0545,
+      0.06016666666666667
+     ],
+     "abnormal_fraction_by_floor": [
+      0.0,
+      0.0,
+      0.00016666666666666666,
+      0.0015,
+      0.008,
+      0.012333333333333333,
+      0.020166666666666666,
+      0.028,
+      0.030166666666666668,
+      0.033666666666666664
+     ]
+    },
+    "strong_2x": {
+     "faulty_fraction_by_floor": [
+      0.002,
+      0.0011666666666666668,
+      0.021333333333333333,
+      0.056,
+      0.109,
+      0.16183333333333333,
+      0.214,
+      0.25016666666666665,
+      0.2816666666666667,
+      0.29683333333333334
+     ],
+     "frac_windows_az_std_over_354_by_floor": [
+      0.0,
+      0.0031666666666666666,
+      0.03666666666666667,
+      0.09466666666666666,
+      0.17333333333333334,
+      0.24716666666666667,
+      0.317,
+      0.36566666666666664,
+      0.4025,
+      0.42
+     ],
+     "abnormal_fraction_by_floor": [
+      0.0,
+      0.0036666666666666666,
+      0.019833333333333335,
+      0.0465,
+      0.074,
+      0.1,
+      0.11616666666666667,
+      0.13783333333333334,
+      0.1295,
+      0.13533333333333333
+     ]
+    },
+    "strong_3x": {
+     "faulty_fraction_by_floor": [
+      0.0005,
+      0.031,
+      0.111,
+      0.21733333333333332,
+      0.313,
+      0.385,
+      0.44333333333333336,
+      0.4905,
+      0.5216666666666666,
+      0.5408333333333334
+     ],
+     "frac_windows_az_std_over_354_by_floor": [
+      0.0003333333333333333,
+      0.04416666666666667,
+      0.16016666666666668,
+      0.30666666666666664,
+      0.438,
+      0.5346666666666666,
+      0.6083333333333333,
+      0.661,
+      0.6946666666666667,
+      0.7126666666666667
+     ],
+     "abnormal_fraction_by_floor": [
+      0.0003333333333333333,
+      0.020166666666666666,
+      0.06166666666666667,
+      0.1055,
+      0.1405,
+      0.163,
+      0.17883333333333334,
+      0.1845,
+      0.18383333333333332,
+      0.1815
+     ]
+    },
+    "strong_5x": {
+     "faulty_fraction_by_floor": [
+      0.04,
+      0.22933333333333333,
+      0.4091666666666667,
+      0.5301666666666667,
+      0.608,
+      0.6506666666666666,
+      0.6893333333333334,
+      0.7201666666666666,
+      0.7376666666666667,
+      0.7486666666666667
+     ],
+     "frac_windows_az_std_over_354_by_floor": [
+      0.041,
+      0.267,
+      0.5105,
+      0.6831666666666667,
+      0.792,
+      0.8501666666666666,
+      0.892,
+      0.9205,
+      0.9351666666666667,
+      0.9428333333333333
+     ],
+     "abnormal_fraction_by_floor": [
+      0.007333333333333333,
+      0.05316666666666667,
+      0.117,
+      0.16733333333333333,
+      0.195,
+      0.20783333333333334,
+      0.2115,
+      0.207,
+      0.2005,
+      0.19733333333333333
+     ]
+    }
+   },
+   "trend": {
+    "strong_3x": {
+     "spearman_floor_vs_faulty": 0.9999999999999999,
+     "top3_minus_bottom3": 0.4701666666666666
+    },
+    "strong_5x": {
+     "spearman_floor_vs_faulty": 0.9999999999999999,
+     "top3_minus_bottom3": 0.5093333333333334
+    }
+   },
+   "at_5x_of_windows_az_std_over_354_share_with_kurt_over_threshold": 0.7847388187094572,
+   "at_5x_of_windows_az_std_over_354_share_classified_faulty": 0.7847388187094572,
+   "at_5x_of_windows_az_std_over_354_share_abnormal": 0.21526118129054284,
+   "rule": "CONFIRMED if at 3x and 5x both Spearman>=0.7 and top3-bottom3 faulty fraction>=0.10; REFUTED if either top3-bottom3 <=0; else PARTIAL",
+   "verdict": "CONFIRMED"
+  }
+ },
+ "part_C": {
+  "dataset_az_std_min_overall": 100.89435513663535,
+  "dataset_az_std_by_class": {
+   "normal": {
+    "min": 111.27733353426515,
+    "p01": 114.57929078202
+   },
+   "abnormal": {
+    "min": 283.4808401263655,
+    "p01": 302.9138854499769
+   },
+   "faulty": {
+    "min": 100.89435513663535,
+    "p01": 122.30437957702229
+   }
+  },
+  "windows_in_dataset": 6000,
+  "noise_only_sigma60_windows_simulated": 2000000,
+  "noise_only_sigma60_max_az_std": 79.9717475594653,
+  "noise_only_sigma60_p99.9": 71.53749052703225,
+  "noise_only_sigma60_p99.999": 75.75741461418829,
+  "noise_only_sigma60_analytic_tail_prob_1e-9": 83.34270762142167,
+  "lower_bound_used_for_G": 83.34270762142167,
+  "G_exists": true,
+  "recommended_G": 92.11853137902851,
+  "margin_above_noise_tail_counts": 8.775823757606844,
+  "margin_below_dataset_min_counts": 8.775823757606844,
+  "margin_note": "G placed at midpoint of [noise upper bound, dataset min]",
+  "healthy_simulated_floor_windows_under_G_by_floor": {
+   "floor1": 0.9818333333333333,
+   "floor2": 0.8351666666666666,
+   "floor3": 0.5981666666666666,
+   "floor4": 0.4215,
+   "floor5": 0.301,
+   "floor6": 0.22533333333333333,
+   "floor7": 0.17333333333333334,
+   "floor8": 0.13966666666666666,
+   "floor9": 0.1185,
+   "floor10": 0.11016666666666666
+  },
+  "healthy_simulated_floor_windows_under_G_overall": 0.3904666666666667,
+  "note_fraction": "'under G' = az_std < G, i.e. window would be gated out as 'no vibration signal'; healthy default excitation, same windows as Part B healthy scenario"
+ },
+ "exploratory": {
+  "note": "exploratory only; disjoint seeds; does not affect the GATE verdict. 2 alternatives tried.",
+  "n_tried": 2,
+  "E1_analytic_ceiling_expected_amplitudes_no_noise_infinite_averaging": {
+   "30%": {
+    "top1": 0.969,
+    "within1": 0.97
+   },
+   "15%": {
+    "top1": 0.971,
+    "within1": 0.971
+   }
+  },
+  "E2_same_method_120_windows_30pct": {
+   "threshold": 0.08437902703143528,
+   "n_per_storey": 30,
+   "top1": 0.6266666666666667,
+   "within1": 0.64,
+   "detect": 0.4,
+   "top1_by_storey": {
+    "1": 1.0,
+    "2": 0.9666666666666667,
+    "3": 0.9,
+    "4": 0.7,
+    "5": 0.7333333333333333,
+    "6": 0.6,
+    "7": 0.5333333333333333,
+    "8": 0.5333333333333333,
+    "9": 0.26666666666666666,
+    "10": 0.03333333333333333
+   }
+  }
+ },
+ "gate": "FAIL"
+}
