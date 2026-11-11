@@ -68,6 +68,41 @@ private:
     uint32_t seed_;
 };
 
+// Per-slave window traces from a binary file (tools/gen_traces.py). Layout, little endian:
+//   "RTRC" | u32 version=1 | u32 n_slaves=2 | u32 n_windows | for slave 1, then slave 2: n_windows x (128 int16 az, 128 int16 gx).
+// Window index = superframe number; past the end the last window is repeated (the CLI stops at n_windows by default).
+class TraceSource : public WindowSource {
+public:
+    bool load(const char *path, std::string *err) {
+        FILE *fp = fopen(path, "rb");
+        if (!fp) { if (err) *err = std::string("cannot open ") + path; return false; }
+        uint32_t h[4];
+        if (fread(h, 4, 4, fp) != 4 || memcmp(h, "RTRC", 4) != 0 || h[1] != 1 || h[2] != (uint32_t)NUM_SLAVES || h[3] == 0) {
+            fclose(fp);
+            if (err) *err = std::string("bad trace header in ") + path;
+            return false;
+        }
+        n_ = h[3];
+        data_.assign((size_t)NUM_SLAVES * n_ * 256, 0);
+        size_t want = data_.size();
+        size_t got = fread(data_.data(), sizeof(int16_t), want, fp);
+        fclose(fp);
+        if (got != want) { if (err) *err = std::string("truncated trace file ") + path; return false; }
+        return true;
+    }
+    uint32_t windows() const { return n_; }
+    void get(uint8_t slave, uint32_t sf, int16_t *az, int16_t *gx) override {
+        uint32_t w = sf < n_ ? sf : n_ - 1;
+        const int16_t *p = &data_[((size_t)(slave - 1) * n_ + w) * 256];
+        memcpy(az, p, 128 * sizeof(int16_t));
+        memcpy(gx, p + 128, 128 * sizeof(int16_t));
+    }
+
+private:
+    uint32_t n_ = 0;
+    std::vector<int16_t> data_;
+};
+
 struct Action {
     int slave;    // 0 = the master (kill = power off, revive = restart with a fresh epoch), else 1..NUM_SLAVES
     uint32_t sf;  // takes effect at the beacon time of this superframe, before the beacon
@@ -237,6 +272,8 @@ public:
     }
 
     SimResult res;
+    // Optional: called after every master tick / packet (R2: FusionListener::service). Not used by the tests.
+    std::function<void(const Master &, uint64_t)> master_hook;
 
     void run() {
         const uint64_t horizon = (uint64_t)cfg_.superframes * SUPERFRAME_US;
@@ -377,6 +414,7 @@ private:
 
     // After any call into node n: start requested windows, schedule its next wakeup.
     void post(int n, uint64_t now) {
+        if (n == 0 && master_hook) master_hook(master_, now);
         if (n > 0) {
             SlaveNode &s = slave(n);
             if (s.window_requested()) {

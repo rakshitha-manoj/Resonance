@@ -20,7 +20,12 @@ constexpr uint64_t NEVER = ~(uint64_t)0;
 // PROVISIONAL: 92.12 is a placeholder taken from the synthetic dataset. It MUST be set from the
 // real MPU6050 noise measured on the mounted sensor (az_std of a motionless structure).
 // Applied outside classify(): below the gate the window is "normal" and flagged LOW_SIGNAL.
-constexpr float NOISE_GATE_COUNTS = 92.12f;
+// Per-board override: set -DNOISE_GATE_OVERRIDE=<counts> ONLY in the slave envs' build_flags
+// (never in the shared [env], which native and netsim inherit). 0 or undefined = default 92.12.
+#ifndef NOISE_GATE_OVERRIDE
+#define NOISE_GATE_OVERRIDE 0
+#endif
+constexpr float NOISE_GATE_COUNTS = (NOISE_GATE_OVERRIDE > 0) ? (float)(NOISE_GATE_OVERRIDE) : 92.12f;
 
 static inline int apply_noise_gate(const float *f, int raw, uint8_t *flags) {
     if (f[0] < NOISE_GATE_COUNTS) {
@@ -294,6 +299,9 @@ public:
     static constexpr uint32_t EVENT_LOG = 16;  // ring of the most recent status events
 
     Master(Transport *tx, MasterListener *l = nullptr) : tx_(tx), l_(l) { reset(0, 0); }
+
+    // Replace the listener (R2: put a FusionListener in front of the recorder). reset() keeps it.
+    void set_listener(MasterListener *l) { l_ = l; }
 
     // (Re)start. The first beacon (superframe 0) is due at start_us. `epoch` identifies this boot
     // of the master: pass a fresh random value on hardware (e.g. esp_random()) that differs from

@@ -16,7 +16,7 @@ Design fixed in this file before any decision-set result was looked at (this is 
   decision  fresh held-out buildings: false alarm rate (healthy + noise-only windows, mean over floors, after 2-of-3 smoothing,
             lower is better) and local-event detection (event-floor event windows reported faulty after smoothing), against the
             old tree with the az_std noise gate. REPLACE only if FA is lower AND detection is >= the old tree's.
-Re-runnable and resumable: simulation chunks and CV results are cached under CACHE (keys include scenario, damage, window
+Re-runnable and resumable: simulation chunks and CV results are cached under the cache directory (--cache DIR, else $RESONANCE_CACHE_DIR/train_building/cache, else <repo>/.cache/train_building/cache; keys include scenario, damage, window
 counts, seeds and the simulator/feature source hashes).
 """
 import argparse
@@ -42,7 +42,9 @@ import building_sim as bs  # noqa: E402
 import localisation_gate as lg  # noqa: E402  (old tree, smoothing, window feature code)
 import localisation_gate_v2 as lg2  # noqa: E402  (seed blocks only)
 
-SCRATCH = Path(r"C:\Users\raksh\AppData\Local\Temp\claude\121eb6b4f822bd15\8c5ad4ff-5fff-4065-86ee-8a50f4233411\scratchpad\t1b")
+import cachedir  # noqa: E402
+
+SCRATCH = cachedir.script_dir("train_building")   # cache, log and --small output; see cachedir.py (--cache / RESONANCE_CACHE_DIR / .cache/)
 OUT_DIR = ROOT / "models" / "selected_building"
 SEED = 42
 FS, N, NF = 100, 128, 10
@@ -739,9 +741,9 @@ def render_md(R):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--small", action="store_true", help="tiny deterministic subset for testing; writes under the scratch directory, never models/selected_building")
+    ap.add_argument("--small", action="store_true", help="tiny deterministic subset for testing; writes under .cache/train_building/small_out, never models/selected_building")
     ap.add_argument("--out", default=None)
-    ap.add_argument("--cache", default=None)
+    ap.add_argument("--cache", default=None, help="cache directory (default: $RESONANCE_CACHE_DIR/train_building/cache[_small], else <repo>/.cache/train_building/cache[_small])")
     ap.add_argument("--repeats", type=int, default=None)
     a = ap.parse_args(argv)
     out = Path(a.out) if a.out else (SCRATCH / "small_out" if a.small else OUT_DIR)

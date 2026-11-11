@@ -1,0 +1,1126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resonance Monitor</title>
+<style>
+:root{
+  --bg:#f3f5f8; --card:#ffffff; --text:#1a1f26; --muted:#455160; --line:#c9d1da; --accent:#0b5cad; --accent-text:#ffffff;
+  --comm:#5b6776; --ambient:#00796b; --local:#a85400; --building:#c62828; --nodata:#222a33;
+  --tint-comm:#e9edf2; --tint-ambient:#dff3ef; --tint-local:#fdebd3; --tint-building:#fbe0e0; --tint-nodata:#dfe3e8;
+  --r1:#1f5fbf; --r2:#8a3a9e; --warn-bg:#fff4cc; --warn-text:#4a3600; --demo-bg:#ffe9a8; --demo-text:#3d2d00;
+  --sim-bg:#d9ecff; --sim-text:#06284a;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#10151b; --card:#1a2129; --text:#e8edf2; --muted:#a9b6c3; --line:#394553; --accent:#6db3ff; --accent-text:#08121d;
+    --comm:#9aa7b5; --ambient:#4db6ac; --local:#ffb74d; --building:#ff7b7b; --nodata:#e6e6e6;
+    --tint-comm:#27303a; --tint-ambient:#16332f; --tint-local:#3a2c14; --tint-building:#3d1e1e; --tint-nodata:#2c3238;
+    --r1:#7db4ff; --r2:#e0a0f5; --warn-bg:#3d3310; --warn-text:#ffe9a0; --demo-bg:#4a3a0a; --demo-text:#ffe9a0;
+    --sim-bg:#12304d; --sim-text:#cfe6ff;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#10151b; --card:#1a2129; --text:#e8edf2; --muted:#a9b6c3; --line:#394553; --accent:#6db3ff; --accent-text:#08121d;
+  --comm:#9aa7b5; --ambient:#4db6ac; --local:#ffb74d; --building:#ff7b7b; --nodata:#e6e6e6;
+  --tint-comm:#27303a; --tint-ambient:#16332f; --tint-local:#3a2c14; --tint-building:#3d1e1e; --tint-nodata:#2c3238;
+  --r1:#7db4ff; --r2:#e0a0f5; --warn-bg:#3d3310; --warn-text:#ffe9a0; --demo-bg:#4a3a0a; --demo-text:#ffe9a0;
+  --sim-bg:#12304d; --sim-text:#cfe6ff;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1200px;margin:0 auto;padding:12px 16px 40px}
+header{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;margin-bottom:10px}
+h1{font-size:1.25rem;margin:0}
+h2{font-size:.95rem;margin:0 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,select,.btn{font:inherit;color:var(--text);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;min-height:36px}
+button:hover:not(:disabled),.btn:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:var(--accent-text);border-color:var(--accent);font-weight:600}
+button:disabled{opacity:.5;cursor:not-allowed}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+input[type=file]{display:none}
+.badge{display:inline-block;padding:2px 10px;border-radius:99px;border:1px solid var(--line);font-size:.85rem;color:var(--muted)}
+.demo-flag{background:var(--demo-bg);color:var(--demo-text);border:2px solid var(--demo-text);border-radius:8px;padding:6px 12px;font-weight:700;margin:8px 0}
+.sim-flag{background:var(--sim-bg);color:var(--sim-text);border:2px solid var(--sim-text);border-radius:8px;padding:6px 12px;font-weight:700;margin:8px 0}
+.warn{background:var(--warn-bg);color:var(--warn-text);border-radius:8px;padding:6px 12px;margin:6px 0;font-size:.9rem}
+#msgs:empty{display:none}
+details{margin:8px 0}
+summary{cursor:pointer;font-weight:600}
+details p,details li{color:var(--muted);font-size:.9rem}
+code{background:var(--tint-comm);padding:1px 5px;border-radius:4px;font-size:.88em}
+.transport{margin-top:8px}
+.transport input[type=range]{flex:1 1 220px;min-width:140px;accent-color:var(--accent)}
+.time{font-variant-numeric:tabular-nums;min-width:130px;text-align:right;color:var(--muted)}
+#banner{display:flex;gap:14px;align-items:center;border-left:10px solid var(--comm);background:var(--tint-comm);margin:12px 0;padding:14px 16px}
+#banner .glyph{font-size:2.4rem;line-height:1;min-width:2.6rem;text-align:center}
+#banner .big{font-size:1.5rem;font-weight:700;line-height:1.2}
+#banner .sub{color:var(--muted);margin-top:2px}
+#banner .chip{display:inline-block;margin-top:6px;margin-right:6px;padding:2px 10px;border:2px dashed var(--text);border-radius:8px;font-weight:600;font-size:.9rem}
+.prog{display:flex;flex-wrap:wrap;gap:4px 18px;margin-top:6px}
+.prog label{display:flex;align-items:center;gap:8px;font-size:.9rem}
+progress{width:140px;height:14px;accent-color:var(--accent)}
+.s-comm{border-color:var(--comm)!important;background:var(--tint-comm)!important}
+.s-ambient{border-color:var(--ambient)!important;background:var(--tint-ambient)!important}
+.s-local{border-color:var(--local)!important;background:var(--tint-local)!important}
+.s-building{border-color:var(--building)!important;background:var(--tint-building)!important}
+.s-nodata{border-color:var(--nodata)!important;background:var(--tint-nodata)!important}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(12,1fr)}
+.c4{grid-column:span 4}.c5{grid-column:span 5}.c6{grid-column:span 6}.c7{grid-column:span 7}.c8{grid-column:span 8}.c12{grid-column:span 12}
+@media (max-width:900px){.c4,.c5,.c6,.c7,.c8{grid-column:span 12}}
+svg text{font-family:inherit;fill:var(--text)}
+svg text.m{fill:var(--muted)}
+[hidden]{display:none!important}
+#bsvg{width:100%;height:auto;max-height:340px;display:block}
+.floor{stroke-width:4}
+.node{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.node:last-child{border-bottom:0}
+.node small{display:block;color:var(--muted)}
+.pill{padding:2px 10px;border-radius:99px;font-weight:700;border:2px solid currentColor;white-space:nowrap}
+.pill.ok{color:var(--ambient)}.pill.bad{color:var(--building);border-style:dashed}.pill.unk{color:var(--muted)}
+.counters{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat{background:var(--tint-comm);border-radius:8px;padding:8px 10px}
+.stat b{display:block;font-size:1.35rem;font-variant-numeric:tabular-nums}
+.stat span{color:var(--muted);font-size:.85rem}
+.stat.wide{grid-column:span 2}
+canvas{width:100%;display:block}
+#tl{height:70px;cursor:pointer}
+#chart{height:260px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:6px;font-size:.85rem;color:var(--muted)}
+.legend i{display:inline-block;width:16px;height:12px;vertical-align:-1px;margin-right:4px;border:1px solid var(--text)}
+.tablewrap{max-height:340px;overflow:auto}
+table{border-collapse:collapse;width:100%;font-size:.9rem;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{position:sticky;top:0;background:var(--card);color:var(--muted)}
+td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--accent);text-decoration:underline;font:inherit}
+#drop{position:fixed;inset:0;background:rgba(11,92,173,.75);color:#fff;font-size:1.6rem;display:none;align-items:center;justify-content:center;z-index:50}
+#drop.on{display:flex}
+.na{color:var(--muted);font-style:italic}
+.sr{position:absolute;left:-9999px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Resonance Monitor <span class="badge" id="srcBadge">no data loaded</span></h1>
+  <div class="row">
+    <button id="themeBtn" type="button" aria-label="Toggle light or dark theme">Theme</button>
+  </div>
+</header>
+
+<section class="card" aria-label="Data source">
+  <div class="row">
+    <button class="primary" id="demoBtn" type="button">Run demo</button>
+    <button id="simBtn" type="button" title="Loads demo_events_sim.jsonl from the same folder as this page (made by the PC network simulator)">Load simulated log</button>
+    <label class="btn" for="file" role="button" tabindex="0" id="fileLbl">Open JSONL file</label>
+    <input type="file" id="file" accept=".jsonl,.json,.txt,.log,.ndjson">
+    <button id="serBtn" type="button">Connect to master (USB)</button>
+    <button id="dlBtn" type="button" hidden>Save captured log</button>
+    <span class="badge">or drop a file anywhere on this page</span>
+  </div>
+  <div class="transport row" id="transport">
+    <button id="bPrev" type="button" aria-label="Step back one event">&#9198; Back</button>
+    <button id="bPlay" type="button" class="primary" aria-label="Play or pause">&#9654; Play</button>
+    <button id="bNext" type="button" aria-label="Step forward one event">Step &#9197;</button>
+    <label>Speed
+      <select id="speed"><option value="1">1x (real time)</option><option value="10" selected>10x</option><option value="60">60x</option></select>
+    </label>
+    <input type="range" id="seek" min="0" max="10000" value="0" step="1" aria-label="Seek position">
+    <span class="time" id="timeLbl" aria-live="off">0:00 / 0:00</span>
+  </div>
+  <div id="liveBar" class="row" hidden style="margin-top:8px">
+    <span class="pill ok" id="liveBadge">&#9679; LIVE</span><span id="liveInfo" class="na"></span>
+  </div>
+  <div id="msgs" aria-live="polite"></div>
+  <details>
+    <summary>Help: inputs, format and limits</summary>
+    <ul>
+      <li><b>Replay.</b> Open a JSON-lines log (first line <code>meta</code>; then <code>begin</code>/<code>change</code>/<code>status</code> events, schema 2 also one <code>sample</code> line per superframe, <code>restart</code> lines, and <code>node</code> lines for an immediate sensor DEAD/ALIVE change). Schema 1 logs (events only) still work. Playback runs on the <code>t_us</code> clock in the file: 1x is real time, 10x and 60x are faster. Events are logged only when the class changes (and as a periodic status); schema 2 samples fill the gaps, so the chart, the sensor "last report" and the calibration progress are continuous.</li>
+      <li><b>Simulated log.</b> "Load simulated log" reads <code>demo_events_sim.jsonl</code> from the same folder, made by the PC network simulator (netsim) from the project's firmware code. A page opened from disk (<code>file://</code>) usually cannot read other files; then the page says so and opens the file picker: choose that file.</li>
+      <li><b>Live over USB.</b> Chrome or Edge on a desktop only (Web Serial API), 115200 baud. Close any other program using the port first (PlatformIO or Arduino serial monitor). The master firmware prints the same JSON lines as the simulator; the page keeps lines that are JSON objects of the schema and ignores everything else, including the <code>R,</code> and <code>S,</code> CSV lines and <code>#</code> comments. If the master reboots, its clock starts again at 0; a <code>restart</code> line marks it and the page continues the timeline after the last line.</li>
+      <li><b>Demo.</b> A short scripted scenario written to follow schema 2 exactly. It is not hardware data and not simulator output.</li>
+      <li><b>Not available:</b> r values between logged lines in schema 1 logs, and the age of a sensor's last report in schema 1 logs. These show as "not available".</li>
+      <li><b>Limits.</b> No cloud or broker connection. The page runs entirely offline; nothing leaves your computer.</li>
+    </ul>
+  </details>
+</section>
+
+<div id="demoFlag" class="demo-flag" hidden>SYNTHETIC DEMO DATA &ndash; scripted by hand, not measured on real hardware and not simulator output.</div>
+<div id="simFlag" class="sim-flag" hidden>SIMULATED DATA &ndash; produced by the PC network simulator (netsim) from simulated building vibration, not measured on real hardware.</div>
+
+<section id="banner" class="card s-comm" aria-live="polite" aria-label="Current state">
+  <div class="glyph" id="bGlyph" aria-hidden="true">&#9675;</div>
+  <div>
+    <div class="big" id="bText">No data yet</div>
+    <div class="sub" id="bSub">Run the demo, open a log file or connect to the master.</div>
+    <div id="bChip"></div>
+  </div>
+</section>
+
+<div class="grid">
+  <section class="card c5"><h2>Building</h2>
+    <svg id="bsvg" viewBox="0 0 420 330" role="img" aria-labelledby="bsvgT"><title id="bsvgT">Building with two instrumented floors and the master</title>
+      <rect x="70" y="20" width="200" height="290" rx="4" fill="none" style="stroke:var(--line)" stroke-width="3"/>
+      <g id="unf"></g>
+      <g id="f2g"><rect id="f2" class="floor" x="80" y="40" width="180" height="68" rx="4"/><text id="f2t" x="170" y="68" text-anchor="middle" font-size="15" font-weight="700" ></text><text id="f2s" x="170" y="92" text-anchor="middle" font-size="13" ></text></g>
+      <g id="f1g"><rect id="f1" class="floor" x="80" y="200" width="180" height="68" rx="4"/><text id="f1t" x="170" y="228" text-anchor="middle" font-size="15" font-weight="700" ></text><text id="f1s" x="170" y="252" text-anchor="middle" font-size="13" ></text></g>
+      <text x="170" y="164" text-anchor="middle" font-size="12" class="m">other floors (no sensor)</text>
+      <line x1="270" y1="74" x2="330" y2="150" style="stroke:var(--muted)" stroke-width="2" stroke-dasharray="5 4"/>
+      <line x1="270" y1="234" x2="330" y2="170" style="stroke:var(--muted)" stroke-width="2" stroke-dasharray="5 4"/>
+      <rect x="320" y="130" width="90" height="60" rx="6" style="fill:var(--tint-comm);stroke:var(--text)" stroke-width="2"/>
+      <text x="365" y="157" text-anchor="middle" font-size="14" font-weight="700" >Master</text>
+      <text x="365" y="176" text-anchor="middle" font-size="11" class="m">no sensor</text>
+    </svg>
+    <p class="na" id="bNote" style="margin:4px 0 0;font-size:.85rem"></p>
+  </section>
+
+  <section class="card c7"><h2>Sensor health</h2>
+    <div id="nodes"></div>
+    <div id="eInfo" class="na" style="font-size:.85rem;margin-top:6px"></div>
+  </section>
+
+  <section class="card c12"><h2>Timeline of states</h2>
+    <canvas id="tl" role="img" aria-label="Timeline of states over time"></canvas>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section class="card c7"><h2>Vibration ratio r1, r2 over time</h2>
+    <canvas id="chart" role="img" aria-label="Chart of vibration ratio over time"></canvas>
+    <div id="chartInfo" class="na" style="font-size:.85rem;margin-top:4px">r = vibration level divided by that floor's normal (baseline) level. Schema 2 logs have a point every superframe (about 1.4 s); schema 1 logs only where an event was logged. Hover or touch the chart to read a value.</div>
+  </section>
+
+  <section class="card c5"><h2>Counters</h2>
+    <div class="counters" id="counters"></div>
+  </section>
+
+  <section class="card c12"><h2>Event history</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th scope="col">Time</th><th scope="col">Superframe</th><th scope="col">Kind</th><th scope="col">State</th><th scope="col">Floor</th><th scope="col">r1</th><th scope="col">r2</th><th scope="col">Duration</th></tr></thead>
+      <tbody id="hist"></tbody>
+    </table></div>
+    <div id="histNote" class="na" style="font-size:.85rem;margin-top:4px"></div>
+  </section>
+</div>
+</div>
+<div id="drop">Drop the JSONL file to replay it</div>
+
+<script type="text/plain" id="demo-data">{"type":"meta","schema":2,"source":"synthetic","rule":"b","T":3,"use_raw":false,"debounce":1,"commission_windows":20,"status_every_sf":64,"superframe_s":1.4,"floors":[4,8],"epoch":2866824256,"samples":true}
+{"type":"sample","t_us":1329000,"sf":0,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[1,1],"closed":1}
+{"type":"change","t_us":1329000,"sf":0,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"base1":0,"base2":0,"alive":[true,true],"closed":1,"events":1,"commission_n":[1,1]}
+{"type":"sample","t_us":2729000,"sf":1,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[2,2],"closed":2}
+{"type":"sample","t_us":4129000,"sf":2,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[3,3],"closed":3}
+{"type":"sample","t_us":5529000,"sf":3,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[4,4],"closed":4}
+{"type":"sample","t_us":6929000,"sf":4,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[5,5],"closed":5}
+{"type":"sample","t_us":8329000,"sf":5,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[6,6],"closed":6}
+{"type":"sample","t_us":9729000,"sf":6,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[7,7],"closed":7}
+{"type":"sample","t_us":11129000,"sf":7,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[8,8],"closed":8}
+{"type":"sample","t_us":12529000,"sf":8,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[9,9],"closed":9}
+{"type":"sample","t_us":13929000,"sf":9,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[10,10],"closed":10}
+{"type":"sample","t_us":15329000,"sf":10,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[11,11],"closed":11}
+{"type":"sample","t_us":16729000,"sf":11,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[12,12],"closed":12}
+{"type":"sample","t_us":18129000,"sf":12,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[13,13],"closed":13}
+{"type":"sample","t_us":19529000,"sf":13,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[14,14],"closed":14}
+{"type":"sample","t_us":20929000,"sf":14,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[15,15],"closed":15}
+{"type":"sample","t_us":22329000,"sf":15,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[16,16],"closed":16}
+{"type":"sample","t_us":23729000,"sf":16,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[17,17],"closed":17}
+{"type":"sample","t_us":25129000,"sf":17,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[18,18],"closed":18}
+{"type":"sample","t_us":26529000,"sf":18,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[19,19],"closed":19}
+{"type":"sample","t_us":27929000,"sf":19,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":20}
+{"type":"sample","t_us":29329000,"sf":20,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9358,"r2":0.9828,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":21}
+{"type":"change","t_us":29329000,"sf":20,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9358,"r2":0.9828,"base1":75.2,"base2":102.6,"alive":[true,true],"closed":21,"events":2,"commission_n":[20,20]}
+{"type":"sample","t_us":30729000,"sf":21,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8064,"r2":1.0048,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":22}
+{"type":"sample","t_us":32129000,"sf":22,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8649,"r2":1.0813,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":23}
+{"type":"sample","t_us":33529000,"sf":23,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0053,"r2":1.0459,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":24}
+{"type":"sample","t_us":34929000,"sf":24,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8928,"r2":1.3929,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":25}
+{"type":"sample","t_us":36329000,"sf":25,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0616,"r2":1.0468,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":26}
+{"type":"sample","t_us":37729000,"sf":26,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0467,"r2":0.7833,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":27}
+{"type":"sample","t_us":39129000,"sf":27,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.1971,"r2":1.1663,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":28}
+{"type":"sample","t_us":40529000,"sf":28,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0896,"r2":1.0384,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":29}
+{"type":"sample","t_us":41929000,"sf":29,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.1241,"r2":0.9975,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":30}
+{"type":"sample","t_us":43329000,"sf":30,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9508,"r2":0.8909,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":31}
+{"type":"sample","t_us":44729000,"sf":31,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8781,"r2":1.0514,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":32}
+{"type":"sample","t_us":46129000,"sf":32,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0725,"r2":1.0412,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":33}
+{"type":"sample","t_us":47529000,"sf":33,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8888,"r2":0.9413,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":34}
+{"type":"sample","t_us":48929000,"sf":34,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.1308,"r2":1.1895,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":35}
+{"type":"sample","t_us":50329000,"sf":35,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0709,"r2":1.0556,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":36}
+{"type":"sample","t_us":51729000,"sf":36,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.1437,"r2":1.0022,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":37}
+{"type":"sample","t_us":53129000,"sf":37,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8931,"r2":1.0297,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":38}
+{"type":"sample","t_us":54529000,"sf":38,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0755,"r2":0.8075,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":39}
+{"type":"sample","t_us":55929000,"sf":39,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9489,"r2":0.8936,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":40}
+{"type":"sample","t_us":57329000,"sf":40,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":7.4017,"r2":1.4679,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":41}
+{"type":"begin","t_us":57329000,"sf":40,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":7.4017,"r2":1.4679,"base1":75.2,"base2":102.6,"alive":[true,true],"closed":41,"events":3,"commission_n":[20,20]}
+{"type":"sample","t_us":58729000,"sf":41,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":6.4177,"r2":1.1103,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":42}
+{"type":"sample","t_us":60129000,"sf":42,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":5.4833,"r2":1.1405,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":43}
+{"type":"sample","t_us":61529000,"sf":43,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":5.3978,"r2":1.2972,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":44}
+{"type":"sample","t_us":62929000,"sf":44,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":4.3988,"r2":1.175,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":45}
+{"type":"sample","t_us":64329000,"sf":45,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":4.1215,"r2":0.8652,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":46}
+{"type":"sample","t_us":65729000,"sf":46,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9411,"r2":1.0982,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":47}
+{"type":"change","t_us":65729000,"sf":46,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9411,"r2":1.0982,"base1":75.2,"base2":102.6,"alive":[true,true],"closed":47,"events":4,"commission_n":[20,20]}
+{"type":"sample","t_us":67129000,"sf":47,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9098,"r2":1.1645,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":48}
+{"type":"sample","t_us":68529000,"sf":48,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9046,"r2":0.773,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":49}
+{"type":"sample","t_us":69929000,"sf":49,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9305,"r2":0.948,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":50}
+{"type":"sample","t_us":71329000,"sf":50,"class":"BUILDING","slave":0,"degraded_alive":0,"r1":4.7545,"r2":3.5816,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":51}
+{"type":"begin","t_us":71329000,"sf":50,"class":"BUILDING","slave":0,"degraded_alive":0,"r1":4.7545,"r2":3.5816,"base1":75.2,"base2":102.6,"alive":[true,true],"closed":51,"events":5,"commission_n":[20,20]}
+{"type":"sample","t_us":72729000,"sf":51,"class":"BUILDING","slave":0,"degraded_alive":0,"r1":3.9802,"r2":3.6634,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":52}
+{"type":"sample","t_us":74129000,"sf":52,"class":"BUILDING","slave":0,"degraded_alive":0,"r1":4.3391,"r2":3.5168,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":53}
+{"type":"sample","t_us":75529000,"sf":53,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.9166,"r2":2.2745,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":54}
+{"type":"change","t_us":75529000,"sf":53,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.9166,"r2":2.2745,"base1":75.2,"base2":102.6,"alive":[true,true],"closed":54,"events":6,"commission_n":[20,20]}
+{"type":"sample","t_us":76929000,"sf":54,"class":"BUILDING","slave":0,"degraded_alive":0,"r1":4.2829,"r2":2.8599,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":55}
+{"type":"begin","t_us":76929000,"sf":54,"class":"BUILDING","slave":0,"degraded_alive":0,"r1":4.2829,"r2":2.8599,"base1":75.2,"base2":102.6,"alive":[true,true],"closed":55,"events":7,"commission_n":[20,20]}
+{"type":"sample","t_us":78329000,"sf":55,"class":"BUILDING","slave":0,"degraded_alive":0,"r1":4.1271,"r2":2.9821,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":56}
+{"type":"sample","t_us":79729000,"sf":56,"class":"BUILDING","slave":0,"degraded_alive":0,"r1":4.8401,"r2":3.2984,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":57}
+{"type":"sample","t_us":81129000,"sf":57,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0328,"r2":1.0909,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":58}
+{"type":"change","t_us":81129000,"sf":57,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0328,"r2":1.0909,"base1":75.2,"base2":102.6,"alive":[true,true],"closed":58,"events":8,"commission_n":[20,20]}
+{"type":"sample","t_us":82529000,"sf":58,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.1764,"r2":1.2371,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":59}
+{"type":"sample","t_us":83929000,"sf":59,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0275,"r2":1.0066,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":60}
+{"type":"sample","t_us":85329000,"sf":60,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.1169,"r2":0.7705,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":61}
+{"type":"sample","t_us":86729000,"sf":61,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0681,"r2":1.0001,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":62}
+{"type":"sample","t_us":88129000,"sf":62,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0167,"r2":0.9031,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":63}
+{"type":"sample","t_us":89529000,"sf":63,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0316,"r2":1.2085,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":64}
+{"type":"status","t_us":89529000,"sf":63,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0316,"r2":1.2085,"base1":75.2,"base2":102.6,"alive":[true,true],"closed":64,"events":8,"commission_n":[20,20]}
+{"type":"sample","t_us":90929000,"sf":64,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9835,"r2":1.0337,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":65}
+{"type":"sample","t_us":92329000,"sf":65,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0522,"r2":1.1251,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":66}
+{"type":"sample","t_us":93729000,"sf":66,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.1781,"r2":0.9829,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":67}
+{"type":"sample","t_us":95129000,"sf":67,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9646,"r2":0.9805,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":68}
+{"type":"sample","t_us":96529000,"sf":68,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":0.9838,"r2":5.0773,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":69}
+{"type":"begin","t_us":96529000,"sf":68,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":0.9838,"r2":5.0773,"base1":75.2,"base2":102.6,"alive":[true,true],"closed":69,"events":9,"commission_n":[20,20]}
+{"type":"sample","t_us":97929000,"sf":69,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":1.2872,"r2":4.2729,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":70}
+{"type":"sample","t_us":99329000,"sf":70,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":1.0421,"r2":3.1837,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":71}
+{"type":"sample","t_us":100729000,"sf":71,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":1.2178,"r2":3.25,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":72}
+{"type":"sample","t_us":102129000,"sf":72,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0793,"r2":1.0087,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":73}
+{"type":"change","t_us":102129000,"sf":72,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0793,"r2":1.0087,"base1":75.2,"base2":102.6,"alive":[true,true],"closed":73,"events":10,"commission_n":[20,20]}
+{"type":"sample","t_us":103529000,"sf":73,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0164,"r2":1.0349,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":74}
+{"type":"sample","t_us":104929000,"sf":74,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.1389,"r2":1.1134,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":75}
+{"type":"sample","t_us":106329000,"sf":75,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0705,"r2":1.0507,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":76}
+{"type":"sample","t_us":107729000,"sf":76,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.893,"r2":0.9016,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":77}
+{"type":"sample","t_us":109129000,"sf":77,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0425,"r2":1.0261,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":78}
+{"type":"sample","t_us":110529000,"sf":78,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":1.1645,"r2":null,"alive":[true,false],"age":[0,1],"commission_n":[20,20],"closed":79}
+{"type":"change","t_us":110529000,"sf":78,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":1.1645,"r2":null,"base1":75.2,"base2":102.6,"alive":[true,false],"closed":79,"events":11,"commission_n":[20,20]}
+{"type":"sample","t_us":111929000,"sf":79,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":0.9991,"r2":null,"alive":[true,false],"age":[0,2],"commission_n":[20,20],"closed":80}
+{"type":"sample","t_us":113329000,"sf":80,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":1.0552,"r2":null,"alive":[true,false],"age":[0,3],"commission_n":[20,20],"closed":81}
+{"type":"sample","t_us":114729000,"sf":81,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":1.0402,"r2":null,"alive":[true,false],"age":[0,4],"commission_n":[20,20],"closed":82}
+{"type":"sample","t_us":116129000,"sf":82,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":1.0164,"r2":null,"alive":[true,false],"age":[0,5],"commission_n":[20,20],"closed":83}
+{"type":"sample","t_us":117529000,"sf":83,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":1.0564,"r2":null,"alive":[true,false],"age":[0,6],"commission_n":[20,20],"closed":84}
+{"type":"sample","t_us":118929000,"sf":84,"class":"LOCAL","slave":1,"degraded_alive":1,"r1":5.1934,"r2":null,"alive":[true,false],"age":[0,7],"commission_n":[20,20],"closed":85}
+{"type":"begin","t_us":118929000,"sf":84,"class":"LOCAL","slave":1,"degraded_alive":1,"r1":5.1934,"r2":null,"base1":75.2,"base2":102.6,"alive":[true,false],"closed":85,"events":12,"commission_n":[20,20]}
+{"type":"sample","t_us":120329000,"sf":85,"class":"LOCAL","slave":1,"degraded_alive":1,"r1":5.0771,"r2":null,"alive":[true,false],"age":[0,8],"commission_n":[20,20],"closed":86}
+{"type":"sample","t_us":121729000,"sf":86,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":0.9565,"r2":null,"alive":[true,false],"age":[0,9],"commission_n":[20,20],"closed":87}
+{"type":"change","t_us":121729000,"sf":86,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":0.9565,"r2":null,"base1":75.2,"base2":102.6,"alive":[true,false],"closed":87,"events":13,"commission_n":[20,20]}
+{"type":"sample","t_us":123129000,"sf":87,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":0.8985,"r2":null,"alive":[true,false],"age":[0,10],"commission_n":[20,20],"closed":88}
+{"type":"sample","t_us":124529000,"sf":88,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":1.1811,"r2":null,"alive":[true,false],"age":[0,11],"commission_n":[20,20],"closed":89}
+{"type":"sample","t_us":125929000,"sf":89,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":0.7721,"r2":null,"alive":[true,false],"age":[0,12],"commission_n":[20,20],"closed":90}
+{"type":"sample","t_us":127329000,"sf":90,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":1.2345,"r2":null,"alive":[true,false],"age":[0,13],"commission_n":[20,20],"closed":91}
+{"type":"sample","t_us":128729000,"sf":91,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":1.0442,"r2":null,"alive":[true,false],"age":[0,14],"commission_n":[20,20],"closed":92}
+{"type":"sample","t_us":130129000,"sf":92,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":1.0219,"r2":null,"alive":[true,false],"age":[0,15],"commission_n":[20,20],"closed":93}
+{"type":"sample","t_us":131529000,"sf":93,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":1.1341,"r2":null,"alive":[true,false],"age":[0,16],"commission_n":[20,20],"closed":94}
+{"type":"sample","t_us":132929000,"sf":94,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":1.0296,"r2":null,"alive":[true,false],"age":[0,17],"commission_n":[20,20],"closed":95}
+{"type":"sample","t_us":134329000,"sf":95,"class":"AMBIENT","slave":0,"degraded_alive":1,"r1":1.0226,"r2":null,"alive":[true,false],"age":[0,18],"commission_n":[20,20],"closed":96}
+{"type":"sample","t_us":135729000,"sf":96,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9188,"r2":0.807,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":97}
+{"type":"change","t_us":135729000,"sf":96,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9188,"r2":0.807,"base1":75.2,"base2":102.6,"alive":[true,true],"closed":97,"events":14,"commission_n":[20,20]}
+{"type":"sample","t_us":137129000,"sf":97,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.1248,"r2":0.7464,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":98}
+{"type":"sample","t_us":138529000,"sf":98,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8249,"r2":0.9019,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":99}
+{"type":"sample","t_us":139929000,"sf":99,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8937,"r2":1.0598,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":100}
+{"type":"restart","t_us":140629000,"epoch":354088948,"prev_epoch":2866824256}
+{"type":"sample","t_us":141958000,"sf":0,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7802,"r2":0.9435,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":101}
+{"type":"change","t_us":141958000,"sf":0,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7802,"r2":0.9435,"base1":75.2,"base2":102.6,"alive":[true,true],"closed":101,"events":15,"commission_n":[20,20]}
+{"type":"sample","t_us":143358000,"sf":1,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0701,"r2":1.0571,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":102}
+{"type":"sample","t_us":144758000,"sf":2,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9713,"r2":1.0714,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":103}
+{"type":"sample","t_us":146158000,"sf":3,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9211,"r2":0.9132,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":104}
+{"type":"sample","t_us":147558000,"sf":4,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.1155,"r2":1.1769,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":105}
+{"type":"sample","t_us":148958000,"sf":5,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0282,"r2":1.0131,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":106}
+{"type":"sample","t_us":150358000,"sf":6,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.1543,"r2":1.0805,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":107}
+{"type":"sample","t_us":151758000,"sf":7,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0082,"r2":1.1916,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":108}
+{"type":"sample","t_us":153158000,"sf":8,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8806,"r2":0.9793,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":109}
+{"type":"sample","t_us":154558000,"sf":9,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9415,"r2":0.9245,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":110}
+{"type":"sample","t_us":155958000,"sf":10,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.0067,"r2":0.9779,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":111}
+{"type":"sample","t_us":157358000,"sf":11,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9351,"r2":0.9439,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":112}
+{"type":"sample","t_us":158758000,"sf":12,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8709,"r2":1.0658,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":113}
+{"type":"sample","t_us":160158000,"sf":13,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.1123,"r2":0.9161,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":114}</script>
+<script>
+"use strict";
+(function(){
+var SCHEMA_MAX=2, CLASSES=["COMMISSIONING","AMBIENT","LOCAL","BUILDING","NO_DATA"];
+var CI={COMMISSIONING:0,AMBIENT:1,LOCAL:2,BUILDING:3,NO_DATA:4};
+var LIVE_CAP=200000, SAMPLE_CAP=150000;
+var $=function(id){return document.getElementById(id)};
+
+/* ---------- state ---------- */
+var S;
+function fresh(){
+  return {meta:null,mode:"none",source:"",demo:false,
+    ev:[],ts:[],hist:[],segs:[],
+    cL1:[],cL2:[],cB:[],lastEntry:[],lastChg:[],lastAlive1:[],lastAlive2:[],
+    sm:[],smT:[],nl:[],rs:[],tOff:0,lastT:0,rebased:0,
+    prevKey:-1,monStart:null,rmax:0,
+    stats:{ok:0,bad:0,ignored:0,other:0,outOfOrder:0,capped:0,samples:0,restarts:0,nodes:0},warns:{},
+    eLines:[],t0:0,tEnd:0,playhead:0,k:0,ks:0,playing:false,speed:10,
+    lastArrival:0,raw:[],port:null,reader:null};
+}
+S=fresh();
+var dirty=true, rafOn=false, lastFrame=0, lastTableK=-1, lastTableN=-1, lastTableT=0;
+
+/* ---------- parsing ---------- */
+function isNum(x){return typeof x==="number"&&isFinite(x)}
+function rv(x){return x===null?null:(isNum(x)?x:undefined)}
+function isCount(x){return isNum(x)&&x>=0&&Math.floor(x)===x}
+function common(o){
+  // fields shared by event and sample lines; returns null if invalid
+  if(!isNum(o.t_us)||o.t_us<0) return null;
+  if(!isCount(o.sf)) return null;
+  var c=CI[o["class"]]; if(c===undefined) return null;
+  if(o.slave!==0&&o.slave!==1&&o.slave!==2) return null;
+  var deg=o.degraded_alive;
+  if(deg===undefined&&o.type==="sample") deg=0;
+  if(deg!==0&&deg!==1&&deg!==2) return null;
+  var r1=rv(o.r1), r2=rv(o.r2); if(r1===undefined||r2===undefined) return null;
+  if(!Array.isArray(o.alive)||o.alive.length!==2||typeof o.alive[0]!=="boolean"||typeof o.alive[1]!=="boolean") return null;
+  return {type:o.type,t:o.t_us,sf:o.sf,cls:c,slave:o.slave,deg:deg,r1:r1,r2:r2,a1:o.alive[0],a2:o.alive[1]};
+}
+function cnOf(o,n){
+  // commission_n: optional [n1,n2] of counts; null for schema 1
+  if(o.commission_n===undefined) return true;
+  if(!Array.isArray(o.commission_n)||o.commission_n.length!==2||!isCount(o.commission_n[0])||!isCount(o.commission_n[1])) return false;
+  n.cn1=o.commission_n[0]; n.cn2=o.commission_n[1]; return true;
+}
+function normalise(o){
+  // event line (begin/change/status), schema 1 or 2; returns null if invalid
+  var n=common(o); if(!n) return null;
+  if(!isNum(o.base1)||!isNum(o.base2)||o.base1<0||o.base2<0) return null;
+  n.b1=o.base1; n.b2=o.base2;
+  n.closed=isNum(o.closed)?o.closed:null; n.events=isNum(o.events)?o.events:null;
+  n.cn1=null; n.cn2=null;
+  if(!cnOf(o,n)) return null;
+  return n;
+}
+function normaliseSample(o){
+  // schema 2 sample line
+  var n=common(o); if(!n) return null;
+  n.age1=null; n.age2=null;
+  if(!Array.isArray(o.age)||o.age.length!==2) return null;
+  for(var i=0;i<2;i++){
+    var a=o.age[i]; if(a!==null&&!isCount(a)) return null;
+    if(i===0)n.age1=a; else n.age2=a;
+  }
+  n.cn1=null; n.cn2=null;
+  if(!cnOf(o,n)) return null;
+  n.closed=isNum(o.closed)?o.closed:null;
+  return n;
+}
+var E_RE=/^E,(\d+),([12]),(ALIVE|DEAD)\s*$/;
+function sfus(){return ((S.meta&&S.meta.superframe_s)||1.4)*1e6}
+function touch(t,live){ if(t>S.lastT)S.lastT=t; if(live)S.lastArrival=performance.now() }
+// returns "meta"|"event"|"bad"|"ignored"|"other"|"empty"
+function parseLine(line,live){
+  line=line.trim(); if(!line) return "empty";
+  var ch=line.charAt(0);
+  if(ch==="{"){
+    var o; try{o=JSON.parse(line)}catch(e){return live?"other":"bad"}
+    if(o===null||typeof o!=="object"||Array.isArray(o)) return "bad";
+    if(o.type==="meta"){
+      if(!isNum(o.schema)) return "bad";
+      var fl=null;
+      if(Array.isArray(o.floors)&&o.floors.length===2&&isNum(o.floors[0])&&isNum(o.floors[1])) fl=[o.floors[0],o.floors[1]];
+      S.meta={schema:o.schema,source:typeof o.source==="string"?o.source:null,rule:o.rule,T:isNum(o.T)?o.T:null,
+        commission_windows:isCount(o.commission_windows)&&o.commission_windows>0?o.commission_windows:20,
+        status_every_sf:o.status_every_sf,superframe_s:isNum(o.superframe_s)&&o.superframe_s>0?o.superframe_s:1.4,
+        floors:fl,epoch:isNum(o.epoch)?o.epoch:null,samples:o.samples===true};
+      if(o.schema<1||o.schema>SCHEMA_MAX) warn("schema","Log schema is "+o.schema+" but this dashboard understands schemas 1 and 2. Values may be wrong or missing.");
+      $("simFlag").hidden=!(S.meta.source==="netsim");
+      if(live) S.raw.push(line);
+      return "meta";
+    }
+    if(o.type==="begin"||o.type==="change"||o.type==="status"){
+      var n=normalise(o); if(!n) return "bad";
+      if(S.ev.length>=LIVE_CAP){S.stats.capped++;return "ignored"}
+      n.t+=S.tOff;
+      if(live) S.raw.push(line);
+      touch(n.t,live);
+      addEvent(n); return "event";
+    }
+    if(o.type==="sample"){
+      var m=normaliseSample(o); if(!m) return "bad";
+      if(S.sm.length>=SAMPLE_CAP){S.stats.capped++;return "ignored"}
+      m.t+=S.tOff;
+      if(live) S.raw.push(line);
+      touch(m.t,live);
+      addSample(m); S.stats.samples++; return "event";
+    }
+    if(o.type==="node"){
+      // immediate slave health change (schema 2, additive): {"type":"node","t_us","sf","slave":1|2,"state":"DEAD"|"ALIVE"}
+      if(!isNum(o.t_us)||o.t_us<0||!isCount(o.sf)||(o.slave!==1&&o.slave!==2)||(o.state!=="DEAD"&&o.state!=="ALIVE")) return "bad";
+      if(S.nl.length>=LIVE_CAP){S.stats.capped++;return "ignored"}
+      var tn=o.t_us+S.tOff;
+      S.nl.push({t:tn,sf:o.sf,slave:o.slave,alive:o.state==="ALIVE"});
+      S.stats.nodes++;
+      if(live) S.raw.push(line);
+      touch(tn,live); return "event";
+    }
+    if(o.type==="restart"){
+      if(!isNum(o.t_us)||o.t_us<0) return "bad";
+      var t=o.t_us+S.tOff;
+      if(t<S.lastT){  // the master clock started again at 0 (reboot): continue the timeline after the last line
+        S.tOff=S.lastT+sfus()-o.t_us; t=o.t_us+S.tOff; S.rebased++;
+      }
+      S.rs.push({t:t,epoch:isNum(o.epoch)?o.epoch:null,prev:isNum(o.prev_epoch)?o.prev_epoch:null,first:!S.ev.length&&!S.sm.length});
+      if(S.rs[S.rs.length-1].first===false) S.stats.restarts++;
+      if(live) S.raw.push(line);
+      touch(t,live); return "event";
+    }
+    return "ignored";
+  }
+  if(ch==="#"||ch==="R"||ch==="S"||ch==="E"){
+    var mm=E_RE.exec(line);
+    if(mm){S.eLines.push({tms:+mm[1],slave:+mm[2],alive:mm[3]==="ALIVE",after:S.ev.length});return "ignored"}
+    if(line.charAt(1)==="," || ch==="#") return "ignored";
+  }
+  return live?"other":"bad";
+}
+function count(res){
+  if(res==="meta"||res==="event")S.stats.ok++;
+  else if(res==="bad")S.stats.bad++;
+  else if(res==="ignored")S.stats.ignored++;
+  else if(res==="other")S.stats.other++;
+}
+function keyOf(e){return e.cls*100+e.slave*10+e.deg}
+function addEvent(e){
+  var i=S.ev.length;
+  S.ev.push(e); S.ts.push(e.t);
+  var st=e.type==="status", prevL1=i?S.cL1[i-1]:0, prevL2=i?S.cL2[i-1]:0, prevB=i?S.cB[i-1]:0, le=i?S.lastEntry[i-1]:-1, lc=i?S.lastChg[i-1]:-1;
+  if(!st){
+    S.hist.push(i); lc=i;
+    var k=keyOf(e);
+    if(k!==S.prevKey){
+      if(e.cls===2){ if(e.slave===1)prevL1++; else prevL2++; le=i; }
+      else if(e.cls===3){prevB++; le=i}
+    }
+    S.prevKey=k;
+  }
+  S.cL1.push(prevL1);S.cL2.push(prevL2);S.cB.push(prevB);S.lastEntry.push(le);S.lastChg.push(lc);
+  S.lastAlive1.push(e.a1?i:(i?S.lastAlive1[i-1]:-1));
+  S.lastAlive2.push(e.a2?i:(i?S.lastAlive2[i-1]:-1));
+  if(S.monStart===null&&e.cls!==0)S.monStart=e.t;
+  if(e.r1!==null&&e.r1>S.rmax)S.rmax=e.r1;
+  if(e.r2!==null&&e.r2>S.rmax)S.rmax=e.r2;
+  var sg=S.segs, kk=keyOf(e);
+  if(!sg.length||sg[sg.length-1].key!==kk) sg.push({key:kk,t:e.t,cls:e.cls,slave:e.slave,deg:e.deg});
+}
+function addSample(m){
+  S.sm.push(m); S.smT.push(m.t);
+  if(S.monStart===null&&m.cls!==0)S.monStart=m.t;
+  if(m.r1!==null&&m.r1>S.rmax)S.rmax=m.r1;
+  if(m.r2!==null&&m.r2>S.rmax)S.rmax=m.r2;
+}
+function warn(id,msg){S.warns[id]=msg;showMsgs()}
+function showMsgs(){
+  var box=$("msgs"),h="";
+  Object.keys(S.warns).forEach(function(k){h+='<div class="warn">'+esc(S.warns[k])+'</div>'});
+  var s=S.stats;
+  if(S.mode!=="none"){
+    h+='<div class="na" style="font-size:.85rem;margin-top:4px">Lines read: '+s.ok+' valid ('+S.ev.length+' events, '+s.samples+' samples, '+s.restarts+' restarts, '+s.nodes+' sensor health changes), '+s.bad+' malformed (skipped), '+s.ignored+' ignored (other types, R/S/E/# lines)'+(S.mode==="live"?', '+s.other+' other serial lines':'')+(s.outOfOrder?'; '+s.outOfOrder+' out of time order (re-sorted)':'')+(s.capped?'; '+s.capped+' dropped (buffer full)':'')+'.</div>';
+  }
+  box.innerHTML=h;
+}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+
+function finalise(){
+  // sort if the log is not in time order (rebuild derived arrays)
+  var ev=S.ev, bad=0, i;
+  for(i=1;i<ev.length;i++) if(ev[i].t<ev[i-1].t) bad++;
+  var sbad=0;
+  for(i=1;i<S.sm.length;i++) if(S.sm[i].t<S.sm[i-1].t) sbad++;
+  if(bad||sbad){
+    S.stats.outOfOrder=bad+sbad;
+    var sm=S.sm.slice().sort(function(a,b){return a.t-b.t});
+    ev=ev.slice().sort(function(a,b){return a.t-b.t});
+    resetDerived(); ev.forEach(addEvent); sm.forEach(addSample);
+    warn("order","The log was not in time order; lines were re-sorted by t_us.");
+  }
+  S.nl.sort(function(a,b){return a.t-b.t});
+  if(!S.meta) warn("meta","No meta line found: the threshold T and the floor numbers are unknown and no schema check was possible.");
+  if(!S.ev.length&&!S.sm.length) warn("empty","No valid events found in this input.");
+  if(S.rebased) warn("rebase","The master clock restarted at 0 "+S.rebased+" time(s) (reboot); the timeline continues after the last line before each restart, so gaps are not shown.");
+  updateRange();
+}
+function resetDerived(){
+  var f=fresh(); ["ev","ts","hist","segs","cL1","cL2","cB","lastEntry","lastChg","lastAlive1","lastAlive2","sm","smT"].forEach(function(k){S[k]=f[k]});
+  S.prevKey=-1;S.monStart=null;S.rmax=0;
+}
+function updateRange(){
+  var a=[],b=[];
+  if(S.ev.length){a.push(S.ev[0].t);b.push(S.ev[S.ev.length-1].t)}
+  if(S.sm.length){a.push(S.sm[0].t);b.push(S.sm[S.sm.length-1].t)}
+  if(S.rs.length){a.push(S.rs[0].t);b.push(S.rs[S.rs.length-1].t)}
+  if(S.nl.length){a.push(S.nl[0].t);b.push(S.nl[S.nl.length-1].t)}
+  if(!a.length){S.t0=0;S.tEnd=0;return}
+  S.t0=Math.min.apply(null,a);
+  S.tEnd=Math.max.apply(null,b)+2*sfus();
+}
+
+/* ---------- loading ---------- */
+function startSource(mode,name,demo){
+  stopLive(true);
+  S=fresh(); S.mode=mode; S.source=name; S.demo=demo;
+  S.speed=+$("speed").value;
+  lastTableK=-1;
+  $("srcBadge").textContent=name;
+  $("demoFlag").hidden=!demo;
+  $("simFlag").hidden=true;
+  $("transport").hidden=(mode==="live");
+  $("liveBar").hidden=(mode!=="live");
+  $("dlBtn").hidden=(mode!=="live");
+  $("serBtn").textContent=(mode==="live")?"Disconnect":"Connect to master (USB)";
+  setPlayBtn();
+}
+function yieldUI(){return new Promise(function(r){setTimeout(r,0)})}
+async function loadText(text,name,demo){
+  startSource("replay",name,demo);
+  var my=S, lines=text.split(/\r?\n/), CH=4000;
+  $("bSub").textContent="Reading "+lines.length+" lines...";
+  for(var i=0;i<lines.length;i++){
+    count(parseLine(lines[i],false));
+    if(i%CH===CH-1){ await yieldUI(); if(S!==my) return; }
+  }
+  finalise(); showMsgs();
+  S.playhead=S.t0; S.k=0; S.ks=0;
+  if(demo) togglePlay(true);
+  dirty=true; schedule();
+}
+function loadDemo(){ return loadText($("demo-data").textContent,"Demo (synthetic)",true) }
+function loadFile(f){
+  if(!f) return;
+  f.text().then(function(t){ loadText(t,f.name,false) },function(e){ startSource("none","error",false); warn("read","Could not read the file: "+e) });
+}
+var SIM_URL="demo_events_sim.jsonl";
+async function loadSim(){
+  var text;
+  try{
+    var r=await fetch(SIM_URL,{cache:"no-store"});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    text=await r.text();
+  }catch(e){
+    var fileUrl=(location.protocol==="file:");
+    warn("sim",(fileUrl?"This page is opened from disk (file://) and the browser does not let it read other files, so "+SIM_URL+" could not be loaded automatically. ":"Could not fetch "+SIM_URL+" ("+(e&&e.message||e)+"). ")+
+      "Choose "+SIM_URL+" (it is in the same folder as this page, dashboard/) in the file picker, or drop it on the page.");
+    try{ $("file").click() }catch(_){}
+    return;
+  }
+  return loadText(text,"Simulated log ("+SIM_URL+")",false);
+}
+
+/* ---------- live (Web Serial) ---------- */
+async function connectSerial(){
+  if(!("serial" in navigator)){return}
+  var port;
+  try{ port=await navigator.serial.requestPort(); await port.open({baudRate:115200}); }
+  catch(e){ if(e&&e.name==="NotFoundError") return; warn("serial","Could not open the serial port: "+(e&&e.message||e)+" (is another program using it?)"); return; }
+  startSource("live","Live: USB serial",false);
+  S.port=port; S.lastArrival=performance.now();
+  $("liveInfo").textContent="Waiting for JSON event lines from the master...";
+  showMsgs();
+  readLoop(port,S);
+  dirty=true; schedule();
+}
+async function readLoop(port,my){
+  var dec=new TextDecoder(), buf="";
+  try{
+    while(port.readable&&S===my){
+      var reader=port.readable.getReader(); my.reader=reader;
+      try{
+        while(S===my){
+          var r=await reader.read(); if(r.done)break;
+          buf+=dec.decode(r.value,{stream:true});
+          var parts=buf.split("\n"); buf=parts.pop();
+          if(buf.length>20000)buf="";
+          for(var i=0;i<parts.length;i++) count(parseLine(parts[i],true));
+          if(parts.length){ if(S.mode==="live"){showMsgs();dirty=true;schedule()} }
+        }
+      }finally{ try{reader.releaseLock()}catch(e){} }
+      if(S!==my)break;
+    }
+  }catch(e){ if(S===my) warn("serial","Serial read error: "+(e&&e.message||e)) }
+  finally{ if(S===my){$("liveBadge").textContent="○ DISCONNECTED";$("liveBadge").className="pill bad"} try{await port.close()}catch(e){} }
+}
+function stopLive(){
+  var r=S.reader;
+  S.port=null;
+  if(r){try{r.cancel()}catch(e){}}
+}
+function downloadRaw(){
+  // every meta / restart / sample / event line as received (restart lines keep the master's own clock)
+  var b=new Blob([S.raw.join("\n")+"\n"],{type:"text/plain"}), a=document.createElement("a");
+  a.href=URL.createObjectURL(b); a.download="captured_events.jsonl"; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){URL.revokeObjectURL(a.href)},2000);
+}
+
+/* ---------- playback ---------- */
+function ub(a,t){ // number of entries with a[i]<=t
+  var lo=0,hi=a.length;
+  while(lo<hi){var m=(lo+hi)>>1; if(a[m]<=t)lo=m+1; else hi=m}
+  return lo;
+}
+function setPlayhead(t){
+  if(S.mode==="live") return;
+  t=Math.max(S.t0,Math.min(S.tEnd,t)); S.playhead=t; S.k=ub(S.ts,t); S.ks=ub(S.smT,t); dirty=true; schedule();
+}
+function togglePlay(force){
+  if(S.mode!=="replay"||!(S.ev.length||S.sm.length)) return;
+  var want=(typeof force==="boolean")?force:!S.playing;
+  if(want&&S.playhead>=S.tEnd) setPlayhead(S.t0);
+  S.playing=want; lastFrame=performance.now(); setPlayBtn(); schedule();
+}
+function setPlayBtn(){ $("bPlay").innerHTML=S.playing?"&#10074;&#10074; Pause":"&#9654; Play" }
+function step(dir){
+  if(S.mode!=="replay"||!(S.ev.length||S.sm.length)) return;
+  S.playing=false; setPlayBtn();
+  var k=S.k;
+  if(!S.ev.length){ // samples only: step one sample
+    var ks=S.ks, j2=dir>0?ks:ks-2;
+    setPlayhead(j2>=0&&j2<S.sm.length?S.sm[j2].t:(dir>0?S.tEnd:S.t0)); return;
+  }
+  if(dir>0){ if(k<S.ev.length) setPlayhead(S.ev[k].t); else setPlayhead(S.tEnd); }
+  else { var j=k-1; if(j>=0&&S.ev[j].t>=S.playhead-0.5) j--; setPlayhead(j>=0?S.ev[j].t:S.t0); }
+}
+function schedule(){ if(!rafOn){rafOn=true;requestAnimationFrame(frame)} }
+function frame(now){
+  rafOn=false;
+  if(S.playing){
+    var dt=Math.min(100,now-lastFrame); lastFrame=now;
+    S.playhead+=dt*1000*S.speed;
+    if(S.playhead>=S.tEnd){S.playhead=S.tEnd;S.playing=false;setPlayBtn()}
+    S.k=ub(S.ts,S.playhead); S.ks=ub(S.smT,S.playhead); dirty=true;
+  }
+  if(dirty){dirty=false;render(now)}
+  if(S.playing||S.mode==="live") {
+    if(S.mode==="live"&&!S.playing){ if(!liveTimer) liveTimer=setTimeout(function(){liveTimer=0;dirty=true;schedule()},1000); }
+    else schedule();
+  }
+}
+var liveTimer=0;
+
+/* ---------- formatting ---------- */
+function pad(n){return n<10?"0"+n:""+n}
+function fmtDur(s){
+  s=Math.max(0,s);
+  if(s<60) return s.toFixed(1)+" s";
+  var h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=Math.floor(s%60);
+  return h?(h+":"+pad(m)+":"+pad(x)):(m+":"+pad(x));
+}
+function fmtRel(us){ return fmtDur((us-S.t0)/1e6) }
+function fmtR(r){ return r===null?'<span class="na">no report</span>':r.toFixed(2) }
+function curTime(){
+  if(S.mode==="live"&&(S.ev.length||S.sm.length||S.rs.length)) return S.lastT+(performance.now()-S.lastArrival)*1000;
+  return S.playhead;
+}
+function floors(){return S.meta&&S.meta.floors?S.meta.floors:null}
+function lab(n){var f=floors(); return f?("floor "+f[n-1]):("sensor "+n)}
+function labFull(n){var f=floors(); return f?("floor "+f[n-1]+" (sensor "+n+")"):("sensor "+n+" (floor not in the log)")}
+var NAME=["Calibrating","Normal","Local event","Building-wide event","No data"];
+var GLYPH=["○","●","▲","■","◆"];
+var SCLS=["s-comm","s-ambient","s-local","s-building","s-nodata"];
+function stateText(e){
+  if(e.cls===2) return "Local event at "+labFull(e.slave);
+  return NAME[e.cls];
+}
+
+/* The state being shown: the latest sample (schema 2) if there is one, else the latest event (schema 1).
+   Baselines come from the latest event, which is the only line that carries them. */
+function view(k,ks){
+  var e=k?S.ev[k-1]:null, s=ks?S.sm[ks-1]:null;
+  if(s) return {src:"sample",t:s.t,sf:s.sf,cls:s.cls,slave:s.slave,deg:s.deg,r1:s.r1,r2:s.r2,a1:s.a1,a2:s.a2,
+    age1:s.age1,age2:s.age2,cn1:s.cn1,cn2:s.cn2,b1:e?e.b1:0,b2:e?e.b2:0,hasBase:!!e,ev:e};
+  if(!e) return null;
+  return {src:"event",t:e.t,sf:e.sf,cls:e.cls,slave:e.slave,deg:e.deg,r1:e.r1,r2:e.r2,a1:e.a1,a2:e.a2,
+    age1:undefined,age2:undefined,cn1:e.cn1,cn2:e.cn2,b1:e.b1,b2:e.b2,hasBase:true,ev:e};
+}
+
+/* Immediate health from `node` lines: a slave's DEAD / ALIVE change is shown at once, not at the next sample (which can carry it a
+   superframe later, or a status line up to about 90 s later in older logs). A node line counts only if it is at least as new as the
+   shown sample / event and newer than the last master restart (a restarted master starts with both slaves alive). Sample / event
+   `alive` values are used otherwise, exactly as before. Returns a copy of v with a1/a2 and nsrc[] (text for the Nodes card). */
+function nodeAt(t){ // index of the last node line with time <= t, -1 if none
+  var lo=0,hi=S.nl.length; while(lo<hi){var m=(lo+hi)>>1; if(S.nl[m].t<=t)lo=m+1; else hi=m} return lo-1;
+}
+function applyNodes(v){
+  if(!v||!S.nl.length) return v;
+  var cur=curTime(), j=nodeAt(cur); if(j<0) return v;
+  var rst=lastRestart(cur), floorT=Math.max(v.t,rst?rst.t+1:0);
+  var out=null, seen=[false,false];
+  for(;j>=0&&S.nl[j].t>=floorT&&!(seen[0]&&seen[1]);j--){
+    var n=S.nl[j], i=n.slave-1;
+    if(seen[i]) continue;
+    seen[i]=true;
+    if((i===0?v.a1:v.a2)===n.alive) continue;   // the sample / event already says so
+    if(!out){ out={}; for(var k2 in v) out[k2]=v[k2]; out.nsrc=["",""]; out.nchg=[null,null]; }
+    if(i===0) out.a1=n.alive; else out.a2=n.alive;
+    out.nsrc[i]=" (from the sensor health line at "+fmtRel(n.t)+", superframe "+n.sf+")";
+    out.nchg[i]=n;
+  }
+  return out||v;
+}
+
+/* ---------- colours ---------- */
+var CSS;
+function readColors(){
+  var cs=getComputedStyle(document.documentElement), g=function(n){return cs.getPropertyValue(n).trim()};
+  CSS={comm:g("--comm"),ambient:g("--ambient"),local:g("--local"),building:g("--building"),nodata:g("--nodata"),
+    text:g("--text"),muted:g("--muted"),line:g("--line"),card:g("--card"),r1:g("--r1"),r2:g("--r2")};
+  patCache={};
+}
+var patCache={};
+function pattern(ctx,kind,color){
+  var key=kind+color; if(patCache[key]) return patCache[key];
+  var c=document.createElement("canvas"); c.width=c.height=8; var x=c.getContext("2d");
+  x.fillStyle=CSS.card; x.fillRect(0,0,8,8);
+  x.fillStyle=color; x.strokeStyle=color; x.lineWidth=2;
+  if(kind==="solid"){x.globalAlpha=.55;x.fillRect(0,0,8,8)}
+  else if(kind==="dots"){x.beginPath();x.arc(4,4,1.6,0,7);x.fill()}
+  else if(kind==="fwd"){x.beginPath();x.moveTo(0,8);x.lineTo(8,0);x.moveTo(-2,2);x.lineTo(2,-2);x.moveTo(6,10);x.lineTo(10,6);x.stroke()}
+  else if(kind==="back"){x.beginPath();x.moveTo(0,0);x.lineTo(8,8);x.moveTo(-2,6);x.lineTo(2,10);x.moveTo(6,-2);x.lineTo(10,2);x.stroke()}
+  else if(kind==="cross"){x.fillRect(0,0,8,8);x.strokeStyle=CSS.card;x.lineWidth=1.5;x.beginPath();x.moveTo(0,0);x.lineTo(8,8);x.moveTo(8,0);x.lineTo(0,8);x.stroke()}
+  else if(kind==="check"){x.fillRect(0,0,4,4);x.fillRect(4,4,4,4)}
+  return (patCache[key]=ctx.createPattern(c,"repeat"));
+}
+function segPattern(ctx,s){
+  if(s.cls===0) return pattern(ctx,"dots",CSS.comm);
+  if(s.cls===1) return pattern(ctx,"solid",CSS.ambient);
+  if(s.cls===2) return pattern(ctx,s.slave===1?"fwd":"back",CSS.local);
+  if(s.cls===3) return pattern(ctx,"cross",CSS.building);
+  return pattern(ctx,"check",CSS.nodata);
+}
+function setupCanvas(cv){
+  var dpr=window.devicePixelRatio||1, w=cv.clientWidth, h=cv.clientHeight;
+  if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr)}
+  var ctx=cv.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+  return {ctx:ctx,w:w,h:h};
+}
+
+/* ---------- rendering ---------- */
+function floorState(v,i){ // i = 0|1 (sensor index)
+  if(!v) return "none";
+  var alive=i===0?v.a1:v.a2;
+  if(!alive) return "dead";
+  if(v.cls===0) return "comm";
+  if(v.cls===4) return "nodata";
+  if(v.cls===3) return "building";
+  if(v.cls===2&&v.slave===i+1) return "local";
+  return "ambient";
+}
+var FS={
+  none:{c:"--muted",t:"No data",g:"",fill:"var(--tint-comm)",dash:"6 5"},
+  dead:{c:"--muted",t:"Sensor offline",g:"✖",fill:"var(--tint-nodata)",dash:"6 5"},
+  comm:{c:"--comm",t:"Calibrating",g:"○",fill:"var(--tint-comm)",dash:""},
+  nodata:{c:"--nodata",t:"No data",g:"◆",fill:"var(--tint-nodata)",dash:"6 5"},
+  building:{c:"--building",t:"Building-wide event",g:"■",fill:"var(--tint-building)",dash:""},
+  local:{c:"--local",t:"Local event",g:"▲",fill:"var(--tint-local)",dash:""},
+  ambient:{c:"--ambient",t:"Normal",g:"●",fill:"var(--tint-ambient)",dash:""}
+};
+// slot 1 = lower rectangle, slot 2 = upper rectangle; sensor i is drawn on the floor with the right number when the log says which
+function paintFloor(slot,v,i){
+  var st=FS[floorState(v,i)], r=$("f"+slot), f=floors();
+  r.style.fill=st.fill; r.style.stroke="var("+st.c+")"; r.setAttribute("stroke-dasharray",st.dash);
+  $("f"+slot+"t").textContent=st.g+" "+(f?("Floor "+f[i]+" · sensor "+(i+1)):("Sensor "+(i+1)));
+  $("f"+slot+"s").textContent=st.t;
+}
+function renderBanner(v){
+  var b=$("banner"), g=$("bGlyph"), t=$("bText"), s=$("bSub"), c=$("bChip");
+  if(!v){
+    b.className="card s-comm"; g.textContent="○";
+    t.textContent=S.mode==="live"?"Waiting for events from the master":(S.mode==="replay"&&(S.ev.length||S.sm.length)?"Press play to start the replay":"No data yet");
+    s.textContent=S.mode==="none"?"Run the demo, open a log file or connect to the master.":"";
+    c.innerHTML=""; return;
+  }
+  b.className="card "+SCLS[v.cls]; g.textContent=GLYPH[v.cls];
+  t.textContent=stateText(v);
+  var sub="";
+  if(v.cls===0) sub="Learning each floor's normal vibration level. Do not shake the model.";
+  else if(v.cls===1) sub="Only ordinary background vibration.";
+  else if(v.cls===2) sub="Only the "+lab(v.slave)+" sensor is vibrating strongly; the other floor is calm.";
+  else if(v.cls===3) sub="Both floors are vibrating strongly at the same time.";
+  else sub="Neither sensor has delivered a report.";
+  var lc=(S.mode==="live"?S.ev.length:S.k)-1, since=lc>=0?S.lastChg[lc]:-1;
+  if(since>=0) sub+=" Since "+fmtRel(S.ts[since])+" into the log (superframe "+S.ev[since].sf+").";
+  else sub+=" Latest line at "+fmtRel(v.t)+" into the log (superframe "+v.sf+").";
+  s.textContent=sub;
+  var h="";
+  if(v.deg) h+='<span class="chip">⚠ Degraded: only sensor '+v.deg+' ('+esc(lab(v.deg))+') is reporting'+(v.deg===1?' (sensor 2 is offline)':' (sensor 1 is offline)')+'. Building-wide events cannot be told apart from local ones.</span>';
+  if(v.nchg) for(var q=0;q<2;q++) if(v.nchg[q]) h+=v.nchg[q].alive?
+    '<span class="chip">✔ Sensor '+(q+1)+' ('+esc(lab(q+1))+') is reporting again (health line at '+fmtRel(v.nchg[q].t)+'); the classification catches up at the next superframe.</span>':
+    '<span class="chip">⚠ Sensor '+(q+1)+' ('+esc(lab(q+1))+') went offline (health line at '+fmtRel(v.nchg[q].t)+'); the classification below catches up at the next superframe.</span>';
+  var rst=lastRestart(curTime());
+  if(rst&&curTime()-rst.t<60e6) h+='<span class="chip">⟳ Master restarted '+fmtDur((curTime()-rst.t)/1e6)+' ago: baselines are kept, sensors resync within a few superframes.</span>';
+  if(v.cls===0&&v.cn1!==null&&v.cn1!==undefined){
+    var N=(S.meta&&S.meta.commission_windows)||20;
+    h+='<div class="prog" aria-label="Calibration progress">'+
+      [1,2].map(function(n){var c2=n===1?v.cn1:v.cn2;
+        return '<label>'+esc(labFull(n))+' <progress max="'+N+'" value="'+Math.min(c2,N)+'"></progress> '+c2+' / '+N+' reports</label>'}).join("")+'</div>';
+  }
+  c.innerHTML=h;
+}
+function lastRestart(t){
+  var r=null;
+  for(var i=0;i<S.rs.length;i++){ if(S.rs[i].first) continue; if(S.rs[i].t<=t) r=S.rs[i]; else break }
+  return r;
+}
+function renderNodes(v,k,now){
+  var h="", N=(S.meta&&S.meta.commission_windows)||20;
+  var ls=[S.lastAlive1[k-1]===undefined?-1:S.lastAlive1[k-1],S.lastAlive2[k-1]===undefined?-1:S.lastAlive2[k-1]];
+  var alive=[v?v.a1:null,v?v.a2:null], src=[v&&v.nsrc?v.nsrc[0]:"",v&&v.nsrc?v.nsrc[1]:""];
+  if(S.mode==="live"&&S.eLines.length){
+    var last=[null,null];
+    S.eLines.forEach(function(x){last[x.slave-1]=x});
+    for(var i=0;i<2;i++) if(last[i]&&last[i].after>=S.ev.length&&!S.sm.length){alive[i]=last[i].alive;src[i]=" (from serial E line at master t="+last[i].tms+" ms)"}
+  }
+  var cur=curTime(), sfs=sfus()/1e6;
+  for(var i=0;i<2;i++){
+    var a=alive[i], base=v?(i?v.b2:v.b1):null, r=v?(i?v.r2:v.r1):null;
+    var pill=a===null?'<span class="pill unk">? Unknown</span>':(a?'<span class="pill ok">✔ Alive</span>':'<span class="pill bad">✖ Dead</span>');
+    var seen, age=v?(i?v.age2:v.age1):undefined;
+    if(v&&v.src==="sample"){
+      if(age===null) seen="No report received yet since the master started";
+      else if(age===0) seen="Reported in the latest superframe (superframe "+v.sf+")";
+      else seen="Last report "+age+" superframe"+(age===1?"":"s")+" ago (about "+fmtDur(age*sfs)+" before the log line at "+fmtRel(v.t)+")";
+    } else {
+      if(ls[i]>=0) seen="Last logged alive "+fmtDur((cur-S.ts[ls[i]])/1e6)+" ago (at "+fmtRel(S.ts[ls[i]])+"). Exact last-report age: <span class='na'>not available (schema 1 log)</span>";
+      else seen="Not seen alive in the log yet";
+    }
+    var cn=v?(i?v.cn2:v.cn1):null, calib="";
+    if(v&&cn!==null&&cn!==undefined&&(v.cls===0||!(base>0))) calib=' &middot; calibration '+cn+' / '+N+' reports';
+    h+='<div class="node"><div><b>Sensor '+(i+1)+'</b> ('+esc(labFull(i+1))+')'+esc(src[i])+'<small>'+seen+'</small>'+
+       '<small>Baseline: '+(base===null||(v&&!v.hasBase)?'<span class="na">n/a</span>':(base>0?base.toFixed(1)+' counts':'<span class="na">not known yet (calibrating)</span>'))+calib+' &middot; r now: '+(v?fmtR(r):'n/a')+'</small></div>'+pill+'</div>';
+  }
+  var rr=S.rs.filter(function(x){return !x.first&&x.t<=cur}), m=S.meta;
+  var mtxt=S.sm.length||S.ev.length?"Has no sensor. It is the source of this log, so it is assumed running while lines arrive.":"Has no sensor.";
+  if(m&&m.epoch!==null) mtxt+=" Epoch (this boot): "+m.epoch+".";
+  if(rr.length) mtxt+=" Restarts seen: "+rr.length+", last at "+fmtRel(rr[rr.length-1].t)+" (new epoch "+(rr[rr.length-1].epoch===null?"unknown":rr[rr.length-1].epoch)+").";
+  if(S.mode==="live"&&S.lastArrival){
+    var quiet=(performance.now()-S.lastArrival)/1000;
+    if(quiet>10&&(S.sm.length||S.ev.length)) mtxt+=" NO LINE RECEIVED FOR "+fmtDur(quiet)+": the master may be off or unplugged.";
+  }
+  h+='<div class="node"><div><b>Master</b><small>'+esc(mtxt)+'</small></div><span class="pill unk">□ Log source</span></div>';
+  $("nodes").innerHTML=h;
+  var el=S.eLines.length?S.eLines[S.eLines.length-1]:null;
+  $("eInfo").textContent=el?("Last serial E line: master t="+el.tms+" ms, slave "+el.slave+" "+(el.alive?"ALIVE":"DEAD")+" ("+S.eLines.length+" E lines total)."):"";
+}
+function renderCounters(k,now){
+  var e=k?S.ev[k-1]:null, cur=curTime();
+  var l1=k?S.cL1[k-1]:0,l2=k?S.cL2[k-1]:0,bb=k?S.cB[k-1]:0, tot=l1+l2+bb;
+  var since;
+  var le=k?S.lastEntry[k-1]:-1;
+  since=le>=0?fmtDur((cur-S.ts[le])/1e6):'<span class="na">no events yet</span>';
+  var rate, mon=S.monStart===null?0:Math.max(0,(cur-S.monStart)/1e6);
+  if(S.monStart===null||mon<60) rate='<span class="na">needs 1 min of monitoring</span>';
+  else rate=(tot/(mon/3600)).toFixed(1)+(mon<600?' <span class="na">(short run, extrapolated)</span>':"");
+  function st(v,l,w){return '<div class="stat'+(w?" wide":"")+'"><b>'+v+'</b><span>'+l+'</span></div>'}
+  $("counters").innerHTML=
+    st(l1,"Local events, "+esc(labFull(1)))+st(l2,"Local events, "+esc(labFull(2)))+st(bb,"Building-wide events")+st(tot,"All events")+
+    st(since,"Time since last event",true)+
+    st(rate,"Events per hour of monitoring (after calibration). If nothing was really shaking the model, each one is a false alarm.",true)+
+    st(mon?fmtDur(mon):'<span class="na">0</span>',"Monitoring time since calibration finished",true)+
+    st(e&&e.events!==null?e.events:'<span class="na">n/a</span>',"Master's own event counter (begin + change lines)",true);
+}
+function renderHist(k,now){
+  var nnow=nodeAt(curTime())+1;
+  if(k===lastTableK&&nnow===lastTableN&&now-lastTableT<500) return;
+  lastTableK=k; lastTableN=nnow; lastTableT=now;
+  var hs=S.hist, n=0; // hs entries with index<k
+  var lo=0,hi=hs.length; while(lo<hi){var m=(lo+hi)>>1; if(hs[m]<k)lo=m+1; else hi=m} n=lo;
+  var start=Math.max(0,n-200), rows=[], cur=curTime();
+  for(var j=n-1;j>=start;j--){
+    var i=hs[j], e=S.ev[i], dur, ongoing=false;
+    if(j+1<n) dur=(S.ts[hs[j+1]]-e.t)/1e6; else {dur=(cur-e.t)/1e6; ongoing=true}
+    var fl=floors();
+    var where=e.cls===2?(fl?("floor "+fl[e.slave-1]):("sensor "+e.slave)):(e.cls===3?"both":"&ndash;");
+    rows.push({t:e.t,o:1,h:'<tr><td>'+(S.mode==="replay"?'<button type="button" data-t="'+e.t+'" aria-label="Jump to '+fmtRel(e.t)+'">'+fmtRel(e.t)+'</button>':fmtRel(e.t))+'</td><td>'+e.sf+'</td><td>'+e.type+'</td><td>'+GLYPH[e.cls]+' '+esc(stateText(e))+(e.deg?' (degraded)':'')+'</td><td>'+where+'</td><td>'+fmtR(e.r1)+'</td><td>'+fmtR(e.r2)+'</td><td>'+fmtDur(dur)+(ongoing?' (ongoing)':'')+'</td></tr>'});
+  }
+  // sensor health changes (node lines) up to the playhead, merged by time; a node line sorts before the event of the same instant
+  var nn=nodeAt(cur)+1, nstart=Math.max(0,nn-200);
+  for(var q=nn-1;q>=nstart;q--){
+    var nd=S.nl[q], fl2=floors(), dur2=null, ong=true;
+    for(var z=q+1;z<nn;z++) if(S.nl[z].slave===nd.slave){dur2=(S.nl[z].t-nd.t)/1e6; ong=false; break}
+    if(dur2===null) dur2=(cur-nd.t)/1e6;
+    var lbl=fl2?("floor "+fl2[nd.slave-1]):("sensor "+nd.slave);
+    rows.push({t:nd.t,o:0,h:'<tr><td>'+(S.mode==="replay"?'<button type="button" data-t="'+nd.t+'" aria-label="Jump to '+fmtRel(nd.t)+'">'+fmtRel(nd.t)+'</button>':fmtRel(nd.t))+'</td><td>'+nd.sf+'</td><td>node</td><td>'+(nd.alive?'✔ Sensor '+nd.slave+' alive again':'✖ Sensor '+nd.slave+' offline')+'</td><td>'+lbl+'</td><td>&ndash;</td><td>&ndash;</td><td>'+(nd.alive?'&ndash;':fmtDur(dur2)+(ong?' (ongoing)':''))+'</td></tr>'});
+  }
+  rows.sort(function(a,b){return b.t-a.t||a.o-b.o});
+  var h=rows.slice(0,200).map(function(r){return r.h}).join("");
+  $("hist").innerHTML=h||'<tr><td colspan="8" class="na">No begin/change events yet.</td></tr>';
+  var nodeTxt=nn?(", "+nn+" sensor health change"+(nn===1?"":"s")):"";
+  $("histNote").textContent=(n>200?("Showing the latest 200 of "+n+" begin/change events"):(n?n+" begin/change events":"No begin/change events"))+nodeTxt+" (periodic status lines are not listed).";
+}
+function renderTimeline(k){
+  var c=$("tl"), o=setupCanvas(c), ctx=o.ctx, W=o.w, H=o.h;
+  var sg=S.segs, span=Math.max(1,S.mode==="live"?curTime()-S.t0:S.tEnd-S.t0);
+  if(!sg.length){ctx.fillStyle=CSS.muted;ctx.font="13px system-ui";ctx.fillText("No data",8,20);return}
+  var xs=function(t){return (t-S.t0)/span*W};
+  var tEnd=S.mode==="live"?curTime():S.tEnd, rowH=H-22, barY=0;
+  for(var i=0;i<sg.length;i++){
+    var s=sg[i], x0=xs(s.t), x1=xs(i+1<sg.length?sg[i+1].t:tEnd), w=Math.max(1,x1-x0);
+    ctx.fillStyle=segPattern(ctx,s); ctx.fillRect(x0,barY,w,rowH);
+    ctx.fillStyle=CSS.text; ctx.fillRect(x0,barY,1,rowH);
+    if(w>22){ctx.fillStyle=CSS.text;ctx.font="bold 13px system-ui";
+      var lab2=s.cls===2?"▲"+s.slave:GLYPH[s.cls]; ctx.fillStyle=CSS.card; ctx.fillRect(x0+2,barY+2,ctx.measureText(lab2).width+6,18); ctx.fillStyle=CSS.text; ctx.fillText(lab2,x0+5,barY+16);}
+    if(s.deg){ctx.fillStyle=pattern(ctx,"fwd",CSS.text);ctx.fillRect(x0,rowH+4,w,8)}
+  }
+  ctx.strokeStyle=CSS.text;ctx.lineWidth=1;ctx.strokeRect(.5,.5,W-1,rowH);
+  // master restarts: thick vertical line with an R
+  for(var q=0;q<S.rs.length;q++){ if(S.rs[q].first) continue; var rx=xs(S.rs[q].t);
+    ctx.fillStyle=CSS.text;ctx.fillRect(rx-1.5,0,3,rowH+2);
+    ctx.fillStyle=CSS.card;ctx.fillRect(rx+3,rowH-17,14,15);ctx.fillStyle=CSS.text;ctx.font="bold 12px system-ui";ctx.fillText("R",rx+6,rowH-5);}
+  ctx.fillStyle=CSS.muted;ctx.font="11px system-ui";ctx.fillText("degraded (one sensor offline) = striped bar; R = master restart",4,H-1);
+  if(S.mode==="replay"){
+    var px=xs(S.playhead);
+    ctx.fillStyle="rgba(128,128,128,.35)"; ctx.fillRect(px,0,W-px,rowH);
+    ctx.fillStyle=CSS.text; ctx.fillRect(px-1,0,3,H-14);
+  }
+  c.setAttribute("aria-label","Timeline of states over time. "+sg.length+" state segments.");
+}
+function chartSrc(){
+  var useS=S.sm.length>0, live=S.mode==="live";
+  return {arr:useS?S.sm:S.ev, ts:useS?S.smT:S.ts, k:useS?(live?S.sm.length:S.ks):(live?S.ev.length:S.k), what:useS?"sample":"event"};
+}
+function renderChart(){
+  var cs=chartSrc(), arr=cs.arr, tsA=cs.ts, k=cs.k;
+  var c=$("chart"), o=setupCanvas(c), ctx=o.ctx, W=o.w, H=o.h, L=44, R=10, Tp=10, B=26;
+  var pw=W-L-R, ph=H-Tp-B, T=S.meta&&S.meta.T!==null?S.meta.T:null;
+  var span=Math.max(1,S.mode==="live"?curTime()-S.t0:S.tEnd-S.t0);
+  var ymax=Math.max(T!==null?T*1.5:2,S.rmax*1.1,2);
+  var xs=function(t){return L+(t-S.t0)/span*pw}, ys=function(v){return Tp+ph-Math.min(v,ymax)/ymax*ph};
+  ctx.font="11px system-ui";ctx.lineWidth=1;
+  var step=ymax>20?5:ymax>10?2:1;
+  for(var v=0;v<=ymax;v+=step){ctx.strokeStyle=CSS.line;ctx.beginPath();ctx.moveTo(L,ys(v)+.5);ctx.lineTo(W-R,ys(v)+.5);ctx.stroke();ctx.fillStyle=CSS.muted;ctx.textAlign="right";ctx.fillText(String(v),L-5,ys(v)+4)}
+  ctx.textAlign="center";
+  var nt=Math.max(2,Math.min(8,Math.floor(pw/90)));
+  for(var q=0;q<=nt;q++){var tt=S.t0+span*q/nt;ctx.fillStyle=CSS.muted;ctx.fillText(fmtDur((tt-S.t0)/1e6),xs(tt),H-8)}
+  ctx.textAlign="left";
+  for(var z=0;z<S.rs.length;z++){ if(S.rs[z].first) continue; var zx=xs(S.rs[z].t); ctx.strokeStyle=CSS.text;ctx.lineWidth=1;ctx.setLineDash([2,3]);ctx.beginPath();ctx.moveTo(zx+.5,Tp);ctx.lineTo(zx+.5,Tp+ph);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=CSS.text;ctx.fillText("restart",zx+3,Tp+ph-4)}
+  if(T!==null){
+    ctx.strokeStyle=CSS.building;ctx.lineWidth=2;ctx.setLineDash([7,4]);ctx.beginPath();ctx.moveTo(L,ys(T));ctx.lineTo(W-R,ys(T));ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle=CSS.building;ctx.font="bold 11px system-ui";ctx.fillText("event threshold T = "+T,L+6,ys(T)-4);
+  } else { ctx.fillStyle=CSS.muted;ctx.fillText("threshold T not available (no meta line)",L+6,Tp+12) }
+  [["r1",CSS.r1,false],["r2",CSS.r2,true]].forEach(function(sr){
+    var key=sr[0],col=sr[1],sq=sr[2];
+    ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=2;
+    if(sq)ctx.setLineDash([6,3]);
+    var dense=k>pw*2, i, r, x, y;
+    if(!dense){
+      var gap=sfus()*2.5;   // a hole longer than this is not joined (sensor offline, master restart)
+      ctx.beginPath();var pen=false, lastX=null;
+      for(i=0;i<k;i++){r=arr[i][key];if(r===null){pen=false;continue}
+        x=xs(tsA[i]);y=ys(r); if(pen&&lastX!==null&&tsA[i]-lastX<=gap)ctx.lineTo(x,y);else{ctx.moveTo(x,y);pen=true} lastX=tsA[i]}
+      ctx.stroke();ctx.setLineDash([]);
+      var mk=k>400?0:1;   // point markers only while they are not a smear
+      if(cs.what==="event"||mk) for(i=0;i<k;i++){r=arr[i][key];if(r===null)continue;x=xs(tsA[i]);y=ys(r);
+        if(sq)ctx.fillRect(x-3,y-3,6,6);else{ctx.beginPath();ctx.arc(x,y,3.2,0,7);ctx.fill()}}
+    } else {
+      ctx.setLineDash([]);var cx=-1,mn=0,mx=0;
+      var flush=function(){if(cx>=0){ctx.beginPath();ctx.moveTo(cx+.5,ys(mn));ctx.lineTo(cx+.5,ys(mx)-(mx===mn?1:0));ctx.stroke()}};
+      for(i=0;i<k;i++){r=arr[i][key];if(r===null)continue;var px2=Math.floor(xs(tsA[i]));
+        if(px2!==cx){flush();cx=px2;mn=mx=r}else{if(r<mn)mn=r;if(r>mx)mx=r}}
+      flush();
+    }
+    ctx.setLineDash([]);
+  });
+  // legend
+  ctx.font="12px system-ui";var lx=W-R-230;
+  ctx.fillStyle=CSS.card;ctx.fillRect(lx-4,Tp,230,18);
+  ctx.strokeStyle=CSS.r1;ctx.fillStyle=CSS.r1;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(lx,Tp+9);ctx.lineTo(lx+18,Tp+9);ctx.stroke();ctx.beginPath();ctx.arc(lx+9,Tp+9,3.2,0,7);ctx.fill();
+  ctx.fillText("r1 "+lab(1),lx+24,Tp+13);
+  ctx.strokeStyle=CSS.r2;ctx.fillStyle=CSS.r2;ctx.setLineDash([6,3]);ctx.beginPath();ctx.moveTo(lx+112,Tp+9);ctx.lineTo(lx+130,Tp+9);ctx.stroke();ctx.setLineDash([]);ctx.fillRect(lx+118,Tp+6,6,6);
+  ctx.fillText("r2 "+lab(2),lx+136,Tp+13);
+  if(S.mode==="replay"){var px=xs(S.playhead);ctx.fillStyle=CSS.text;ctx.fillRect(px-1,Tp,2,ph)}
+  c.setAttribute("aria-label","Chart of r1 and r2 over time with threshold "+(T!==null?T:"unknown")+". "+k+" "+cs.what+" lines shown.");
+}
+function renderLegend(){
+  var h="";
+  [["comm","○","Calibrating"],["ambient","●","Normal"],["local","▲","Local event (1 = sensor 1, 2 = sensor 2)"],["building","■","Building-wide event"],["nodata","◆","No data"]].forEach(function(x){
+    h+='<span><i style="background:var(--'+x[0]+')"></i>'+x[1]+' '+x[2]+'</span>'});
+  $("legend").innerHTML=h;
+}
+function render(now){
+  if(!CSS)readColors();
+  var live=S.mode==="live", k=live?S.ev.length:S.k, ks=live?S.sm.length:S.ks, v=applyNodes(view(k,ks));
+  renderBanner(v);
+  // sensor i is drawn on the lower rectangle if it is the lower floor (sensor 1 when the log does not say)
+  var f=floors(), lower=(f&&f[0]>f[1])?1:0;
+  paintFloor(1,v,lower);paintFloor(2,v,1-lower);
+  $("bNote").textContent=f?("Floors come from the log (meta.floors): sensor 1 on floor "+f[0]+", sensor 2 on floor "+f[1]+"; the lower floor is drawn at the bottom."):
+    "The log does not say which physical floors the sensors are on (schema 1); sensor 1 is drawn on the lower instrumented floor by assumption.";
+  renderNodes(v,k,now);
+  renderCounters(k,now);
+  renderTimeline(k);renderChart();renderHist(k,now);
+  // transport
+  if(S.mode==="replay"){
+    var span=Math.max(1,S.tEnd-S.t0);
+    $("seek").value=Math.round((S.playhead-S.t0)/span*10000);
+    $("timeLbl").textContent=fmtDur((S.playhead-S.t0)/1e6)+" / "+fmtDur(span/1e6);
+    $("seek").disabled=!(S.ev.length||S.sm.length);
+  }
+  if(live){
+    var any=S.ev.length||S.sm.length;
+    $("liveInfo").textContent=any?(S.ev.length+" events, "+S.sm.length+" samples received; log time "+fmtRel(curTime())):(S.eLines.length?"No JSON lines yet (is the master firmware new enough to print them?). E lines received: "+S.eLines.length:"Waiting for JSON event lines from the master...");
+  }
+}
+
+/* ---------- chart hover ---------- */
+function chartHover(ev){
+  var cs=chartSrc(); if(!cs.arr.length) return;
+  var c=$("chart"), rc=c.getBoundingClientRect(), x=(ev.touches?ev.touches[0].clientX:ev.clientX)-rc.left;
+  var L=44,R=10,pw=c.clientWidth-L-R, span=Math.max(1,S.mode==="live"?curTime()-S.t0:S.tEnd-S.t0);
+  var t=S.t0+(x-L)/pw*span;
+  var i=Math.min(cs.k,ub(cs.ts,t))-1; if(i<0){return}
+  var e=cs.arr[i];
+  $("chartInfo").textContent="At "+fmtRel(e.t)+" (superframe "+e.sf+", "+e.type+"): r1 = "+(e.r1===null?"no report":e.r1.toFixed(2))+", r2 = "+(e.r2===null?"no report":e.r2.toFixed(2))+", state: "+stateText(e)+".";
+}
+
+/* ---------- wiring ---------- */
+$("demoBtn").onclick=loadDemo;
+$("simBtn").onclick=loadSim;
+$("file").onchange=function(e){loadFile(e.target.files[0]);e.target.value=""};
+$("fileLbl").onkeydown=function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();$("file").click()}};
+$("bPlay").onclick=function(){togglePlay()};
+$("bNext").onclick=function(){step(1)};
+$("bPrev").onclick=function(){step(-1)};
+$("speed").onchange=function(){S.speed=+$("speed").value};
+$("seek").oninput=function(){if(S.mode==="replay")setPlayhead(S.t0+(+$("seek").value)/10000*(S.tEnd-S.t0))};
+$("hist").onclick=function(e){var b=e.target.closest("button[data-t]");if(b){S.playing=false;setPlayBtn();setPlayhead(+b.getAttribute("data-t"))}};
+$("tl").onclick=function(e){if(S.mode!=="replay"||!(S.ev.length||S.sm.length))return;var r=e.target.getBoundingClientRect();setPlayhead(S.t0+(e.clientX-r.left)/r.width*(S.tEnd-S.t0))};
+$("dlBtn").onclick=downloadRaw;
+$("chart").addEventListener("mousemove",chartHover);
+$("chart").addEventListener("touchstart",chartHover,{passive:true});
+$("chart").addEventListener("touchmove",chartHover,{passive:true});
+$("themeBtn").onclick=function(){
+  var r=document.documentElement, dark=getComputedStyle(r).colorScheme==="dark";
+  r.setAttribute("data-theme",dark?"light":"dark"); readColors(); dirty=true; schedule();
+};
+if(window.matchMedia) window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change",function(){readColors();dirty=true;schedule()});
+window.addEventListener("resize",function(){dirty=true;schedule()});
+$("serBtn").onclick=function(){
+  if(S.mode==="live"&&S.port){stopLive();return}
+  connectSerial();
+};
+if(!("serial" in navigator)){
+  $("serBtn").disabled=true;
+  $("serBtn").title="Web Serial is not available in this browser";
+  warn("noserial","Live USB mode is unavailable: this browser does not support the Web Serial API. Use Chrome or Edge on a desktop computer (opened from file:// or https). Replay and demo still work.");
+}
+// drag and drop
+var dc=0;
+window.addEventListener("dragenter",function(e){e.preventDefault();dc++;$("drop").classList.add("on")});
+window.addEventListener("dragleave",function(e){dc=Math.max(0,dc-1);if(!dc)$("drop").classList.remove("on")});
+window.addEventListener("dragover",function(e){e.preventDefault()});
+window.addEventListener("drop",function(e){e.preventDefault();dc=0;$("drop").classList.remove("on");var f=e.dataTransfer&&e.dataTransfer.files[0];if(f)loadFile(f)});
+
+renderLegend();
+readColors();
+dirty=true; schedule();
+window.__resonance={parseLine:parseLine,normalise:normalise,normaliseSample:normaliseSample,loadText:loadText,seek:setPlayhead,state:function(){return S},render:function(){render(0)}};
+})();
+</script>
+</body>
+</html>

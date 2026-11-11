@@ -1,0 +1,2262 @@
+{
+ "task": "R2 master-side fusion evaluation",
+ "small_mode": false,
+ "seed_blocks": {
+  "dev": {
+   "start": 5100000,
+   "n": 160
+  },
+  "test": {
+   "start": 5200000,
+   "n": 160
+  }
+ },
+ "earlier_max_seed": 4950012,
+ "seed_disjointness_asserted": true,
+ "setup": {
+  "windows_per_recording": 30,
+  "commissioning_windows": 20,
+  "superframe_s": 1.4,
+  "noise_gate_counts": 92.12000274658203,
+  "pairs": {
+   "primary": [
+    5,
+    10
+   ],
+   "secondary": [
+    3,
+    7
+   ]
+  },
+  "T_values": [
+   1.5,
+   2.0,
+   3.0
+  ],
+  "rule_c_other_max": 1.5,
+  "ambient_recall_min": 0.95,
+  "bootstrap_resamples": 2000,
+  "bootstrap_unit": "building",
+  "scenarios": [
+   "healthy",
+   "noise",
+   "imp_s1",
+   "imp_s2",
+   "shift_s1",
+   "shift_s2",
+   "s2",
+   "s3",
+   "s5"
+  ],
+  "selection_metric": "mean(LOCAL recall with correct slave pooled over impact+shift, BUILDING recall pooled over 2x/3x/5x); ties: AMBIENT recall, simpler rule, lower T, smoothed variant"
+ },
+ "development_table_primary_pair": [
+  {
+   "name": "a, T=1.5, smoothed",
+   "rule": "a",
+   "T": 1.5,
+   "use_raw": false,
+   "ambient_recall": 0.9557832548693806,
+   "false_events_per_hour": 113.70020176444976,
+   "local_recall": 0.8727110814270608,
+   "building_recall": 0.30680555555555555,
+   "isolated_impact_recall": 0.39344262295081966,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.5897583184913082,
+   "eligible": true
+  },
+  {
+   "name": "a, T=1.5, raw",
+   "rule": "a",
+   "T": 1.5,
+   "use_raw": true,
+   "ambient_recall": 0.9463675805409397,
+   "false_events_per_hour": 137.9119357518693,
+   "local_recall": 0.9250292202371013,
+   "building_recall": 0.3869444444444444,
+   "isolated_impact_recall": 0.9426229508196722,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.6559868323407729,
+   "eligible": false
+  },
+  {
+   "name": "a, T=2, smoothed",
+   "rule": "a",
+   "T": 2.0,
+   "use_raw": false,
+   "ambient_recall": 0.9557832548693806,
+   "false_events_per_hour": 113.70020176444976,
+   "local_recall": 0.8727110814270608,
+   "building_recall": 0.30680555555555555,
+   "isolated_impact_recall": 0.39344262295081966,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.5897583184913082,
+   "eligible": true
+  },
+  {
+   "name": "a, T=2, raw",
+   "rule": "a",
+   "T": 2.0,
+   "use_raw": true,
+   "ambient_recall": 0.9463675805409397,
+   "false_events_per_hour": 137.9119357518693,
+   "local_recall": 0.9250292202371013,
+   "building_recall": 0.3869444444444444,
+   "isolated_impact_recall": 0.9426229508196722,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.6559868323407729,
+   "eligible": false
+  },
+  {
+   "name": "a, T=3, smoothed",
+   "rule": "a",
+   "T": 3.0,
+   "use_raw": false,
+   "ambient_recall": 0.9557832548693806,
+   "false_events_per_hour": 113.70020176444976,
+   "local_recall": 0.8727110814270608,
+   "building_recall": 0.30680555555555555,
+   "isolated_impact_recall": 0.39344262295081966,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.5897583184913082,
+   "eligible": true
+  },
+  {
+   "name": "a, T=3, raw",
+   "rule": "a",
+   "T": 3.0,
+   "use_raw": true,
+   "ambient_recall": 0.9463675805409397,
+   "false_events_per_hour": 137.9119357518693,
+   "local_recall": 0.9250292202371013,
+   "building_recall": 0.3869444444444444,
+   "isolated_impact_recall": 0.9426229508196722,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.6559868323407729,
+   "eligible": false
+  },
+  {
+   "name": "b, T=1.5, no tree",
+   "rule": "b",
+   "T": 1.5,
+   "use_raw": false,
+   "ambient_recall": 0.888858118711345,
+   "false_events_per_hour": 285.79340902797,
+   "local_recall": 0.7103022207380197,
+   "building_recall": 0.8825694444444444,
+   "isolated_impact_recall": 0.38524590163934425,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.7964358325912321,
+   "eligible": false
+  },
+  {
+   "name": "b, T=2, no tree",
+   "rule": "b",
+   "T": 2.0,
+   "use_raw": false,
+   "ambient_recall": 0.9465522016062032,
+   "false_events_per_hour": 137.43719586976312,
+   "local_recall": 0.6702844103077865,
+   "building_recall": 0.7272916666666667,
+   "isolated_impact_recall": 0.36885245901639346,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.6987880384872266,
+   "eligible": false
+  },
+  {
+   "name": "b, T=3, no tree",
+   "rule": "b",
+   "T": 3.0,
+   "use_raw": false,
+   "ambient_recall": 0.9736914981999446,
+   "false_events_per_hour": 67.65043320014244,
+   "local_recall": 0.46585406578727667,
+   "building_recall": 0.4440277777777778,
+   "isolated_impact_recall": 0.2459016393442623,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.4549409217825272,
+   "eligible": true
+  },
+  {
+   "name": "c, T=1.5, smoothed",
+   "rule": "c",
+   "T": 1.5,
+   "use_raw": false,
+   "ambient_recall": 0.9125819255977107,
+   "false_events_per_hour": 224.78933417731542,
+   "local_recall": 0.6262592530750821,
+   "building_recall": 0.8825694444444444,
+   "isolated_impact_recall": 0.28688524590163933,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.7544143487597632,
+   "eligible": false
+  },
+  {
+   "name": "c, T=1.5, raw",
+   "rule": "c",
+   "T": 1.5,
+   "use_raw": true,
+   "ambient_recall": 0.912489615065079,
+   "false_events_per_hour": 225.02670411836834,
+   "local_recall": 0.6349418378137697,
+   "building_recall": 0.8825694444444444,
+   "isolated_impact_recall": 0.3524590163934426,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.758755641129107,
+   "eligible": false
+  },
+  {
+   "name": "c, T=2, smoothed",
+   "rule": "c",
+   "T": 2.0,
+   "use_raw": false,
+   "ambient_recall": 0.9616911289578141,
+   "false_events_per_hour": 98.50852553704958,
+   "local_recall": 0.5456113986753492,
+   "building_recall": 0.7272916666666667,
+   "isolated_impact_recall": 0.2786885245901639,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.636451532671008,
+   "eligible": true
+  },
+  {
+   "name": "c, T=2, raw",
+   "rule": "c",
+   "T": 2.0,
+   "use_raw": true,
+   "ambient_recall": 0.9616911289578141,
+   "false_events_per_hour": 98.50852553704958,
+   "local_recall": 0.5502309790170868,
+   "building_recall": 0.7272916666666667,
+   "isolated_impact_recall": 0.3114754098360656,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.6387613228418767,
+   "eligible": true
+  },
+  {
+   "name": "c, T=3, smoothed",
+   "rule": "c",
+   "T": 3.0,
+   "use_raw": false,
+   "ambient_recall": 0.9805224776146958,
+   "false_events_per_hour": 50.08505756221081,
+   "local_recall": 0.36806367228808373,
+   "building_recall": 0.4440277777777778,
+   "isolated_impact_recall": 0.20491803278688525,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.4060457250329308,
+   "eligible": true
+  },
+  {
+   "name": "c, T=3, raw",
+   "rule": "c",
+   "T": 3.0,
+   "use_raw": true,
+   "ambient_recall": 0.9805224776146958,
+   "false_events_per_hour": 50.08505756221081,
+   "local_recall": 0.3697890577169255,
+   "building_recall": 0.4440277777777778,
+   "isolated_impact_recall": 0.21311475409836064,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.40690841774735165,
+   "eligible": true
+  },
+  {
+   "name": "d, T=1.5, smoothed",
+   "rule": "d",
+   "T": 1.5,
+   "use_raw": false,
+   "ambient_recall": 0.9065817409766455,
+   "false_events_per_hour": 240.21838034576885,
+   "local_recall": 0.7667946791339678,
+   "building_recall": 0.8825694444444444,
+   "isolated_impact_recall": 0.3442622950819672,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.8246820617892061,
+   "eligible": false
+  },
+  {
+   "name": "d, T=1.5, raw",
+   "rule": "d",
+   "T": 1.5,
+   "use_raw": true,
+   "ambient_recall": 0.9002123142250531,
+   "false_events_per_hour": 256.59690627843486,
+   "local_recall": 0.8270718539544721,
+   "building_recall": 0.8825694444444444,
+   "isolated_impact_recall": 0.8360655737704918,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.8548206491994583,
+   "eligible": false
+  },
+  {
+   "name": "d, T=2, smoothed",
+   "rule": "d",
+   "T": 2.0,
+   "use_raw": false,
+   "ambient_recall": 0.9457214068125173,
+   "false_events_per_hour": 139.57352533924134,
+   "local_recall": 0.8569599821895698,
+   "building_recall": 0.7272916666666667,
+   "isolated_impact_recall": 0.3770491803278688,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.7921258244281182,
+   "eligible": false
+  },
+  {
+   "name": "d, T=2, raw",
+   "rule": "d",
+   "T": 2.0,
+   "use_raw": true,
+   "ambient_recall": 0.9368595956798671,
+   "false_events_per_hour": 162.36103968034178,
+   "local_recall": 0.9209105582456726,
+   "building_recall": 0.7272916666666667,
+   "isolated_impact_recall": 0.9426229508196722,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.8241011124561697,
+   "eligible": false
+  },
+  {
+   "name": "d, T=3, smoothed",
+   "rule": "d",
+   "T": 3.0,
+   "use_raw": false,
+   "ambient_recall": 0.9554140127388535,
+   "false_events_per_hour": 114.64968152866241,
+   "local_recall": 0.8811710357878333,
+   "building_recall": 0.4440277777777778,
+   "isolated_impact_recall": 0.4016393442622951,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.6625994067828056,
+   "eligible": true
+  },
+  {
+   "name": "d, T=3, raw",
+   "rule": "d",
+   "T": 3.0,
+   "use_raw": true,
+   "ambient_recall": 0.9459983384104126,
+   "false_events_per_hour": 138.86141551608193,
+   "local_recall": 0.9460121333555964,
+   "building_recall": 0.4440277777777778,
+   "isolated_impact_recall": 0.9754098360655737,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.6950199555666872,
+   "eligible": false
+  }
+ ],
+ "selected": {
+  "name": "d, T=3, smoothed",
+  "rule": "d",
+  "T": 3.0,
+  "use_raw": false,
+  "ambient_recall": 0.9554140127388535,
+  "false_events_per_hour": 114.64968152866241,
+  "local_recall": 0.8811710357878333,
+  "building_recall": 0.4440277777777778,
+  "isolated_impact_recall": 0.4016393442622951,
+  "n_isolated_impact_windows": 122,
+  "mean_local_building": 0.6625994067828056,
+  "eligible": true
+ },
+ "constraint_met": true,
+ "reference_vs_vectorised": {
+  "superframes_checked": 11340,
+  "mismatches": 0
+ },
+ "test": {
+  "chosen": {
+   "name": "d, T=3, smoothed",
+   "rule": "d",
+   "T": 3.0,
+   "use_raw": false,
+   "ambient_recall": 0.9554140127388535,
+   "false_events_per_hour": 114.64968152866241,
+   "local_recall": 0.8811710357878333,
+   "building_recall": 0.4440277777777778,
+   "isolated_impact_recall": 0.4016393442622951,
+   "n_isolated_impact_windows": 122,
+   "mean_local_building": 0.6625994067828056,
+   "eligible": true,
+   "constraint_met": true
+  },
+  "pairs": {
+   "primary": {
+    "config": "d, T=3, smoothed",
+    "n_buildings": 160,
+    "n_superframes_scored": 43200,
+    "pooled": {
+     "ambient_recall": {
+      "value": 0.9508045977011494,
+      "ci95": [
+       0.942030804437622,
+       0.9575197521692974
+      ]
+     },
+     "ambient_false_event_rate": {
+      "value": 0.049195402298850555,
+      "ci95": [
+       0.042480247830702575,
+       0.057969195562378034
+      ]
+     },
+     "false_events_per_hour": {
+      "value": 126.50246305418716,
+      "ci95": [
+       109.2349229932352,
+       149.0636457318292
+      ]
+     },
+     "local_recall": {
+      "value": 0.8836820083682009,
+      "ci95": [
+       0.8713983572607215,
+       0.8961073537973554
+      ]
+     },
+     "local_any_event": {
+      "value": 0.8860808926080893,
+      "ci95": [
+       0.8742623225820239,
+       0.8981297553891093
+      ]
+     },
+     "local_wrong_slave": {
+      "value": 0.001896792189679219,
+      "ci95": [
+       0.0006152340441748389,
+       0.003571314861835749
+      ]
+     },
+     "local_slave_correct_given_local_out": {
+      "value": 0.9978581327957666,
+      "ci95": [
+       0.9959476778776166,
+       0.9993042026118573
+      ]
+     },
+     "local_called_building": {
+      "value": 0.0005020920502092051,
+      "ci95": [
+       0.00011119110696877226,
+       0.000952914798206278
+      ]
+     },
+     "building_recall": {
+      "value": 0.4320833333333333,
+      "ci95": [
+       0.4166666666666667,
+       0.44763888888888886
+      ]
+     },
+     "building_called_local": {
+      "value": 0.2061111111111111,
+      "ci95": [
+       0.18103993055555553,
+       0.231390625
+      ]
+     },
+     "building_called_ambient": {
+      "value": 0.36180555555555555,
+      "ci95": [
+       0.333046875,
+       0.3904861111111111
+      ]
+     }
+    },
+    "confusion": {
+     "labels": [
+      "AMBIENT",
+      "LOCAL(1)",
+      "LOCAL(2)",
+      "BUILDING"
+     ],
+     "counts": [
+      [
+       10340,
+       214,
+       314,
+       7
+      ],
+      [
+       874,
+       8059,
+       34,
+       2
+      ],
+      [
+       1168,
+       0,
+       7781,
+       7
+      ],
+      [
+       5210,
+       370,
+       2598,
+       6222
+      ]
+     ],
+     "row_fraction": [
+      [
+       0.9508045977011494,
+       0.01967816091954023,
+       0.028873563218390803,
+       0.0006436781609195402
+      ],
+      [
+       0.09744676106589363,
+       0.8985394135355113,
+       0.003790835098673208,
+       0.0002229902999219534
+      ],
+      [
+       0.13041536400178652,
+       0.0,
+       0.8688030370701206,
+       0.0007815989280928986
+      ],
+      [
+       0.36180555555555555,
+       0.025694444444444443,
+       0.18041666666666667,
+       0.4320833333333333
+      ]
+     ],
+     "row_fraction_ci95": [
+      [
+       [
+        0.942030804437622,
+        0.9575197521692974
+       ],
+       [
+        0.01690232708671626,
+        0.022470749673557666
+       ],
+       [
+        0.022871477357993133,
+        0.036302853001630934
+       ],
+       [
+        9.21654739681445e-05,
+        0.0013832821367152264
+       ]
+      ],
+      [
+       [
+        0.08490965036947001,
+        0.11163325530643751
+       ],
+       [
+        0.8824429880023371,
+        0.9123121755923148
+       ],
+       [
+        0.0012299642366748553,
+        0.007159057170624937
+       ],
+       [
+        0.0,
+        0.0006724968408718326
+       ]
+      ],
+      [
+       [
+        0.10999544574010674,
+        0.15224853505022942
+       ],
+       [
+        0.0,
+        0.0
+       ],
+       [
+        0.8466500007020352,
+        0.8891096217041281
+       ],
+       [
+        0.0001112678189483575,
+        0.001586290034681788
+       ]
+      ],
+      [
+       [
+        0.333046875,
+        0.3904861111111111
+       ],
+       [
+        0.017430555555555557,
+        0.03528124999999998
+       ],
+       [
+        0.15936979166666665,
+        0.2017395833333333
+       ],
+       [
+        0.4166666666666667,
+        0.44763888888888886
+       ]
+      ]
+     ]
+    },
+    "groups": {
+     "impact": {
+      "local_recall": {
+       "value": 0.8878078078078078,
+       "ci95": [
+        0.8770732065762767,
+        0.8978644071261332
+       ]
+      },
+      "local_any_event": {
+       "value": 0.8887687687687688,
+       "ci95": [
+        0.8782024830216831,
+        0.8986767571260962
+       ]
+      },
+      "local_wrong_slave": {
+       "value": 0.0006006006006006006,
+       "ci95": [
+        0.00011903132457156348,
+        0.0013115653274970258
+       ]
+      },
+      "building_recall": {
+       "value": NaN,
+       "ci95": [
+        null,
+        null
+       ]
+      },
+      "ambient_recall": {
+       "value": 0.6705882352941176,
+       "ci95": [
+        0.6317684439880497,
+        0.7043371417843397
+       ]
+      },
+      "false_events_per_hour": {
+       "value": 847.0588235294119,
+       "ci95": [
+        760.2759211259837,
+        946.8811440307294
+       ]
+      }
+     },
+     "shift": {
+      "local_recall": {
+       "value": 0.8801041666666667,
+       "ci95": [
+        0.8581171875,
+        0.9014583333333334
+       ]
+      },
+      "local_any_event": {
+       "value": 0.88375,
+       "ci95": [
+        0.8620807291666667,
+        0.9050026041666667
+       ]
+      },
+      "local_wrong_slave": {
+       "value": 0.0030208333333333333,
+       "ci95": [
+        0.0008333333333333334,
+        0.006145833333333333
+       ]
+      },
+      "building_recall": {
+       "value": NaN,
+       "ci95": [
+        null,
+        null
+       ]
+      },
+      "ambient_recall": {
+       "value": NaN,
+       "ci95": [
+        null,
+        null
+       ]
+      },
+      "false_events_per_hour": {
+       "value": NaN,
+       "ci95": [
+        null,
+        null
+       ]
+      }
+     }
+    },
+    "building_by_level": {
+     "s2": {
+      "building_recall": {
+       "value": 0.05479166666666667,
+       "ci95": [
+        0.042083333333333334,
+        0.06833333333333333
+       ]
+      },
+      "building_called_local": {
+       "value": 0.245,
+       "ci95": [
+        0.203125,
+        0.2860520833333333
+       ]
+      },
+      "building_called_ambient": {
+       "value": 0.7002083333333333,
+       "ci95": [
+        0.6554010416666667,
+        0.7443802083333333
+       ]
+      }
+     },
+     "s3": {
+      "building_recall": {
+       "value": 0.35270833333333335,
+       "ci95": [
+        0.321453125,
+        0.38458333333333333
+       ]
+      },
+      "building_called_local": {
+       "value": 0.32208333333333333,
+       "ci95": [
+        0.28416145833333334,
+        0.35939583333333325
+       ]
+      },
+      "building_called_ambient": {
+       "value": 0.3252083333333333,
+       "ci95": [
+        0.283125,
+        0.36854166666666666
+       ]
+      }
+     },
+     "s5": {
+      "building_recall": {
+       "value": 0.88875,
+       "ci95": [
+        0.8745833333333334,
+        0.9020833333333333
+       ]
+      },
+      "building_called_local": {
+       "value": 0.05125,
+       "ci95": [
+        0.03916666666666667,
+        0.06375
+       ]
+      },
+      "building_called_ambient": {
+       "value": 0.06,
+       "ci95": [
+        0.051869791666666665,
+        0.0693802083333333
+       ]
+      }
+     }
+    },
+    "ambient_by_scenario": {
+     "healthy": {
+      "ambient_recall": {
+       "value": 0.9760416666666667,
+       "ci95": [
+        0.9585416666666666,
+        0.9889583333333334
+       ]
+      },
+      "false_events_per_hour": {
+       "value": 61.60714285714278,
+       "ci95": [
+        28.392857142857014,
+        106.60714285714296
+       ]
+      }
+     },
+     "noise": {
+      "ambient_recall": {
+       "value": 1.0,
+       "ci95": [
+        1.0,
+        1.0
+       ]
+      },
+      "false_events_per_hour": {
+       "value": 0.0,
+       "ci95": [
+        0.0,
+        0.0
+       ]
+      }
+     },
+     "non_event_windows_of_event_recordings": {
+      "ambient_recall": {
+       "value": 0.6705882352941176,
+       "ci95": [
+        0.6317684439880497,
+        0.7043371417843397
+       ]
+      },
+      "false_events_per_hour": {
+       "value": 847.0588235294119,
+       "ci95": [
+        760.2759211259837,
+        946.8811440307294
+       ]
+      }
+     }
+    },
+    "local_by_slave": {
+     "slave1": {
+      "value": 0.8985394135355113,
+      "ci95": [
+       0.8824429880023371,
+       0.9123121755923148
+      ],
+      "n": 8969
+     },
+     "slave2": {
+      "value": 0.8688030370701206,
+      "ci95": [
+       0.8466500007020352,
+       0.8891096217041281
+      ],
+      "n": 8956
+     }
+    },
+    "isolated_impact": {
+     "isolated": {
+      "value": 0.43356643356643354,
+      "ci95": [
+       0.35172413793103446,
+       0.5142908902691511
+      ],
+      "n": 143
+     },
+     "clustered": {
+      "value": 0.8957467611830848,
+      "ci95": [
+       0.8858893754390046,
+       0.9051915537611721
+      ],
+      "n": 8182
+     }
+    },
+    "floors": [
+     5,
+     10
+    ],
+    "isolated_impact_both_variants": {
+     "smoothed_variant": {
+      "isolated": {
+       "value": 0.43356643356643354,
+       "ci95": [
+        0.35172413793103446,
+        0.5142908902691511
+       ],
+       "n": 143
+      },
+      "clustered": {
+       "value": 0.8957467611830848,
+       "ci95": [
+        0.8858893754390046,
+        0.9051915537611721
+       ],
+       "n": 8182
+      }
+     },
+     "raw_variant": {
+      "isolated": {
+       "value": 0.972027972027972,
+       "ci95": [
+        0.9416058394160584,
+        0.9934651133180545
+       ],
+       "n": 143
+      },
+      "clustered": {
+       "value": 0.9655340992422391,
+       "ci95": [
+        0.9599992494370778,
+        0.9708970989703101
+       ],
+       "n": 8182
+      }
+     }
+    },
+    "uninstrumented_reported_only": {
+     "uimp": {
+      "event_windows": {
+       "AMBIENT": {
+        "value": 0.9650283553875236,
+        "ci95": [
+         0.945093189510033,
+         0.9818590474864475
+        ],
+        "n": 4232
+       },
+       "LOCAL(1)": {
+        "value": 0.001890359168241966,
+        "ci95": [
+         0.000468491049519355,
+         0.003756772467907322
+        ],
+        "n": 4232
+       },
+       "LOCAL(2)": {
+        "value": 0.030954631379962193,
+        "ci95": [
+         0.01595920114331234,
+         0.048849224988257396
+        ],
+        "n": 4232
+       },
+       "BUILDING": {
+        "value": 0.0021266540642722116,
+        "ci95": [
+         0.00023899006830037579,
+         0.004540323009997027
+        ],
+        "n": 4232
+       }
+      },
+      "non_event_windows": {
+       "AMBIENT": {
+        "value": 0.9753521126760564,
+        "ci95": [
+         0.9519400072956229,
+         0.9919000583210623
+        ],
+        "n": 568
+       },
+       "LOCAL(1)": {
+        "value": 0.0017605633802816902,
+        "ci95": [
+         0.0,
+         0.00578062579507666
+        ],
+        "n": 568
+       },
+       "LOCAL(2)": {
+        "value": 0.022887323943661973,
+        "ci95": [
+         0.00809994167893772,
+         0.04295760223936641
+        ],
+        "n": 568
+       },
+       "BUILDING": {
+        "value": 0.0,
+        "ci95": [
+         0.0,
+         0.0
+        ],
+        "n": 568
+       }
+      },
+      "event_floor_by_building": "from seed, floors (1, 2, 4, 6, 8, 9)"
+     },
+     "ushift": {
+      "event_windows": {
+       "AMBIENT": {
+        "value": 0.9675,
+        "ci95": [
+         0.951453125,
+         0.9814635416666666
+        ],
+        "n": 4800
+       },
+       "LOCAL(1)": {
+        "value": 0.0016666666666666668,
+        "ci95": [
+         0.0,
+         0.00375
+        ],
+        "n": 4800
+       },
+       "LOCAL(2)": {
+        "value": 0.030833333333333334,
+        "ci95": [
+         0.017708333333333333,
+         0.04604166666666667
+        ],
+        "n": 4800
+       },
+       "BUILDING": {
+        "value": 0.0,
+        "ci95": [
+         0.0,
+         0.0
+        ],
+        "n": 4800
+       }
+      },
+      "non_event_windows": {
+       "AMBIENT": {
+        "value": 0.0,
+        "ci95": [
+         0.0,
+         0.0
+        ],
+        "n": 0
+       },
+       "LOCAL(1)": {
+        "value": 0.0,
+        "ci95": [
+         0.0,
+         0.0
+        ],
+        "n": 0
+       },
+       "LOCAL(2)": {
+        "value": 0.0,
+        "ci95": [
+         0.0,
+         0.0
+        ],
+        "n": 0
+       },
+       "BUILDING": {
+        "value": 0.0,
+        "ci95": [
+         0.0,
+         0.0
+        ],
+        "n": 0
+       }
+      },
+      "event_floor_by_building": "from seed, floors (1, 2, 4, 6, 8, 9)"
+     }
+    },
+    "degraded_mode": {
+     "only_slave1_alive": {
+      "ambient_recall": {
+       "value": 0.9780080148568078,
+       "ci95": [
+        0.9747695069025979,
+        0.9812359699402501
+       ],
+       "n": 10231
+      },
+      "local_recall": {
+       "value": 0.8988738989853942,
+       "ci95": [
+        0.8828773449820623,
+        0.9125741487252724
+       ],
+       "n": 8969
+      },
+      "building_windows_called_local": {
+       "value": 0.325,
+       "ci95": [
+        0.293609375,
+        0.355625
+       ],
+       "n": 14400
+      }
+     },
+     "only_slave2_alive": {
+      "ambient_recall": {
+       "value": 0.9695431472081218,
+       "ci95": [
+        0.9610192257452491,
+        0.9762030593998349
+       ],
+       "n": 10244
+      },
+      "local_recall": {
+       "value": 0.8693613220187584,
+       "ci95": [
+        0.8474592955991752,
+        0.889771792316012
+       ],
+       "n": 8956
+      },
+      "building_windows_called_local": {
+       "value": 0.5317361111111111,
+       "ci95": [
+        0.4982621527777778,
+        0.5643107638888888
+       ],
+       "n": 14400
+      }
+     }
+    }
+   },
+   "secondary": {
+    "config": "d, T=3, smoothed",
+    "n_buildings": 160,
+    "n_superframes_scored": 43200,
+    "pooled": {
+     "ambient_recall": {
+      "value": 0.9573895284069811,
+      "ci95": [
+       0.95162164788185,
+       0.9623920175296173
+      ]
+     },
+     "ambient_false_event_rate": {
+      "value": 0.042610471593018895,
+      "ci95": [
+       0.037607982470382655,
+       0.04837835211815005
+      ]
+     },
+     "false_events_per_hour": {
+      "value": 109.5697840963343,
+      "ci95": [
+       96.70624063812683,
+       124.40147687524299
+      ]
+     },
+     "local_recall": {
+      "value": 0.8928333703128467,
+      "ci95": [
+       0.8802784340089,
+       0.9042483512092977
+      ]
+     },
+     "local_any_event": {
+      "value": 0.8945529176836032,
+      "ci95": [
+       0.8823155491650223,
+       0.9054984576204697
+      ]
+     },
+     "local_wrong_slave": {
+      "value": 0.0013312624805857556,
+      "ci95": [
+       0.0003327399474933599,
+       0.0026595965796121107
+      ]
+     },
+     "local_slave_correct_given_local_out": {
+      "value": 0.9985111662531018,
+      "ci95": [
+       0.9970147485983621,
+       0.9996290009757097
+      ]
+     },
+     "local_called_building": {
+      "value": 0.00038828489017084537,
+      "ci95": [
+       0.0,
+       0.0008859149567782449
+      ]
+     },
+     "building_recall": {
+      "value": 0.379375,
+      "ci95": [
+       0.36222048611111113,
+       0.39645833333333336
+      ]
+     },
+     "building_called_local": {
+      "value": 0.1671527777777778,
+      "ci95": [
+       0.14506944444444445,
+       0.18882118055555555
+      ]
+     },
+     "building_called_ambient": {
+      "value": 0.4534722222222222,
+      "ci95": [
+       0.42194444444444446,
+       0.485
+      ]
+     }
+    },
+    "confusion": {
+     "labels": [
+      "AMBIENT",
+      "LOCAL(1)",
+      "LOCAL(2)",
+      "BUILDING"
+     ],
+     "counts": [
+      [
+       10313,
+       185,
+       271,
+       3
+      ],
+      [
+       875,
+       8146,
+       23,
+       5
+      ],
+      [
+       1026,
+       1,
+       7950,
+       2
+      ],
+      [
+       6530,
+       86,
+       2321,
+       5463
+      ]
+     ],
+     "row_fraction": [
+      [
+       0.9573895284069811,
+       0.017174155217229856,
+       0.025157816561455625,
+       0.0002784998143334571
+      ],
+      [
+       0.09669576748812024,
+       0.9002099679522599,
+       0.002541717316830589,
+       0.0005525472427892584
+      ],
+      [
+       0.11426662211827597,
+       0.00011137097672346586,
+       0.8853992649515536,
+       0.00022274195344693172
+      ],
+      [
+       0.4534722222222222,
+       0.0059722222222222225,
+       0.16118055555555555,
+       0.379375
+      ]
+     ],
+     "row_fraction_ci95": [
+      [
+       [
+        0.95162164788185,
+        0.9623920175296173
+       ],
+       [
+        0.014840202574123586,
+        0.019769235809337458
+       ],
+       [
+        0.020778917654677685,
+        0.03033673590857687
+       ],
+       [
+        0.0,
+        0.000744206837703093
+       ]
+      ],
+      [
+       [
+        0.08274010179093881,
+        0.11294032249347374
+       ],
+       [
+        0.8832397418975693,
+        0.9149436056194357
+       ],
+       [
+        0.0005541885677265344,
+        0.005199863035814193
+       ],
+       [
+        0.0,
+        0.001435076626085419
+       ]
+      ],
+      [
+       [
+        0.09811635485526052,
+        0.1307507065408231
+       ],
+       [
+        0.0,
+        0.00033681752514952234
+       ],
+       [
+        0.8688695326544749,
+        0.9015066120918552
+       ],
+       [
+        0.0,
+        0.0006718210276998406
+       ]
+      ],
+      [
+       [
+        0.42194444444444446,
+        0.485
+       ],
+       [
+        0.0025694444444444445,
+        0.010069444444444445
+       ],
+       [
+        0.13964930555555555,
+        0.18284722222222222
+       ],
+       [
+        0.36222048611111113,
+        0.39645833333333336
+       ]
+      ]
+     ]
+    },
+    "groups": {
+     "impact": {
+      "local_recall": {
+       "value": 0.8830090175605125,
+       "ci95": [
+        0.8717537998101037,
+        0.8935997467234055
+       ]
+      },
+      "local_any_event": {
+       "value": 0.8845514950166113,
+       "ci95": [
+        0.8735280414212152,
+        0.8949844052440112
+       ]
+      },
+      "local_wrong_slave": {
+       "value": 0.0010678690080683437,
+       "ci95": [
+        0.00011796591378923189,
+        0.0027142085952247303
+       ]
+      },
+      "building_recall": {
+       "value": NaN,
+       "ci95": [
+        null,
+        null
+       ]
+      },
+      "ambient_recall": {
+       "value": 0.6518771331058021,
+       "ci95": [
+        0.6153033958491253,
+        0.6854301733814571
+       ]
+      },
+      "false_events_per_hour": {
+       "value": 895.1730862993662,
+       "ci95": [
+        808.8938398762532,
+        989.2198392451062
+       ]
+      }
+     },
+     "shift": {
+      "local_recall": {
+       "value": 0.9014583333333334,
+       "ci95": [
+        0.8794739583333334,
+        0.9217708333333333
+       ]
+      },
+      "local_any_event": {
+       "value": 0.9033333333333333,
+       "ci95": [
+        0.8813541666666667,
+        0.9229192708333334
+       ]
+      },
+      "local_wrong_slave": {
+       "value": 0.0015625,
+       "ci95": [
+        0.00010416666666666667,
+        0.0036458333333333334
+       ]
+      },
+      "building_recall": {
+       "value": NaN,
+       "ci95": [
+        null,
+        null
+       ]
+      },
+      "ambient_recall": {
+       "value": NaN,
+       "ci95": [
+        null,
+        null
+       ]
+      },
+      "false_events_per_hour": {
+       "value": NaN,
+       "ci95": [
+        null,
+        null
+       ]
+      }
+     }
+    },
+    "building_by_level": {
+     "s2": {
+      "building_recall": {
+       "value": 0.03,
+       "ci95": [
+        0.020625,
+        0.04
+       ]
+      },
+      "building_called_local": {
+       "value": 0.155,
+       "ci95": [
+        0.12083333333333333,
+        0.1910520833333333
+       ]
+      },
+      "building_called_ambient": {
+       "value": 0.815,
+       "ci95": [
+        0.7762291666666666,
+        0.8522916666666667
+       ]
+      }
+     },
+     "s3": {
+      "building_recall": {
+       "value": 0.2683333333333333,
+       "ci95": [
+        0.23770833333333333,
+        0.2993802083333333
+       ]
+      },
+      "building_called_local": {
+       "value": 0.28479166666666667,
+       "ci95": [
+        0.24604166666666666,
+        0.32479166666666665
+       ]
+      },
+      "building_called_ambient": {
+       "value": 0.446875,
+       "ci95": [
+        0.3960416666666667,
+        0.49771874999999993
+       ]
+      }
+     },
+     "s5": {
+      "building_recall": {
+       "value": 0.8397916666666667,
+       "ci95": [
+        0.8156197916666668,
+        0.8618802083333332
+       ]
+      },
+      "building_called_local": {
+       "value": 0.06166666666666667,
+       "ci95": [
+        0.048328125,
+        0.07583333333333334
+       ]
+      },
+      "building_called_ambient": {
+       "value": 0.09854166666666667,
+       "ci95": [
+        0.08186979166666666,
+        0.11791666666666667
+       ]
+      }
+     }
+    },
+    "ambient_by_scenario": {
+     "healthy": {
+      "ambient_recall": {
+       "value": 0.989375,
+       "ci95": [
+        0.98,
+        0.9964583333333333
+       ]
+      },
+      "false_events_per_hour": {
+       "value": 27.321428571428562,
+       "ci95": [
+        9.107142857142854,
+        51.42857142857147
+       ]
+      }
+     },
+     "noise": {
+      "ambient_recall": {
+       "value": 1.0,
+       "ci95": [
+        1.0,
+        1.0
+       ]
+      },
+      "false_events_per_hour": {
+       "value": 0.0,
+       "ci95": [
+        0.0,
+        0.0
+       ]
+      }
+     },
+     "non_event_windows_of_event_recordings": {
+      "ambient_recall": {
+       "value": 0.6518771331058021,
+       "ci95": [
+        0.6153033958491253,
+        0.6854301733814571
+       ]
+      },
+      "false_events_per_hour": {
+       "value": 895.1730862993662,
+       "ci95": [
+        808.8938398762532,
+        989.2198392451062
+       ]
+      }
+     }
+    },
+    "local_by_slave": {
+     "slave1": {
+      "value": 0.9002099679522599,
+      "ci95": [
+       0.8832397418975693,
+       0.9149436056194357
+      ],
+      "n": 9049
+     },
+     "slave2": {
+      "value": 0.8853992649515536,
+      "ci95": [
+       0.8688695326544749,
+       0.9015066120918552
+      ],
+      "n": 8979
+     }
+    },
+    "isolated_impact": {
+     "isolated": {
+      "value": 0.3968253968253968,
+      "ci95": [
+       0.3070540769180712,
+       0.49558079869115784
+      ],
+      "n": 126
+     },
+     "clustered": {
+      "value": 0.8903878583473862,
+      "ci95": [
+       0.8801708865972143,
+       0.8999886865997181
+      ],
+      "n": 8302
+     }
+    },
+    "floors": [
+     3,
+     7
+    ],
+    "isolated_impact_both_variants": {
+     "smoothed_variant": {
+      "isolated": {
+       "value": 0.3968253968253968,
+       "ci95": [
+        0.3070540769180712,
+        0.49558079869115784
+       ],
+       "n": 126
+      },
+      "clustered": {
+       "value": 0.8903878583473862,
+       "ci95": [
+        0.8801708865972143,
+        0.8999886865997181
+       ],
+       "n": 8302
+      }
+     },
+     "raw_variant": {
+      "isolated": {
+       "value": 0.9523809523809523,
+       "ci95": [
+        0.9153813559322034,
+        0.9848513328776487
+       ],
+       "n": 126
+      },
+      "clustered": {
+       "value": 0.9612141652613828,
+       "ci95": [
+        0.9552471319525377,
+        0.966788853409836
+       ],
+       "n": 8302
+      }
+     }
+    },
+    "uninstrumented_reported_only": {
+     "uimp": {
+      "event_windows": {
+       "AMBIENT": {
+        "value": 0.9834593572778828,
+        "ci95": [
+         0.970322240557389,
+         0.9936868999145428
+        ],
+        "n": 4232
+       },
+       "LOCAL(1)": {
+        "value": 0.0,
+        "ci95": [
+         0.0,
+         0.0
+        ],
+        "n": 4232
+       },
+       "LOCAL(2)": {
+        "value": 0.015122873345935728,
+        "ci95": [
+         0.005478085366762326,
+         0.027527289985761746
+        ],
+        "n": 4232
+       },
+       "BUILDING": {
+        "value": 0.0014177693761814746,
+        "ci95": [
+         0.0,
+         0.0033208409390985626
+        ],
+        "n": 4232
+       }
+      },
+      "non_event_windows": {
+       "AMBIENT": {
+        "value": 0.9876760563380281,
+        "ci95": [
+         0.9760218736190898,
+         0.996563721242772
+        ],
+        "n": 568
+       },
+       "LOCAL(1)": {
+        "value": 0.0,
+        "ci95": [
+         0.0,
+         0.0
+        ],
+        "n": 568
+       },
+       "LOCAL(2)": {
+        "value": 0.01232394366197183,
+        "ci95": [
+         0.0034362787572279887,
+         0.023978126380910264
+        ],
+        "n": 568
+       },
+       "BUILDING": {
+        "value": 0.0,
+        "ci95": [
+         0.0,
+         0.0
+        ],
+        "n": 568
+       }
+      },
+      "event_floor_by_building": "from seed, floors (1, 2, 4, 6, 8, 9)"
+     },
+     "ushift": {
+      "event_windows": {
+       "AMBIENT": {
+        "value": 0.986875,
+        "ci95": [
+         0.9791614583333333,
+         0.9939583333333334
+        ],
+        "n": 4800
+       },
+       "LOCAL(1)": {
+        "value": 0.0,
+        "ci95": [
+         0.0,
+         0.0
+        ],
+        "n": 4800
+       },
+       "LOCAL(2)": {
+        "value": 0.013125,
+        "ci95": [
+         0.0060416666666666665,
+         0.020838541666666637
+        ],
+        "n": 4800
+       },
+       "BUILDING": {
+        "value": 0.0,
+        "ci95": [
+         0.0,
+         0.0
+        ],
+        "n": 4800
+       }
+      },
+      "non_event_windows": {
+       "AMBIENT": {
+        "value": 0.0,
+        "ci95": [
+         0.0,
+         0.0
+        ],
+        "n": 0
+       },
+       "LOCAL(1)": {
+        "value": 0.0,
+        "ci95": [
+         0.0,
+         0.0
+        ],
+        "n": 0
+       },
+       "LOCAL(2)": {
+        "value": 0.0,
+        "ci95": [
+         0.0,
+         0.0
+        ],
+        "n": 0
+       },
+       "BUILDING": {
+        "value": 0.0,
+        "ci95": [
+         0.0,
+         0.0
+        ],
+        "n": 0
+       }
+      },
+      "event_floor_by_building": "from seed, floors (1, 2, 4, 6, 8, 9)"
+     }
+    },
+    "degraded_mode": {
+     "only_slave1_alive": {
+      "ambient_recall": {
+       "value": 0.9814796571766329,
+       "ci95": [
+        0.9788177339901478,
+        0.9839295344887664
+       ],
+       "n": 10151
+      },
+      "local_recall": {
+       "value": 0.9007625151950491,
+       "ci95": [
+        0.8837429573148353,
+        0.915405915742723
+       ],
+       "n": 9049
+      },
+      "building_windows_called_local": {
+       "value": 0.15979166666666667,
+       "ci95": [
+        0.13728993055555555,
+        0.18347916666666664
+       ],
+       "n": 14400
+      }
+     },
+     "only_slave2_alive": {
+      "ambient_recall": {
+       "value": 0.9743665003424322,
+       "ci95": [
+        0.9691845934234412,
+        0.9788298653942573
+       ],
+       "n": 10221
+      },
+      "local_recall": {
+       "value": 0.8856220069050006,
+       "ci95": [
+        0.869131652836181,
+        0.901559961881079
+       ],
+       "n": 8979
+      },
+      "building_windows_called_local": {
+       "value": 0.44298611111111114,
+       "ci95": [
+        0.40777430555555555,
+        0.47952430555555553
+       ],
+       "n": 14400
+      }
+     }
+    }
+   }
+  },
+  "development_primary_with_ci": {
+   "config": "d, T=3, smoothed",
+   "n_buildings": 160,
+   "n_superframes_scored": 43200,
+   "pooled": {
+    "ambient_recall": {
+     "value": 0.9554140127388535,
+     "ci95": [
+      0.9500230457907374,
+      0.9604946326952215
+     ]
+    },
+    "ambient_false_event_rate": {
+     "value": 0.04458598726114649,
+     "ci95": [
+      0.03950536730477844,
+      0.04997695420926264
+     ]
+    },
+    "false_events_per_hour": {
+     "value": 114.64968152866241,
+     "ci95": [
+      101.58523021228741,
+      128.51216796667535
+     ]
+    },
+    "local_recall": {
+     "value": 0.8811710357878333,
+     "ci95": [
+      0.8691139822834546,
+      0.8938301363834175
+     ]
+    },
+    "local_any_event": {
+     "value": 0.8832303667835476,
+     "ci95": [
+      0.871471750318557,
+      0.8954211196697593
+     ]
+    },
+    "local_wrong_slave": {
+     "value": 0.0007235487282239661,
+     "ci95": [
+      0.0002224926129693433,
+      0.0014561833191173619
+     ]
+    },
+    "local_slave_correct_given_local_out": {
+     "value": 0.9991795519091196,
+     "ci95": [
+      0.9983330918781005,
+      0.9997483168690618
+     ]
+    },
+    "local_called_building": {
+     "value": 0.0013357822674903992,
+     "ci95": [
+      0.0005572575129183097,
+      0.002232093131347171
+     ]
+    },
+    "building_recall": {
+     "value": 0.4440277777777778,
+     "ci95": [
+      0.42680555555555555,
+      0.4606284722222222
+     ]
+    },
+    "building_called_local": {
+     "value": 0.20041666666666666,
+     "ci95": [
+      0.17666666666666667,
+      0.2251440972222222
+     ]
+    },
+    "building_called_ambient": {
+     "value": 0.35555555555555557,
+     "ci95": [
+      0.32902777777777775,
+      0.3832638888888889
+     ]
+    }
+   },
+   "confusion": {
+    "labels": [
+     "AMBIENT",
+     "LOCAL(1)",
+     "LOCAL(2)",
+     "BUILDING"
+    ],
+    "counts": [
+     [
+      10350,
+      199,
+      280,
+      4
+     ],
+     [
+      962,
+      7976,
+      13,
+      12
+     ],
+     [
+      1136,
+      0,
+      7856,
+      12
+     ],
+     [
+      5120,
+      449,
+      2437,
+      6394
+     ]
+    ],
+    "row_fraction": [
+     [
+      0.9554140127388535,
+      0.018369795993722883,
+      0.02584694913689652,
+      0.00036924213052709313
+     ],
+     [
+      0.10733013499944215,
+      0.8898806203280152,
+      0.0014504072297221913,
+      0.0013388374428204841
+     ],
+     [
+      0.12616614837849843,
+      0.0,
+      0.8725011106175034,
+      0.0013327410039982231
+     ],
+     [
+      0.35555555555555557,
+      0.031180555555555555,
+      0.16923611111111111,
+      0.4440277777777778
+     ]
+    ],
+    "row_fraction_ci95": [
+     [
+      [
+       0.9500230457907374,
+       0.9604946326952215
+      ],
+      [
+       0.015972314657995087,
+       0.020781396931515893
+      ],
+      [
+       0.021539099184471524,
+       0.03043927983604196
+      ],
+      [
+       0.0,
+       0.0009240692589922435
+      ]
+     ],
+     [
+      [
+       0.09311786490628035,
+       0.12355108822610096
+      ],
+      [
+       0.8727662384334508,
+       0.9046249495899986
+      ],
+      [
+       0.00044581906667647475,
+       0.0029224172332743
+      ],
+      [
+       0.00022373742203476098,
+       0.002691820244484126
+      ]
+     ],
+     [
+      [
+       0.10753887605056044,
+       0.14530477030005212
+      ],
+      [
+       0.0,
+       0.0
+      ],
+      [
+       0.8535835718471031,
+       0.8912935587732012
+      ],
+      [
+       0.00044173757947468264,
+       0.002442544687465305
+      ]
+     ],
+     [
+      [
+       0.32902777777777775,
+       0.3832638888888889
+      ],
+      [
+       0.021944444444444444,
+       0.04138888888888889
+      ],
+      [
+       0.14978993055555553,
+       0.19007465277777777
+      ],
+      [
+       0.42680555555555555,
+       0.4606284722222222
+      ]
+     ]
+    ]
+   },
+   "groups": {
+    "impact": {
+     "local_recall": {
+      "value": 0.878690092028206,
+      "ci95": [
+       0.867443518960507,
+       0.8893242381289865
+      ]
+     },
+     "local_any_event": {
+      "value": 0.8810804350424286,
+      "ci95": [
+       0.8705649313841702,
+       0.8916262569300927
+      ]
+     },
+     "local_wrong_slave": {
+      "value": 0.0008366200549778894,
+      "ci95": [
+       0.00024081588557673295,
+       0.0014466633333544117
+      ]
+     },
+     "building_recall": {
+      "value": NaN,
+      "ci95": [
+       null,
+       null
+      ]
+     },
+     "ambient_recall": {
+      "value": 0.6626115166261152,
+      "ci95": [
+       0.6278548221147134,
+       0.6932300118069719
+      ]
+     },
+     "false_events_per_hour": {
+      "value": 867.5703858185611,
+      "ci95": [
+       788.8371124963581,
+       956.9447431335941
+      ]
+     }
+    },
+    "shift": {
+     "local_recall": {
+      "value": 0.8833333333333333,
+      "ci95": [
+       0.8622838541666666,
+       0.9046901041666666
+      ]
+     },
+     "local_any_event": {
+      "value": 0.8851041666666667,
+      "ci95": [
+       0.8639557291666667,
+       0.90625
+      ]
+     },
+     "local_wrong_slave": {
+      "value": 0.000625,
+      "ci95": [
+       0.0,
+       0.0018776041666666524
+      ]
+     },
+     "building_recall": {
+      "value": NaN,
+      "ci95": [
+       null,
+       null
+      ]
+     },
+     "ambient_recall": {
+      "value": NaN,
+      "ci95": [
+       null,
+       null
+      ]
+     },
+     "false_events_per_hour": {
+      "value": NaN,
+      "ci95": [
+       null,
+       null
+      ]
+     }
+    }
+   },
+   "building_by_level": {
+    "s2": {
+     "building_recall": {
+      "value": 0.06208333333333333,
+      "ci95": [
+       0.048541666666666664,
+       0.07542187499999997
+      ]
+     },
+     "building_called_local": {
+      "value": 0.23229166666666667,
+      "ci95": [
+       0.19749479166666667,
+       0.26959374999999997
+      ]
+     },
+     "building_called_ambient": {
+      "value": 0.705625,
+      "ci95": [
+       0.6662447916666667,
+       0.7454166666666666
+      ]
+     }
+    },
+    "s3": {
+     "building_recall": {
+      "value": 0.3910416666666667,
+      "ci95": [
+       0.3585364583333333,
+       0.425
+      ]
+     },
+     "building_called_local": {
+      "value": 0.31104166666666666,
+      "ci95": [
+       0.2722864583333333,
+       0.34979166666666667
+      ]
+     },
+     "building_called_ambient": {
+      "value": 0.29791666666666666,
+      "ci95": [
+       0.25979166666666664,
+       0.3383385416666666
+      ]
+     }
+    },
+    "s5": {
+     "building_recall": {
+      "value": 0.8789583333333333,
+      "ci95": [
+       0.859375,
+       0.8983333333333333
+      ]
+     },
+     "building_called_local": {
+      "value": 0.057916666666666665,
+      "ci95": [
+       0.04416666666666667,
+       0.073125
+      ]
+     },
+     "building_called_ambient": {
+      "value": 0.063125,
+      "ci95": [
+       0.051666666666666666,
+       0.07625
+      ]
+     }
+    }
+   },
+   "ambient_by_scenario": {
+    "healthy": {
+     "ambient_recall": {
+      "value": 0.9860416666666667,
+      "ci95": [
+       0.978125,
+       0.9927083333333333
+      ]
+     },
+     "false_events_per_hour": {
+      "value": 35.892857142857046,
+      "ci95": [
+       18.750000000000078,
+       56.24999999999994
+      ]
+     }
+    },
+    "noise": {
+     "ambient_recall": {
+      "value": 1.0,
+      "ci95": [
+       1.0,
+       1.0
+      ]
+     },
+     "false_events_per_hour": {
+      "value": 0.0,
+      "ci95": [
+       0.0,
+       0.0
+      ]
+     }
+    },
+    "non_event_windows_of_event_recordings": {
+     "ambient_recall": {
+      "value": 0.6626115166261152,
+      "ci95": [
+       0.6278548221147134,
+       0.6932300118069719
+      ]
+     },
+     "false_events_per_hour": {
+      "value": 867.5703858185611,
+      "ci95": [
+       788.8371124963581,
+       956.9447431335941
+      ]
+     }
+    }
+   },
+   "local_by_slave": {
+    "slave1": {
+     "value": 0.8898806203280152,
+     "ci95": [
+      0.8727662384334508,
+      0.9046249495899986
+     ],
+     "n": 8963
+    },
+    "slave2": {
+     "value": 0.8725011106175034,
+     "ci95": [
+      0.8535835718471031,
+      0.8912935587732012
+     ],
+     "n": 9004
+    }
+   },
+   "isolated_impact": {
+    "isolated": {
+     "value": 0.4016393442622951,
+     "ci95": [
+      0.32431806806806807,
+      0.48717948717948717
+     ],
+     "n": 122
+    },
+    "clustered": {
+     "value": 0.885748938750758,
+     "ci95": [
+      0.8754565010996846,
+      0.895821978340031
+     ],
+     "n": 8245
+    }
+   }
+  }
+ }
+}
