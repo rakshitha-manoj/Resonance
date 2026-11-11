@@ -7,3 +7,5 @@ data/raw/
 data/processed/
 .vscode/
 *.log
+# long-run caches, logs and --small outputs of models/training scripts (see models/training/cachedir.py)
+.cache/

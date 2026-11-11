@@ -1,0 +1,51 @@
+{
+ "fs_hz": 100,
+ "window_n": 128,
+ "classes": [
+  "normal",
+  "abnormal",
+  "faulty"
+ ],
+ "input_units": "raw int16 counts as read from MPU6050",
+ "input_columns": [
+  "az_std",
+  "az_kurt",
+  "az_domfreq",
+  "gx_std",
+  "gx_kurt",
+  "gx_domfreq",
+  "az_std_rel",
+  "gx_std_rel"
+ ],
+ "used_feature_columns": [
+  "az_std",
+  "az_kurt",
+  "az_domfreq",
+  "az_std_rel"
+ ],
+ "firmware_must_compute": {
+  "az": [
+   "std",
+   "kurt",
+   "domfreq",
+   "std_rel"
+  ]
+ },
+ "formulas": {
+  "std": "sqrt(mean((x-mean(x))^2)), population (ddof=0), mean removed",
+  "kurt": "excess kurtosis: mean((x-mu)^4)/var^2 - 3 with population moments; 0 if var==0",
+  "domfreq": "(argmax over k=1..64 of |rfft(x-mean(x))[k]|) * FS / N (bin 0 excluded; first max wins ties)",
+  "std_rel": "std of the window divided by that node's commissioning level (median std over >= 20 healthy commissioning windows of the same axis)"
+ },
+ "commissioning_values_needed": [
+  "az_std_rel"
+ ],
+ "model": {
+  "name": "dt_d3",
+  "family": "tree",
+  "file": "model.joblib",
+  "export_file": "model_export.json",
+  "trained_on": "240 simulated development buildings (class-balanced windows)"
+ },
+ "not_deployed": true
+}

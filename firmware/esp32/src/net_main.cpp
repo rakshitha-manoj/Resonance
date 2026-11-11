@@ -1,0 +1,480 @@
+// 3-node network firmware: master (NODE_ROLE_MASTER) or slave (NODE_ROLE_SLAVE, NODE_ID 1/2).
+// Role is chosen at compile time (platformio envs master / slave1 / slave2). The state machines are
+// in tiers.h; this file is the ESP32 host: ESP-NOW I/O, 64-bit clock, sampling, serial output.
+// Time is ALWAYS esp_timer_get_time() (64-bit), never micros().
+#include <Arduino.h>
+#include <esp_timer.h>
+#include <esp_system.h>
+#include "node_config.h"
+#include "tiers.h"
+#include "espnow_logic.h"
+#include "fusion_json.h"
+#ifndef WOKWI_STANDALONE
+#include "transport_espnow.h"
+#endif
+
+using namespace net;
+
+static inline uint64_t now_us() { return (uint64_t)esp_timer_get_time(); }
+
+#ifdef WOKWI_STANDALONE
+struct RxFrame { uint64_t t_us; uint8_t mac[6]; uint8_t len; uint8_t data[1]; };
+#endif
+
+#ifndef WOKWI_STANDALONE
+static EspNowTransport g_radio;
+#endif
+static host::RxFilter g_filter(NODE_ID);
+
+static void apply_allowlist() {
+#ifdef NODE0_MAC
+    { const uint8_t m[6] = NODE0_MAC; g_filter.pins.allow(0, m); }
+#endif
+#ifdef NODE1_MAC
+    { const uint8_t m[6] = NODE1_MAC; g_filter.pins.allow(1, m); }
+#endif
+#ifdef NODE2_MAC
+    { const uint8_t m[6] = NODE2_MAC; g_filter.pins.allow(2, m); }
+#endif
+}
+
+static void print_reject_counts() {
+    Serial.print("S,rx_reject");
+    // RX_NOT_PROTO (1) is counted in the transport callback (prefiltered=), not by the RxFilter
+    for (int r = 2; r < host::RX_REASONS; r++) Serial.printf(",%s=%u", host::rx_reason_name(r), (unsigned)g_filter.count[r]);
+    Serial.printf(",pins=%u\r\n", (unsigned)g_filter.pins.pins_made());
+}
+
+static void common_banner(const char *role) {
+    Serial.printf("boot ok %s %s role=%s id=%d\r\n", __DATE__, __TIME__, role, NODE_ID);
+    if (NOISE_GATE_OVERRIDE > 0 && (float)NOISE_GATE_OVERRIDE != NOISE_GATE_COUNTS)
+        Serial.printf("WARNING NOISE_GATE_OVERRIDE=%g NOT applied: tiers.h NOISE_GATE_COUNTS=%g is a constexpr\r\n",
+                      (double)NOISE_GATE_OVERRIDE, (double)NOISE_GATE_COUNTS);
+}
+
+// =====================================================================================================
+#ifdef NODE_ROLE_MASTER
+// =====================================================================================================
+
+// Wraps the radio to timestamp each POLL at the moment it is handed to the radio (for the round trip).
+static host::RttTracker g_rtt;
+
+class TimedTx : public Transport {
+public:
+    explicit TimedTx(Transport *inner) : inner_(inner) {}
+    bool broadcast(const uint8_t *buf, size_t len, uint64_t now) override {
+        uint8_t slave, attempt;
+        if (host::poll_info(buf, len, &slave, &attempt)) g_rtt.on_poll(slave, attempt, now_us());
+        return inner_->broadcast(buf, len, now);
+    }
+private:
+    Transport *inner_;
+};
+
+static TimedTx g_tx(&g_radio);
+
+// ---- FUSION (R2) ------------------------------------------------------------------------------------
+// JSON-lines event log (schema 2, include/fusion_json.h, the same formatter as netsim --events-jsonl) on the
+// same serial port as the CSV lines. Printing must never stall polling: a line is written only if the UART TX
+// buffer has room for all of it (Serial.availableForWrite(), the same discipline as print_stats), otherwise it is
+// counted as dropped. Samples (one per superframe) additionally leave JSON_SAMPLE_RESERVE bytes free so they
+// can never crowd out events or the S, statistics.
+static constexpr size_t JSON_SAMPLE_RESERVE = 1200;
+
+class SerialJson : public fusion::json::JsonLineSink {
+protected:
+    bool write_line(const char *line, size_t len, bool is_sample) override {
+        size_t need = len + (is_sample ? JSON_SAMPLE_RESERVE : 0);
+        if ((size_t)Serial.availableForWrite() < need) return false;
+        Serial.write((const uint8_t *)line, len);
+        return true;
+    }
+};
+static SerialJson g_json;
+static fusion::Fusion g_fusion(&g_json);
+
+// The fusion clock must not run backwards: report times are the radio receive times, service times are "now".
+static uint64_t g_fus_last_us = 0;
+static inline uint64_t fus_clock(uint64_t t) {
+    if (t < g_fus_last_us) t = g_fus_last_us;
+    g_fus_last_us = t;
+    return t;
+}
+
+// Master calls on_report() for every accepted report and on_status() on DEAD/ALIVE changes, from inside
+// loop() (not from the Wi-Fi task). Fusion is called after the CSV print and runs in the poll path.
+static uint32_t master_sf();   // g_master.current_sf(); defined after g_master (the listener is constructed first)
+
+class SerialListener : public MasterListener {
+public:
+    void on_report(uint8_t slave, const ReportPkt &r, uint64_t now) override {
+        g_rtt.on_report(slave, now_us());  // timed from the FIRST poll (attempt 0) of this superframe
+        Serial.printf("R,%u,%u,%u,%u,%u,%u,%u,%.3f,%.3f,%.3f,%.3f,%.3f\r\n", (unsigned)(now / 1000), (unsigned)slave,
+                      (unsigned)r.sf, (unsigned)r.window, (unsigned)r.raw, (unsigned)r.state, (unsigned)r.flags,
+                      (double)r.f[0], (double)r.f[1], (double)r.f[2], (double)r.f[3], (double)r.f[4]);
+        g_fusion.on_report(slave, r, fus_clock(now));
+    }
+    void on_status(uint8_t slave, bool alive, uint64_t now) override {
+        Serial.printf("E,%u,%u,%s\r\n", (unsigned)(now / 1000), (unsigned)slave, alive ? "ALIVE" : "DEAD");
+        uint64_t ft = fus_clock(now);
+        g_fusion.on_status(slave, alive, ft);
+        g_json.node(ft, master_sf(), slave, alive);   // immediate health line; no effect on fusion decisions
+    }
+};
+static SerialListener g_listener;
+static Master g_master(&g_tx, &g_listener);
+static uint32_t master_sf() { return g_master.current_sf(); }
+
+static uint64_t g_max_late_us = 0, g_max_rx_delay_us = 0;
+static uint32_t g_next_stats_sf = STATS_EVERY;
+
+// Closes superframes that cannot receive more reports; call after every Master::tick / on_packet.
+static inline void fusion_service() {
+    g_fusion.advance(g_master.current_sf(), g_master.polling_active(), fus_clock(now_us()));
+}
+
+static void print_stats() {
+    const MasterStats &s = g_master.stats();
+    Serial.printf("S,sf=%u,epoch=%08x,beacons=%u,skipped=%u,polls=%u/%u,retries=%u/%u,reports=%u/%u,missed=%u/%u,alive=%d/%d\r\n",
+                  (unsigned)g_master.current_sf(), (unsigned)g_master.epoch(), (unsigned)s.beacons, (unsigned)s.beacons_skipped,
+                  (unsigned)s.polls_tx[0], (unsigned)s.polls_tx[1], (unsigned)s.retries[0], (unsigned)s.retries[1],
+                  (unsigned)s.reports[0], (unsigned)s.reports[1], (unsigned)s.missed_total[0], (unsigned)s.missed_total[1],
+                  (int)g_master.alive(1), (int)g_master.alive(2));
+    Serial.printf("S,rx_proto,invalid=%u,ignored=%u,duplicate=%u,stale=%u,future=%u,epoch=%u,bad_field=%u,unpolled=%u\r\n",
+                  (unsigned)s.rx_invalid, (unsigned)s.rx_ignored, (unsigned)s.rx_duplicate, (unsigned)s.rx_stale,
+                  (unsigned)s.rx_future, (unsigned)s.rx_epoch, (unsigned)s.rx_bad_field, (unsigned)s.rx_unpolled);
+    print_reject_counts();
+    Serial.printf("S,tx_failed=%u,esp_now_send_fail=%u,send_cb_fail=%u,queue_overflow=%u,prefiltered=%u\r\n",
+                  (unsigned)s.tx_failed, (unsigned)g_radio.send_fail(), (unsigned)g_radio.send_cb_fail(),
+                  (unsigned)g_radio.rx_overflow(), (unsigned)g_radio.rx_prefiltered());
+    Serial.printf("S,max_tick_late_us=%u,max_rx_delay_us=%u\r\n", (unsigned)g_max_late_us, (unsigned)g_max_rx_delay_us);
+    const host::RttHist &h = g_rtt.hist;
+    Serial.printf("S,rtt_ms_hist,from_first_poll,n=%u,min_us=%u,max_us=%u,mean_us=%u,<4=%u,4-6=%u,6-8=%u,8-10=%u,10-12=%u,12-14=%u,14-16=%u,16-18=%u,>=18=%u\r\n",
+                  (unsigned)h.n, (unsigned)(h.n ? h.min_us : 0), (unsigned)h.max_us,
+                  (unsigned)(h.n ? h.sum_us / h.n : 0), (unsigned)h.b[0], (unsigned)h.b[1],
+                  (unsigned)h.b[2], (unsigned)h.b[3], (unsigned)h.b[4], (unsigned)h.b[5],
+                  (unsigned)h.b[6], (unsigned)h.b[7], (unsigned)h.b[8]);
+    const fusion::Stats &fs = g_fusion.stats();
+    Serial.printf("S,fusion,closed=%u,events=%u,commissioned=%d,base1=%.2f,base2=%.2f,restarts=%u,rejected=%u,json_lines=%u,json_samples=%u,json_dropped=%u,json_samples_dropped=%u,json_overflow=%u\r\n",
+                  (unsigned)fs.closed, (unsigned)g_fusion.events_emitted(), (int)g_fusion.commissioned(), (double)g_fusion.baseline(1),
+                  (double)g_fusion.baseline(2), (unsigned)fs.restarts, (unsigned)fs.rejected_reports, (unsigned)g_json.lines,
+                  (unsigned)g_json.sample_lines, (unsigned)g_json.dropped, (unsigned)g_json.sample_dropped, (unsigned)g_json.overflow);
+    Serial.printf("S,rtt_late,after_retry=%u,over_timeout=%u,unmatched=%u,rx_stale_after_close=%u\r\n",
+                  (unsigned)g_rtt.after_retry, (unsigned)g_rtt.over_timeout, (unsigned)g_rtt.unmatched, (unsigned)s.rx_stale);
+}
+
+static void master_handle(const RxFrame &f) {
+    uint64_t delay = now_us() - f.t_us;
+    if (delay > g_max_rx_delay_us) g_max_rx_delay_us = delay;
+    if (g_filter.accept(f.mac, f.data, f.len) == host::RX_OK) {
+        g_master.on_packet(f.data, f.len, f.t_us);
+        fusion_service();
+    }
+}
+
+void setup() {
+    Serial.setTxBufferSize(4096);  // printing must never stall the poll schedule
+    Serial.begin(115200);
+    delay(500);
+    common_banner("master");
+    if (!g_radio.begin()) {
+        Serial.println("espnow fail");
+        while (true) delay(1000);
+    }
+    apply_allowlist();
+    uint32_t epoch;
+    do { epoch = esp_random(); } while (epoch == 0);  // after Wi-Fi start: true random source
+    g_master.reset(now_us() + 1000000, epoch);        // first beacon 1 s from now
+    Serial.printf("master epoch=%08x\r\n", (unsigned)epoch);
+    // JSON log, schema 2: the meta line, then a restart line (the host cannot tell a first boot from a reboot, so
+    // prev_epoch is null; a restart line in the middle of a log means the master rebooted and t_us starts again at 0).
+    g_json.samples = JSON_SAMPLES != 0;
+    {
+        char b[fusion::json::JSON_LINE_MAX];
+        fusion::json::Meta m;
+        m.source = "master";
+        m.cfg = g_fusion.config();
+        m.floor1 = SLAVE_FLOOR_1;
+        m.floor2 = SLAVE_FLOOR_2;
+        m.epoch = epoch;
+        m.samples = g_json.samples;
+        g_json.emit(b, fusion::json::meta_line(b, sizeof b, m), false);
+        g_json.emit(b, fusion::json::restart_line(b, sizeof b, fus_clock(now_us()), epoch, 0), false);
+    }
+    Serial.println("# R,t_ms,slave,sf,window,raw,state,flags,std_az,kurt_az,dom_az,std_gx,dom_gx");
+    Serial.println("# E,t_ms,slave,ALIVE|DEAD");
+    Serial.println("# JSON lines (schema 2): {\"type\":\"meta|restart|sample|begin|change|status|node\",...}");
+}
+
+void loop() {
+    RxFrame f;
+    uint64_t now = now_us();
+    uint64_t wake = g_master.next_wakeup();
+    // Sleep in the queue wait until ~1.5 ms before the wakeup; the last stretch polls (no sleep) so
+    // tick lateness is not limited by the 1 ms RTOS tick.
+    uint32_t ticks = 0;
+    if (wake > now + 2000) {
+        uint64_t ms = (wake - now - 1500) / 1000;
+        ticks = (uint32_t)(ms > 20 ? 20 : ms);
+    }
+    if (g_radio.pop(&f, ticks)) {
+        master_handle(f);
+        while (g_radio.pop(&f, 0)) master_handle(f);
+    }
+    now = now_us();
+    wake = g_master.next_wakeup();
+    if (now >= wake) {
+        uint64_t late = now - wake;
+        if (late > g_max_late_us) g_max_late_us = late;
+        g_master.tick(now);
+        fusion_service();
+    }
+    if (!g_master.polling_active() && g_master.stats().beacons > 0 && g_master.current_sf() >= g_next_stats_sf &&
+        Serial.availableForWrite() > 1100) {
+        print_stats();
+        g_next_stats_sf = g_master.current_sf() + STATS_EVERY;
+    }
+}
+
+// =====================================================================================================
+#else  // NODE_ROLE_SLAVE
+// =====================================================================================================
+#include <Wire.h>
+#include <MPU6050.h>
+
+namespace {
+class NullTx : public Transport {
+public:
+    bool broadcast(const uint8_t *, size_t, uint64_t) override { return true; }
+};
+}  // namespace
+
+MPU6050 mpu;
+static int16_t az_buf[WIN_N];
+static int16_t gx_buf[WIN_N];
+
+#ifdef WOKWI_STANDALONE
+static NullTx g_tx;  // no radio in the simulator: the slave is fed synthetic beacons
+#else
+static Transport &g_tx = g_radio;
+#endif
+static SlaveNode g_slave(NODE_ID, &g_tx);
+
+enum Mode { M_NET, M_RECORD, M_NOISE };
+static Mode g_mode = M_NET;
+static int g_label = 0;
+static uint32_t g_rec_win = 0, g_win_count = 0, g_peak_q = 0;
+
+// Sample WIN_N windows at exact 10 ms deadlines anchored at t0 (the time of sample 0), 64-bit time.
+// Nothing is transmitted or processed in here. Long waits sleep (vTaskDelay) so the idle task and
+// the Wi-Fi/ESP-NOW tasks keep running; the final 3 ms spin for accuracy.
+static void sample_window(uint64_t t0, host::WindowTimer &wt) {
+    wt.reset(t0);
+    for (uint32_t i = 0; i < WIN_N; i++) {
+        uint64_t dl = host::sample_deadline(t0, i);
+        for (;;) {
+            int64_t rem = (int64_t)(dl - now_us());
+            if (rem <= 0) break;
+            if (rem > 3000) vTaskDelay(1);
+        }
+        uint64_t actual = now_us();
+#if SYNC_PIN >= 0
+        if (i == 0) digitalWrite(SYNC_PIN, HIGH);
+        else if (i == 1) digitalWrite(SYNC_PIN, LOW);
+#endif
+        int16_t ax, ay, az, gx, gy, gz;
+        mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+        az_buf[i] = az;
+        gx_buf[i] = gx;
+        wt.add(i, actual);
+    }
+}
+
+static void run_net_window(uint32_t token) {
+    uint64_t start = g_slave.window_start();  // beacon rx time (or tick time for a free-run window)
+    host::WindowTimer wt;
+    uint64_t t0 = now_us();
+    sample_window(t0, wt);
+    uint64_t c0 = now_us();
+    bool ok = g_slave.deliver_window(token, az_buf, gx_buf, c0);
+    uint64_t c1 = now_us();
+    const ReportPkt &r = g_slave.report();
+    uint32_t q = 0;
+#ifndef WOKWI_STANDALONE
+    q = g_radio.pending();
+    if (q > g_peak_q) g_peak_q = q;
+#endif
+    // W,node,sf,window,raw,state,flags,span_us,compute_us,bo_us,max_miss_us,delivered,queued
+    Serial.printf("W,%d,%u,%u,%s,%s,%u,%d,%d,%d,%d,%d,%u\r\n", NODE_ID, (unsigned)g_slave.window_sf(), (unsigned)r.window,
+                  class_names[r.raw], class_names[r.state], (unsigned)r.flags, (int)wt.span(), (int)(c1 - c0),
+                  (int)(int64_t)(t0 - start), (int)wt.max_miss, (int)ok, (unsigned)q);
+    g_win_count++;
+}
+
+static void print_slave_stats() {
+    const SlaveStats &s = g_slave.stats();
+    Serial.printf("S,node=%d,windows=%u,synced=%d,lost=%d,beacons=%u,free_runs=%u,beacons_rejected=%u,epoch_resyncs=%u,"
+                  "polls_answered=%u,polls_silent=%u,tx_failed=%u,windows_rejected=%u,rx_invalid=%u,rx_ignored=%u\r\n",
+                  NODE_ID, (unsigned)g_slave.windows_done(), (int)g_slave.synced(), (int)g_slave.lost(), (unsigned)s.beacons,
+                  (unsigned)s.free_runs, (unsigned)s.beacons_rejected, (unsigned)s.epoch_resyncs, (unsigned)s.polls_answered,
+                  (unsigned)s.polls_silent, (unsigned)s.tx_failed, (unsigned)s.windows_rejected, (unsigned)s.rx_invalid,
+                  (unsigned)s.rx_ignored);
+#ifndef WOKWI_STANDALONE
+    print_reject_counts();
+    Serial.printf("S,esp_now_send_fail=%u,send_cb_fail=%u,queue_overflow=%u,prefiltered=%u,peak_queue=%u\r\n",
+                  (unsigned)g_radio.send_fail(), (unsigned)g_radio.send_cb_fail(), (unsigned)g_radio.rx_overflow(),
+                  (unsigned)g_radio.rx_prefiltered(), (unsigned)g_peak_q);
+#endif
+}
+
+// ---- record / noise modes: network participation is SUSPENDED (see docs/hardware_bringup.md) --------
+static void flush_rx() {
+#ifndef WOKWI_STANDALONE
+    RxFrame f;
+    while (g_radio.pop(&f, 0)) {}
+#endif
+}
+
+static void enter_net_mode() {
+    g_slave.reset();  // back to power-on state: accepts the next beacon whatever its superframe
+    g_mode = M_NET;
+    flush_rx();
+}
+
+static void send_record_row() {
+    static char line[2600];
+    int n = snprintf(line, sizeof(line), "D,%d,%u", g_label, (unsigned)g_rec_win++);
+    for (int i = 0; i < WIN_N; i++) n += snprintf(line + n, sizeof(line) - n, ",%d", (int)az_buf[i]);
+    for (int i = 0; i < WIN_N; i++) n += snprintf(line + n, sizeof(line) - n, ",%d", (int)gx_buf[i]);
+    n += snprintf(line + n, sizeof(line) - n, "\r\n");
+    Serial.write((const uint8_t *)line, n);
+}
+
+static void run_noise_estimate() {
+    static float az_s[NOISE_WINDOWS], gx_s[NOISE_WINDOWS];
+    Serial.printf("noise: %d windows (~%d s), keep the sensor still. Network suspended.\r\n", NOISE_WINDOWS, NOISE_WINDOWS * 13 / 10);
+    host::WindowTimer wt;
+    for (int w = 0; w < NOISE_WINDOWS; w++) {
+        sample_window(now_us(), wt);
+        float k;
+        feat_std_kurt(az_buf, &az_s[w], &k);
+        gx_s[w] = feat_std(gx_buf);
+        flush_rx();
+    }
+    host::NoiseStats a = host::noise_stats(az_s, NOISE_WINDOWS), g = host::noise_stats(gx_s, NOISE_WINDOWS);
+    Serial.printf("N,windows=%d,az_std_mean=%.2f,az_std_sd=%.2f,az_std_min=%.2f,az_std_max=%.2f,gx_std_mean=%.2f,gx_std_max=%.2f,"
+                  "gate_suggest_mean+5sd=%.1f,current_gate=%.2f\r\n",
+                  NOISE_WINDOWS, (double)a.mean, (double)a.sd, (double)a.mn, (double)a.mx, (double)g.mean, (double)g.mx,
+                  (double)(a.mean + 5 * a.sd), (double)NOISE_GATE_COUNTS);
+}
+
+static void handle_serial() {
+    while (Serial.available()) {
+        int c = Serial.read();
+        if (c == 'r') {
+            if (g_mode == M_RECORD) {
+                enter_net_mode();
+                Serial.println("record: off, network resumed");
+            } else {
+                g_mode = M_RECORD;
+                g_rec_win = 0;
+                Serial.printf("record: on, label=%d (type 0/1/2 to change, r to stop). Network SUSPENDED.\r\n", g_label);
+                Serial.println("# D,label,win,az_0..az_127,gx_0..gx_127");
+            }
+        } else if (c == 'n' && g_mode == M_NET) {
+            g_mode = M_NOISE;
+        } else if (c >= '0' && c <= '2') {
+            g_label = c - '0';
+            Serial.printf("label=%d (discard the first window after a change)\r\n", g_label);
+        }
+    }
+}
+
+void setup() {
+    Serial.setTxBufferSize(4096);
+    Serial.begin(115200);
+    delay(500);
+    common_banner("slave");
+    Wire.begin(21, 22);
+    mpu.initialize();
+    if (!mpu.testConnection()) {
+        Serial.println("mpu fail");
+        while (true) delay(1000);
+    }
+    mpu.setDLPFMode(MPU6050_IMU::MPU6050_DLPF_BW_42);
+    int dlpf = mpu.getDLPFMode();
+    int accel = mpu.getFullScaleAccelRange();
+    int gyro = mpu.getFullScaleGyroRange();
+    if (dlpf != MPU6050_IMU::MPU6050_DLPF_BW_42 || accel != MPU6050_IMU::MPU6050_ACCEL_FS_2 || gyro != MPU6050_IMU::MPU6050_GYRO_FS_250) {
+        Serial.printf("config fail dlpf=%d accel=%d gyro=%d\r\n", dlpf, accel, gyro);
+        while (true) delay(1000);
+    }
+    Serial.printf("config ok dlpf=%d accel=%d gyro=%d\r\n", dlpf, accel, gyro);
+#if SYNC_PIN >= 0
+    pinMode(SYNC_PIN, OUTPUT);
+    digitalWrite(SYNC_PIN, LOW);
+#endif
+#ifndef WOKWI_STANDALONE
+    if (!g_radio.begin()) {
+        Serial.println("espnow fail");
+        while (true) delay(1000);
+    }
+    apply_allowlist();
+#else
+    Serial.println("WOKWI_STANDALONE: no radio, synthetic beacons every superframe");
+#endif
+    Serial.println("# W,node,sf,window,raw,state,flags,span_us,compute_us,bo_us,max_miss_us,delivered,queued");
+    Serial.println("commands: r = record mode on/off, 0/1/2 = label, n = noise estimate");
+}
+
+#ifdef WOKWI_STANDALONE
+static uint64_t g_next_fake = 0;
+static uint32_t g_fake_sf = 0;
+static void standalone_feed() {
+    uint64_t now = now_us();
+    if (g_next_fake == 0) g_next_fake = now + 1000000;
+    if (now >= g_next_fake) {
+        uint8_t b[MAX_PAYLOAD];
+        size_t n = encode_beacon(b, ID_MASTER, ID_BROADCAST, (uint16_t)g_fake_sf, g_fake_sf, 0xC0FFEEu);
+        g_fake_sf++;
+        g_next_fake += SUPERFRAME_US;
+        g_slave.on_packet(b, n, now);
+    }
+}
+#endif
+
+void loop() {
+    handle_serial();
+    if (g_mode == M_RECORD) {
+        host::WindowTimer wt;
+        sample_window(now_us(), wt);
+        send_record_row();
+        flush_rx();
+        return;
+    }
+    if (g_mode == M_NOISE) {
+        run_noise_estimate();
+        enter_net_mode();
+        return;
+    }
+#ifdef WOKWI_STANDALONE
+    delay(1);
+    standalone_feed();
+#else
+    RxFrame f;
+    if (g_radio.pop(&f, 1)) {
+        do {
+            if (g_filter.accept(f.mac, f.data, f.len) == host::RX_OK) g_slave.on_packet(f.data, f.len, f.t_us);
+            // A beacon asks for a window: stop draining and sample now. Remaining frames stay queued.
+            if (g_slave.window_requested()) break;
+        } while (g_radio.pop(&f, 0));
+    }
+#endif
+    g_slave.tick(now_us());
+    uint32_t token = g_slave.take_window_request();
+    if (token) {
+        run_net_window(token);
+        if (g_win_count % STATS_EVERY == 0) print_slave_stats();
+    }
+}
+#endif

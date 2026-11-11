@@ -1,0 +1,161 @@
+{
+ "model_type": "decision_tree",
+ "config": "dt_d3",
+ "params": {
+  "max_depth": 3
+ },
+ "class_order": [
+  "normal",
+  "abnormal",
+  "faulty"
+ ],
+ "input_features": [
+  "az_std",
+  "az_kurt",
+  "az_domfreq",
+  "gx_std",
+  "gx_kurt",
+  "gx_domfreq",
+  "az_std_rel",
+  "gx_std_rel"
+ ],
+ "n_input_features": 8,
+ "comparison_rule": "go left if x[feature] <= threshold else right; thresholds are float32 (rounded down so float32 x <= threshold matches sklearn exactly); inputs cast to float32",
+ "vote_rule": "n/a (single tree: output the leaf class)",
+ "trees": [
+  {
+   "n_nodes": 15,
+   "feature_index": [
+    6,
+    0,
+    6,
+    -1,
+    -1,
+    2,
+    -1,
+    -1,
+    2,
+    1,
+    -1,
+    -1,
+    2,
+    -1,
+    -1
+   ],
+   "feature_name": [
+    "az_std_rel",
+    "az_std",
+    "az_std_rel",
+    null,
+    null,
+    "az_domfreq",
+    null,
+    null,
+    "az_domfreq",
+    "az_kurt",
+    null,
+    null,
+    "az_domfreq",
+    null,
+    null
+   ],
+   "threshold": [
+    1.4943797588348389,
+    154.60423278808594,
+    1.2138854265213013,
+    null,
+    null,
+    11.328125,
+    null,
+    null,
+    10.546875,
+    0.8119131326675415,
+    null,
+    null,
+    12.109375,
+    null,
+    null
+   ],
+   "left": [
+    1,
+    2,
+    3,
+    -1,
+    -1,
+    6,
+    -1,
+    -1,
+    9,
+    10,
+    -1,
+    -1,
+    13,
+    -1,
+    -1
+   ],
+   "right": [
+    8,
+    5,
+    4,
+    -1,
+    -1,
+    7,
+    -1,
+    -1,
+    12,
+    11,
+    -1,
+    -1,
+    14,
+    -1,
+    -1
+   ],
+   "leaf_class": [
+    null,
+    null,
+    null,
+    0,
+    0,
+    null,
+    0,
+    2,
+    null,
+    null,
+    1,
+    2,
+    null,
+    2,
+    2
+   ]
+  }
+ ],
+ "used_feature_indices": [
+  0,
+  1,
+  2,
+  6
+ ],
+ "used_feature_names": [
+  "az_std",
+  "az_kurt",
+  "az_domfreq",
+  "az_std_rel"
+ ],
+ "firmware_must_compute": {
+  "az": [
+   "std",
+   "kurt",
+   "domfreq",
+   "std_rel"
+  ]
+ },
+ "firmware_axes_needed": [
+  "az"
+ ],
+ "firmware_needs_fft_axes": [
+  "az"
+ ],
+ "commissioning_values_needed": [
+  "az_std_rel"
+ ]
+}
