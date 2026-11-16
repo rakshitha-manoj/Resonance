@@ -183,4 +183,4 @@ pio run -e esp32dev
 pio run -e selftest
 ```
 
-Wokwi: open `firmware/esp32` in VS Code, run "Wokwi: Select Config File" (`wokwi.toml` for live, `selftest/wokwi.toml` for the self-test), then "Wokwi: Start Simulator".
+Wokwi: open `firmware/esp32` in VS Code, run "Wokwi: Select Config File" (`wokwi/single_node/wokwi.toml` for live, `wokwi/single_node_selftest/wokwi.toml` for the self-test; these configs were at `wokwi.toml` and `selftest/wokwi.toml` when this report was written), then "Wokwi: Start Simulator".

@@ -1,0 +1,5 @@
+# Earlier phases: the original single-ESP32 self-test firmware (env selftest, src/selftest.cpp).
+[wokwi]
+version = 1
+firmware = "../../.pio/build/selftest/firmware.bin"
+elf = "../../.pio/build/selftest/firmware.elf"

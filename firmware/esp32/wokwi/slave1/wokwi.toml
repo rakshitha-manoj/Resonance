@@ -1,0 +1,5 @@
+# 3-ESP32 system, slave 1 (floor sensor). Env slave1_wokwi: no radio, synthetic beacons every 1.4 s.
+[wokwi]
+version = 1
+firmware = "../../.pio/build/slave1_wokwi/firmware.bin"
+elf = "../../.pio/build/slave1_wokwi/firmware.elf"

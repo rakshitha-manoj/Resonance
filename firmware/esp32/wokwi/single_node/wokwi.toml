@@ -1,0 +1,5 @@
+# Earlier phases: the original single-ESP32 live firmware (env esp32dev, src/main.cpp).
+[wokwi]
+version = 1
+firmware = "../../.pio/build/esp32dev/firmware.bin"
+elf = "../../.pio/build/esp32dev/firmware.elf"

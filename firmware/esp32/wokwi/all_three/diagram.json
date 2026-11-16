@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "author": "Resonance",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "wokwi-esp32-devkit-v1", "id": "master", "top": 0, "left": 360, "attrs": {} },
+    { "type": "wokwi-esp32-devkit-v1", "id": "slave1", "top": 260, "left": 0, "attrs": {} },
+    { "type": "wokwi-mpu6050", "id": "mpu1", "top": 240, "left": 190, "attrs": {} },
+    { "type": "wokwi-esp32-devkit-v1", "id": "slave2", "top": 260, "left": 720, "attrs": {} },
+    { "type": "wokwi-mpu6050", "id": "mpu2", "top": 240, "left": 910, "attrs": {} }
+  ],
+  "connections": [
+    [ "slave1:3V3", "mpu1:VCC", "red", [] ],
+    [ "slave1:GND.1", "mpu1:GND", "black", [] ],
+    [ "slave1:D21", "mpu1:SDA", "green", [] ],
+    [ "slave1:D22", "mpu1:SCL", "blue", [] ],
+    [ "slave2:3V3", "mpu2:VCC", "red", [] ],
+    [ "slave2:GND.1", "mpu2:GND", "black", [] ],
+    [ "slave2:D21", "mpu2:SDA", "green", [] ],
+    [ "slave2:D22", "mpu2:SCL", "blue", [] ]
+  ]
+}

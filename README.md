@@ -66,7 +66,7 @@ A branch `hier1-building-sim` exists but points at the Phase 5 merge commit (`49
 | `models/training/` | Training and selection (`train.py`), model comparison, sensor-filter check, smoothing evaluation; localisation gates, building-data retraining (`train_building.py`), master-rule selection (`fusion_eval.py`, `fusion_eval_r2b.py`), single-node comparison (`compare_hierarchy.py`) |
 | `models/selected/` | Deployed model, export for C, feature specification, reports and validation results (including gate, fusion and hierarchy results) |
 | `models/selected_building/` | Building-data retraining candidate and its report (not deployed) |
-| `firmware/esp32/` | PlatformIO project: live firmware, self-test firmware, network firmware (`master`, `slave1`, `slave2`; `include/net_proto.h`, `tiers.h`, `fusion.h`, `espnow_logic.h`), network simulator (`netsim`), PC tests, code generators (`tools/`), Wokwi configs (`slave_wokwi/`) |
+| `firmware/esp32/` | PlatformIO project: live firmware, self-test firmware, network firmware (`master`, `slave1`, `slave2`; `include/net_proto.h`, `tiers.h`, `fusion.h`, `espnow_logic.h`), network simulator (`netsim`), PC tests, code generators (`tools/`), Wokwi configs (`wokwi/`: one folder per board of the 3-ESP32 system, a wiring view of all three, and the earlier single-board configs) |
 | `dashboard/` | `index.html` event-log viewer (replay and live over USB) and sample logs |
 | `docs/` | `simulation_validation.md` (Phases 1 to 5), `hierarchy_validation.md` (R1 to R6 report), `hardware_bringup.md` (flashing and measurements for the three boards) |
 
@@ -87,7 +87,7 @@ pio run -e esp32dev
 pio run -e selftest
 ```
 
-In VS Code with the Wokwi extension, open `firmware/esp32`, run "Wokwi: Select Config File" (`wokwi.toml` for the live firmware, `selftest/wokwi.toml` for the self-test), then "Wokwi: Start Simulator". The live firmware prints `window,class,state,feat_us,tree_us,span_us` once per window.
+In VS Code with the Wokwi extension, open `firmware/esp32`, build the board you want (`pio run -e master`, `pio run -e slave1_wokwi` or `pio run -e slave2_wokwi`), run "Wokwi: Select Config File" and pick `wokwi/master/`, `wokwi/slave1/` or `wokwi/slave2/` `wokwi.toml`, then "Wokwi: Start Simulator". Wokwi simulates one board at a time; the 3-board network runs on the PC in `netsim`. The earlier single-board configs are in `wokwi/single_node/` (env `esp32dev`) and `wokwi/single_node_selftest/` (env `selftest`). See `firmware/esp32/wokwi/README.md`, which also has the wiring of all three boards.
 
 Network firmware and tests (also from `firmware/esp32`):
 

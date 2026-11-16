@@ -1,0 +1,6 @@
+# 3-ESP32 system, master (no sensor). Env master: the real master firmware. In Wokwi it runs alone,
+# so it sends beacons and polls, hears no slaves and declares both DEAD after about 4 s.
+[wokwi]
+version = 1
+firmware = "../../.pio/build/master/firmware.bin"
+elf = "../../.pio/build/master/firmware.elf"

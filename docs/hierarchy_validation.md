@@ -314,7 +314,7 @@ The dashboard is a viewer for the master's log, not an alarm system. Raising an 
 
 ## 10. Hardware status and next steps
 
-Source: `docs/hardware_bringup.md`. Three ESP32 DevKit v1 boards (master, slave 1, slave 2), an MPU6050 on each slave (SDA 21, SCL 22, address 0x68, az as the gravity axis). Firmware environments `master`, `slave1`, `slave2`. A Wokwi build (`slave_wokwi`) checks the sensor path and 64-bit timing, not the radio.
+Source: `docs/hardware_bringup.md`. Three ESP32 DevKit v1 boards (master, slave 1, slave 2), an MPU6050 on each slave (SDA 21, SCL 22, address 0x68, az as the gravity axis). Firmware environments `master`, `slave1`, `slave2`. Wokwi builds (`slave1_wokwi`, `slave2_wokwi`; one board per simulation, configs in `firmware/esp32/wokwi/`) checks the sensor path and 64-bit timing, not the radio.
 
 Measurements to take (still, 5 minutes each, then link loss for 2 to 3 hours or more), with what a failure would change:
 
@@ -385,7 +385,7 @@ pio test -e espnow_logic      # ESP-NOW receive filter and queue logic
 pio run -e master             # the three network builds
 pio run -e slave1
 pio run -e slave2
-pio run -e slave_wokwi        # one slave in Wokwi, no radio
+pio run -e slave1_wokwi       # one slave in Wokwi, no radio (configs in firmware/esp32/wokwi/)
 
 # regenerate test vectors and demo traces (after any change to fusion.h)
 ..\..\.venv\Scripts\python.exe tools\gen_fusion_vectors.py
