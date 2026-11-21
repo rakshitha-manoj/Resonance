@@ -1848,6 +1848,30 @@ void test_master_optional_fields_dropped_but_report_kept(void) {
         TEST_ASSERT_EQUAL_UINT32_MESSAGE(cases[i].ae_bad, r.m.stats().rx_ae_bad, msg);
         TEST_ASSERT_EQUAL_UINT32_MESSAGE(cases[i].f1_bad, r.m.stats().rx_f1_bad, msg);
     }
+    // sanitising happens only for ACCEPTED reports: a future / foreign-epoch / duplicate report with a bad AE field is not counted
+    {
+        MasterRig u;
+        u.to_polling();
+        ReportPkt p = good_report(5);   // future superframe
+        p.flags = FLAG_AE_READY;
+        p.ae_ratio = nanf;
+        u.inject(p, 1, 100);
+        p = good_report(0, 0, EP2);
+        p.flags = FLAG_AE_READY;
+        p.ae_ratio = nanf;
+        u.inject(p, 1, 100);
+        TEST_ASSERT_EQUAL_UINT32(1, u.m.stats().rx_future);
+        TEST_ASSERT_EQUAL_UINT32(1, u.m.stats().rx_epoch);
+        TEST_ASSERT_EQUAL_UINT32(0, u.m.stats().rx_ae_bad);
+        p = good_report(0);
+        p.flags = FLAG_AE_READY;
+        p.ae_ratio = nanf;
+        u.inject(p, 1, 100);
+        TEST_ASSERT_EQUAL_UINT32(1, u.m.stats().rx_ae_bad);
+        u.inject(p, 1, 101);   // duplicate of the accepted one
+        TEST_ASSERT_EQUAL_UINT32(1, u.m.stats().rx_ae_bad);
+        TEST_ASSERT_EQUAL_UINT32(1, u.m.stats().rx_duplicate);
+    }
     // a non-finite CORE feature is still a rejected report, whatever the optional fields say
     MasterRig q;
     q.to_polling();
