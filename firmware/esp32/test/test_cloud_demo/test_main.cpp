@@ -106,7 +106,7 @@ void test_header_matches_trace_file() {
     TEST_ASSERT_EQUAL(5, DEMO_FLOOR_1);
     TEST_ASSERT_EQUAL(10, DEMO_FLOOR_2);
     // flash size of the table
-    TEST_ASSERT_EQUAL(118784, (int)sizeof(DEMO_TRACE));
+    TEST_ASSERT_EQUAL(327680, (int)sizeof(DEMO_TRACE));   // 2 x 320 x 256 x 2 B (the 116-window legacy trace was 118,784 B)
 }
 
 void test_virtual_slaves_every_report_reaches_master_in_time() {
@@ -128,7 +128,7 @@ void test_virtual_slaves_every_report_reaches_master_in_time() {
 }
 
 void test_cloud_demo_lines_equal_netsim_output_of_the_same_traces() {
-    // dashboard/demo_events_sim.jsonl is REAL netsim output of demo_traces.bin (floors 5,10), schema 3: meta, 116 samples, 10 events + status
+    // dashboard/demo_events_sim.jsonl is REAL netsim output of demo_traces.bin (floors 5,10), schema 3: meta, 320 samples, 8 events + 3 status + 1 damage BEGIN (Phase C2b scenario)
     // (with the AE ratio, f1 and drop of the slaves' full pipeline in every sample; the virtual slaves run the same pipeline)
     FILE *fp = fopen("../../dashboard/demo_events_sim.jsonl", "rb");
     TEST_ASSERT_NOT_NULL(fp);
@@ -140,20 +140,24 @@ void test_cloud_demo_lines_equal_netsim_output_of_the_same_traces() {
         gold.push_back(l);
     }
     fclose(fp);
-    TEST_ASSERT_EQUAL(128, gold.size());
+    TEST_ASSERT_EQUAL(DEMO_N_WINDOWS + 15, gold.size());   // meta + samples + 14 event/status/damage lines
 
     Rig r;
-    r.run_until(1000000ull + 130ull * SUPERFRAME_US, 116);
-    TEST_ASSERT_EQUAL(116, r.sink.samples.size());
+    r.run_until(1000000ull + (DEMO_N_WINDOWS + 14ull) * SUPERFRAME_US, DEMO_N_WINDOWS);
+    TEST_ASSERT_EQUAL(DEMO_N_WINDOWS, r.sink.samples.size());
     // my lines in emission order = gold lines without the meta line (the master firmware writes its own meta)
     std::vector<std::string> mine = r.sink.lines;
-    TEST_ASSERT_TRUE(mine.size() >= 126);
+    TEST_ASSERT_TRUE(mine.size() >= gold.size() - 1);
     size_t gi = 1, mi = 0, compared = 0;
     while (gi < gold.size() && mi < mine.size()) {
         TEST_ASSERT_EQUAL_STRING_MESSAGE(strip_t(gold[gi]).c_str(), strip_t(mine[mi]).c_str(), ("line " + std::to_string(gi)).c_str());
         gi++; mi++; compared++;
     }
-    TEST_ASSERT_TRUE(compared >= 126);
+    TEST_ASSERT_TRUE(compared >= gold.size() - 1);
+    bool gold_has_damage = false;
+    for (size_t i = 0; i < gold.size(); i++)
+        if (gold[i].find("\"type\":\"damage\"") != std::string::npos) gold_has_damage = true;
+    TEST_ASSERT_TRUE_MESSAGE(gold_has_damage, "the golden demo log must contain the DAMAGE BEGIN");
     TEST_ASSERT_EQUAL_UINT32(0, r.sink.overflow);
     // the comparison is not vacuous: the golden log carries real AE ratios and f1 estimates from the slaves' pipeline
     int with_ae = 0, with_f1 = 0;
@@ -162,8 +166,8 @@ void test_cloud_demo_lines_equal_netsim_output_of_the_same_traces() {
         if (gold[i].find("\"ae\":[null,null]") == std::string::npos) with_ae++;
         if (gold[i].find("\"f1\":[null,null]") == std::string::npos) with_f1++;
     }
-    TEST_ASSERT_TRUE(with_ae >= 90);   // AE ready from the 21st window of 116
-    TEST_ASSERT_TRUE(with_f1 >= 70);   // f1 valid from the 32nd window (at least one slave)
+    TEST_ASSERT_TRUE(with_ae >= 290);   // AE ready from the 21st window of 320
+    TEST_ASSERT_TRUE(with_f1 >= 250);   // f1 valid from the 32nd window (at least one slave)
 }
 
 // The full slave pipeline is slow on the Wokwi ESP32 (tens of ms per window, two slaves in one process). The windows are computed
@@ -208,7 +212,7 @@ void test_cloud_demo_log_for_validator() {
     const char *path = getenv("CLOUD_DEMO_OUT");
     if (!path) return;
     Rig r;
-    r.run_until(1000000ull + 130ull * SUPERFRAME_US, 116);
+    r.run_until(1000000ull + (DEMO_N_WINDOWS + 14ull) * SUPERFRAME_US, DEMO_N_WINDOWS);
     FILE *fp = fopen(path, "wb");
     TEST_ASSERT_NOT_NULL(fp);
     char b[fusion::json::JSON_LINE_MAX];
