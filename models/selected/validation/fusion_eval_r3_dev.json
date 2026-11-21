@@ -7229,5 +7229,14 @@
   "x2": 0.42083333333333334,
   "x3": 0.9875,
   "x5": 1.0
+ },
+ "quantiser_rerun": {
+  "note": "Phase C1: ae.h input quantiser changed from v*(1/scale) to v/scale (TFLite 2.21 reference QUANTIZE). Dev table recomputed from the same recordings (re-simulated: identical base20 inputs) with the identical selection rule.",
+  "old_quantiser_selected": "f, T=6 (b T=3), k=1",
+  "new_quantiser_selected": "f, T=6 (b T=3), k=1",
+  "selection_changed": false,
+  "table_rows": 165,
+  "rows_differing_in_false_onsets_or_mean_recall": 0,
+  "old_tables_files": "old_quantiser/fusion_eval_r3_dev.json, .md, fusion_eval_r3_selected.json"
  }
 }

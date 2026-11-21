@@ -94,6 +94,7 @@ def build():
         W = tensor_data(m, w, np.int8)
         B = tensor_data(m, b, np.int32)
         wsc, wzp = tensor_q(m, w)
+        bias_sc, bias_zp = tensor_q(m, b)
         assert not np.any(wzp), "weights must be symmetric (zero point 0)"
         osc, ozp = tensor_q(m, o)
         assert osc.size == 1 and ozp.size == 1
@@ -107,7 +108,9 @@ def build():
             mm, ss = quantize_multiplier(real)
             mult.append(mm)
             shift.append(ss)
-            bsc = cur_sc * float(wsc[c])
+            bsc = cur_sc * float(wsc[c])                      # TFLite requires bias scale == input scale * weight scale (zero point 0)
+            assert abs(float(bias_sc[c if bias_sc.size > 1 else 0]) - bsc) <= 1e-6 * bsc, "bias scale != input scale * weight scale"
+            assert not np.any(bias_zp), "bias zero point must be 0"
         act = op.builtinOptions.fusedActivationFunction
         qmin, qmax = -128, 127
         if act == S.ActivationFunctionType.RELU:

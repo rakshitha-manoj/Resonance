@@ -1,5 +1,5 @@
 """Final autoencoder: train on the AE training block (healthy only), full-integer int8 post-training quantisation, Mahalanobis
-baseline, numbers for the report. Tinyml venv:  python models/training/ae_final.py --design B --hidden 12,4,12
+baseline, numbers for the report. Tinyml venv:  python models/training/ae_final.py   (defaults = the committed model: design A, hidden 12,2,12, 30 epochs, seed 0)
 Writes models/tinyml/: ae_float.keras, ae_int8.tflite, ae_norm.json (design + per-input normaliser floor), mahalanobis.json,
 ae_numbers.json (everything the report quotes). Then run firmware/esp32/tools/gen_ae.py and gen_ae_vectors.py.
 """
@@ -21,8 +21,7 @@ OUT = T.ROOT / "models" / "tinyml"
 
 
 def quant_np(x, scale, zp):
-    inv = np.float32(1.0) / np.float32(scale)
-    t = x.astype(np.float32) * inv
+    t = x.astype(np.float32) / np.float32(scale)      # TFLite 2.21 reference QUANTIZE: float32 division, then round half away from zero
     a = np.abs(t)
     f = np.floor(a)
     r = np.sign(t) * (f + (a - f >= np.float32(0.5)))
@@ -49,8 +48,8 @@ def run_int8(path, z, resolver=None):
 def main():
     import tensorflow as tf
     ap = argparse.ArgumentParser()
-    ap.add_argument("--design", default="B")
-    ap.add_argument("--hidden", default="12,4,12")
+    ap.add_argument("--design", default="A")
+    ap.add_argument("--hidden", default="12,2,12")
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--reuse", action="store_true", help="reuse models/tinyml/ae_float.keras (skip training)")

@@ -14,7 +14,7 @@ Healthy-data-only anomaly detector for each sensor node. All numbers: simulation
 - reconstruction MSE: float 2.2541, int8 2.3487 (+4.2%); median 1.6219 vs 1.6901
 - per-window score: mean relative difference 5.7%, correlation 0.9899
 - quantisation degradation of detection (validation, window level at the healthy 0.5% false-positive threshold): mean recall float 0.608 vs int8 0.600 (impacts 0.930/0.931, sparse 0.791/0.781, shift 0.609/0.596, x3 0.101/0.093)
-- C kernel vs `tf.lite.Interpreter` (BUILTIN_REF): 0 mismatching int8 outputs on 10,000 vectors (200,000 values); optimised and reference interpreters agree too. TFLite in this build rounds ONCE in MultiplyByQuantizedMultiplier (single-rounding form); the gemmlowp double-rounding form differs in 28% of the vectors.
+- C kernel vs `tf.lite.Interpreter` (BUILTIN_REF): 0 mismatching int8 outputs on 10,000 vectors (200,000 values); the reference interpreter and BUILTIN_WITHOUT_DEFAULT_DELEGATES agree, but the default (XNNPACK) resolver differed from the reference in 1 of 200,000 outputs (and its QUANTIZE rounds half to even, so it is not the reference). TFLite in this build rounds ONCE in MultiplyByQuantizedMultiplier (single-rounding form); the gemmlowp double-rounding form differs in 28% of the vectors.
 
 ## Input design and architecture (validation split only, `design_search.json`)
 

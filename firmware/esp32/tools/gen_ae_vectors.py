@@ -2,7 +2,11 @@
 Expected outputs come from tf.lite.Interpreter running models/tinyml/ae_int8.tflite with the REFERENCE kernels
 (OpResolverType.BUILTIN_REF); the default (optimised) resolver is also run and any disagreement with the reference is
 reported. Input vectors: int8 vectors only need the kernel; the first N_FLOAT vectors also carry the float32 model input
-(normalised space) whose TFLite quantisation (val * (1.f/scale), round half away from zero, + zp, clamp) is q_in.
+(normalised space) whose q_in comes from a REAL TFLite QUANTIZE op (single-op model with the AE's input scale / zero point,
+BUILTIN_REF resolver: round half away from zero of the float32 division val / scale, + zp, clamp), not from a Python mirror.
+The numpy mirror (quantise) is checked against that op on 1e6 near-half values; the default (XNNPACK) QUANTIZE kernel rounds
+half to even and is NOT the reference. Out-of-range inputs (NaN / inf / |v/scale| > int32) are undefined behaviour in the TFLite
+kernel and are excluded from the vectors (C maps NaN to -128, see ae.h).
 Mix: real normalised validation windows (healthy, impacts, shifts, x3; seeds 6,300,400+), random full-range int8, extremes.
 Layout (bytes): "AEV1", int32 n_vec, int32 n_in, int32 n_float; n_vec x (int8 q_in[n_in], int8 q_out[n_in]);
 n_float x float32 x[n_in].
@@ -47,13 +51,63 @@ def run(it, q):
 
 
 def quantise(x, scale, zp):
-    """TFLite AffineQuantize in float32."""
-    inv = np.float32(1.0) / np.float32(scale)
-    t = x.astype(np.float32) * inv
+    """numpy mirror of TFLite reference QUANTIZE (float32 division, round half away from zero); checked against the real op in main()."""
+    t = x.astype(np.float32) / np.float32(scale)
     a = np.abs(t)
     f = np.floor(a)
     r = np.sign(t) * (f + (a - f >= np.float32(0.5)))      # std::round: half away from zero, exact
     return np.clip(r.astype(np.int64) + zp, -128, 127).astype(np.int8)
+
+
+def quantize_op_model(scale, zp, n_in):
+    """Flatbuffer of a one-op TFLite model: float32 input -> QUANTIZE -> int8 output with (scale, zp)."""
+    import flatbuffers
+    from tensorflow.lite.python import schema_py_generated as S
+    m = S.ModelT()
+    m.version = 3
+    oc = S.OperatorCodeT()
+    oc.builtinCode = oc.deprecatedBuiltinCode = S.BuiltinOperator.QUANTIZE
+    oc.version = 1
+    m.operatorCodes = [oc]
+    m.buffers = [S.BufferT()]
+    t0, t1 = S.TensorT(), S.TensorT()
+    t0.shape, t0.type, t0.buffer, t0.name = [1, n_in], S.TensorType.FLOAT32, 0, b"x"
+    t1.shape, t1.type, t1.buffer, t1.name = [1, n_in], S.TensorType.INT8, 0, b"q"
+    q = S.QuantizationParametersT()
+    q.scale, q.zeroPoint = [float(scale)], [int(zp)]
+    t1.quantization = q
+    op = S.OperatorT()
+    op.opcodeIndex, op.inputs, op.outputs = 0, [0], [1]
+    sg = S.SubGraphT()
+    sg.tensors, sg.inputs, sg.outputs, sg.operators, sg.name = [t0, t1], [0], [1], [op], b"main"
+    m.subgraphs = [sg]
+    fb = flatbuffers.Builder(1024)
+    fb.Finish(m.Pack(fb), b"TFL3")
+    return bytes(fb.Output())
+
+
+def tflite_quantize(x, scale, zp, resolver):
+    """Quantise float rows x (n, n_in) with the real TFLite QUANTIZE op."""
+    import tensorflow as tf
+    it = tf.lite.Interpreter(model_content=quantize_op_model(scale, zp, x.shape[1]), experimental_op_resolver_type=resolver)
+    it.allocate_tensors()
+    i, o = it.get_input_details()[0], it.get_output_details()[0]
+    out = np.empty(x.shape, np.int8)
+    for k in range(len(x)):
+        it.set_tensor(i["index"], x[k:k + 1].astype(np.float32))
+        it.invoke()
+        out[k] = it.get_tensor(o["index"])[0]
+    return out
+
+
+def near_half(rng, scale, shape):
+    """float32 values within a few ulps of (k + 0.5) * scale, where v * (1/scale) and v / scale can round differently."""
+    ks = rng.integers(-130, 130, shape).astype(np.float32)
+    v = ((ks + np.float32(0.5)) * np.float32(scale)).astype(np.float32)
+    for _ in range(6):                                     # random walk of 0..6 ulps in a random direction each
+        step = rng.integers(-1, 2, shape)
+        v = np.where(step > 0, np.nextafter(v, np.float32(1e9)), np.where(step < 0, np.nextafter(v, np.float32(-1e9)), v)).astype(np.float32)
+    return v
 
 
 def main():
@@ -73,13 +127,21 @@ def main():
         zs.append(z.reshape(-1, nin))
     pool = np.concatenate(zs)
     # float vectors: real windows + boundary cases
-    real = pool[rng.choice(len(pool), 700, replace=False)]
-    ks = rng.integers(-130, 130, (150, nin)).astype(np.float32)
-    half = ((ks + np.float32(0.5)) * np.float32(scale)).astype(np.float32)
-    half = np.where(rng.random(half.shape) < 0.5, np.nextafter(half, np.float32(1e9)), np.nextafter(half, np.float32(-1e9))).astype(np.float32)
+    real = pool[rng.choice(len(pool), 550, replace=False)]
+    half = near_half(rng, scale, (300, nin))
     ext = rng.choice(np.array([-1e4, -50, -9, 9, 50, 1e4, 0], np.float32), (150, nin))
     xf = np.concatenate([real, half, ext]).astype(np.float32)[:N_FLOAT]
-    q_float = quantise(xf, scale, zp)
+    q_float = tflite_quantize(xf, scale, zp, tf.lite.experimental.OpResolverType.BUILTIN_REF)
+    assert (q_float == quantise(xf, scale, zp)).all(), "numpy mirror differs from the TFLite QUANTIZE op"
+    # mirror vs the real op on a large near-half set; and how often the old v * (1/scale) form would have differed
+    big = near_half(rng, scale, (50000, nin))
+    qb = tflite_quantize(big, scale, zp, tf.lite.experimental.OpResolverType.BUILTIN_REF)
+    mirror_bad = int((qb != quantise(big, scale, zp)).sum())
+    t_old = big * (np.float32(1) / np.float32(scale))
+    f_old = np.floor(np.abs(t_old))
+    old = np.clip((np.sign(t_old) * (f_old + (np.abs(t_old) - f_old >= np.float32(0.5)))).astype(np.int64) + zp, -128, 127).astype(np.int8)
+    print(f"QUANTIZE op vs numpy mirror: {mirror_bad} differences of {qb.size} near-half values; the old v*(1/scale) form would differ in {int((qb != old).sum())}")
+    assert mirror_bad == 0
     n_rest = N_VEC - len(xf)
     real_q = quantise(pool[rng.choice(len(pool), n_rest // 2, replace=False)], scale, zp)
     rand_q = rng.integers(-128, 128, (n_rest - len(real_q) - 600, nin)).astype(np.int8)

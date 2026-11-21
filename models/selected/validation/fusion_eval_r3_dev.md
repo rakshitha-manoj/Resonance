@@ -119,3 +119,9 @@ Selected: **f, T=6 (b T=3), k=1** (budget met: True).
 
 Verdict: the best rule is f, T=6 (b T=3), k=1 (mean recall 0.730 vs 0.622 for the best b at <=1/h); families that beat rule b on dev under the budget: m, f, g. Development only; a rule using the AE must still be confirmed on the fresh test block.
 
+
+## Phase C1 re-run with the corrected input quantiser (both dev tables recorded)
+
+`ae.h` now quantises with `round_half_away(v / scale)` (TFLite 2.21 reference QUANTIZE) instead of `v * (1/scale)`. The tables above are the RE-RUN (new quantiser); the previous run's tables are kept unchanged in `old_quantiser/` (`fusion_eval_r3_dev.md/.json`, `fusion_eval_r3_selected.json`). The recordings were re-simulated (deterministic, same seeds), the AE scores recomputed from the C code, and the identical pre-registered selection rule re-run.
+
+Result: **the selection did not change** (old: f, T=6 (b T=3), k=1; new: f, T=6 (b T=3), k=1) and all 165 table rows are identical in false onsets/h and mean recall (the two quantiser forms differ only at near-half values, about 1% of adversarial values and essentially never on real windows). The configuration scored on the fresh block is therefore the one in the pre-registration.

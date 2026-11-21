@@ -10,7 +10,8 @@
 
 /* Layout of test/data/ae_vectors.bin (tools/gen_ae_vectors.py):
    "AEV1", int32 n_vec, int32 n_in, int32 n_float; then n_vec x (int8 q_in[n_in], int8 q_out[n_in]);
-   then n_float x (float32 x[n_in]) for the first n_float vectors (q_in of vector i = TFLite Quantize of x[i]). */
+   then n_float x (float32 x[n_in]) for the first n_float vectors (q_in of vector i = output of a real TFLite QUANTIZE op,
+   BUILTIN_REF resolver, on x[i]; made by tools/gen_ae_vectors.py). */
 void setUp(void) {}
 void tearDown(void) {}
 
@@ -66,7 +67,7 @@ void test_int8_parity_all_vectors(void) {
     TEST_ASSERT_EQUAL_INT(0, (int)mism);
 }
 
-/* float -> int8 input quantisation equals the Python TFLite-Quantize reference (incl. saturation and rounding boundaries) */
+/* float -> int8 input quantisation equals a real TFLite QUANTIZE op (stored outputs; includes near-half values within a few ulps) */
 void test_input_quantisation_vectors(void) {
     Vec v = load_vectors();
     TEST_ASSERT_TRUE(v.nf >= 500);
@@ -86,11 +87,28 @@ void test_quant_edge_cases(void) {
     TEST_ASSERT_EQUAL_INT8(-128, ae_quant_in(-1e30f));
     TEST_ASSERT_EQUAL_INT8(AE_IN_ZP, ae_quant_in(0.0f));
     /* half away from zero: 0.5 steps above/below the zero point */
-    float inv = 1.0f / AE_IN_SCALE;
-    (void)inv;
     TEST_ASSERT_EQUAL_INT8(AE_IN_ZP + 1, ae_quant_in(0.5001f * AE_IN_SCALE));
     TEST_ASSERT_EQUAL_INT8(AE_IN_ZP - 1, ae_quant_in(-0.5001f * AE_IN_SCALE));
     TEST_ASSERT_EQUAL_INT8(AE_IN_ZP, ae_quant_in(0.4999f * AE_IN_SCALE));
+}
+
+/* ae_node_ratio before commissioning completes is defined (0) and flagged by ae_node_ready */
+void test_ratio_before_commissioning(void) {
+    AeNode nd;
+    ae_node_reset(&nd);
+    float b[AE_NBASE], sc = 5.0f;
+    for (int i = 0; i < AE_NBASE; i++) b[i] = 1.0f + (float)i;
+    TEST_ASSERT_EQUAL_INT(0, ae_node_ready(&nd));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, ae_node_ratio(&nd, b, &sc));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, sc);
+    for (int w = 0; w < AE_COMM_N - 1; w++) {
+        ae_node_commission(&nd, b);
+        TEST_ASSERT_EQUAL_INT(0, ae_node_ready(&nd));
+        TEST_ASSERT_EQUAL_FLOAT(0.0f, ae_node_ratio(&nd, b, NULL));
+    }
+    ae_node_commission(&nd, b);
+    TEST_ASSERT_EQUAL_INT(1, ae_node_ready(&nd));
+    TEST_ASSERT_TRUE(ae_node_ratio(&nd, b, NULL) >= 0.0f);
 }
 
 /* ae_mul_quant == floor(x * mult * 2^(shift-31) + 0.5), exactly (x small enough for double) */
@@ -226,6 +244,7 @@ int main(void) {
     RUN_TEST(test_input_quantisation_vectors);
     RUN_TEST(test_quant_edge_cases);
     RUN_TEST(test_mul_quant);
+    RUN_TEST(test_ratio_before_commissioning);
     RUN_TEST(test_normaliser_vs_double);
     RUN_TEST(test_floor_and_constant_input);
     RUN_TEST(test_score_and_ratio);
