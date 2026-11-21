@@ -11,6 +11,7 @@
   --tint-comm:#e9edf2; --tint-ambient:#dff3ef; --tint-local:#fdebd3; --tint-building:#fbe0e0; --tint-nodata:#dfe3e8;
   --r1:#1f5fbf; --r2:#8a3a9e; --warn-bg:#fff4cc; --warn-text:#4a3600; --demo-bg:#ffe9a8; --demo-text:#3d2d00;
   --sim-bg:#d9ecff; --sim-text:#06284a;
+  --dmg:#b71c1c; --dmg-text:#ffffff; --tint-dmg:#fbe0e0; --ae:#00695c; --f1c:#4527a0; --f2c:#ef6c00;
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){
@@ -20,6 +21,7 @@
     --tint-comm:#27303a; --tint-ambient:#16332f; --tint-local:#3a2c14; --tint-building:#3d1e1e; --tint-nodata:#2c3238;
     --r1:#7db4ff; --r2:#e0a0f5; --warn-bg:#3d3310; --warn-text:#ffe9a0; --demo-bg:#4a3a0a; --demo-text:#ffe9a0;
     --sim-bg:#12304d; --sim-text:#cfe6ff;
+    --dmg:#ff6b6b; --dmg-text:#1a0505; --tint-dmg:#3d1e1e; --ae:#4db6ac; --f1c:#b39ddb; --f2c:#ffb74d;
     color-scheme:dark;
   }
 }
@@ -29,6 +31,7 @@
   --tint-comm:#27303a; --tint-ambient:#16332f; --tint-local:#3a2c14; --tint-building:#3d1e1e; --tint-nodata:#2c3238;
   --r1:#7db4ff; --r2:#e0a0f5; --warn-bg:#3d3310; --warn-text:#ffe9a0; --demo-bg:#4a3a0a; --demo-text:#ffe9a0;
   --sim-bg:#12304d; --sim-text:#cfe6ff;
+  --dmg:#ff6b6b; --dmg-text:#1a0505; --tint-dmg:#3d1e1e; --ae:#4db6ac; --f1c:#b39ddb; --f2c:#ffb74d;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
@@ -90,8 +93,21 @@ svg text.m{fill:var(--muted)}
 .stat span{color:var(--muted);font-size:.85rem}
 .stat.wide{grid-column:span 2}
 canvas{width:100%;display:block}
-#tl{height:70px;cursor:pointer}
-#chart{height:260px}
+#tl{height:86px;cursor:pointer}
+.cv{height:260px}
+.sysline{margin:6px 0 0;font-size:.88rem;color:var(--muted)}
+.sysline b{color:var(--text)}
+#dmgBanner{display:flex;gap:14px;align-items:center;border-left:10px solid var(--comm);background:var(--tint-comm);margin:12px 0;padding:12px 16px}
+#dmgBanner .glyph{font-size:2rem;line-height:1;min-width:2.6rem;text-align:center}
+#dmgBanner .big{font-size:1.35rem;font-weight:700;line-height:1.2}
+#dmgBanner .sub{color:var(--muted);margin-top:2px}
+#dmgBanner.d-ok{border-color:var(--ambient);background:var(--tint-ambient)}
+#dmgBanner.d-warn{border-color:var(--local);background:var(--tint-local)}
+#dmgBanner.d-alarm{border-color:var(--dmg);background:var(--dmg);color:var(--dmg-text)}
+#dmgBanner.d-alarm .sub{color:var(--dmg-text)}
+.tag{display:inline-block;padding:0 7px;border-radius:6px;border:1px solid currentColor;font-size:.8rem;font-weight:700;margin-right:4px}
+.tag.std{color:var(--r1)}.tag.ae{color:var(--ae)}
+tr.dmgrow td{background:var(--tint-dmg)}
 .legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:6px;font-size:.85rem;color:var(--muted)}
 .legend i{display:inline-block;width:16px;height:12px;vertical-align:-1px;margin-right:4px;border:1px solid var(--text)}
 .tablewrap{max-height:340px;overflow:auto}
@@ -113,11 +129,12 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
     <button id="themeBtn" type="button" aria-label="Toggle light or dark theme">Theme</button>
   </div>
 </header>
+<div class="sysline" id="sysLine" aria-label="System summary"></div>
 
 <section class="card" aria-label="Data source">
   <div class="row">
     <button class="primary" id="demoBtn" type="button">Run demo</button>
-    <button id="simBtn" type="button" title="Loads demo_events_sim.jsonl from the same folder as this page (made by the PC network simulator)">Load simulated log</button>
+    <button id="simBtn" type="button" title="Plays the simulated damage demo (demo_events_sim.jsonl from the same folder, or the copy embedded in this page when the browser cannot read files)">Damage demo (simulated)</button>
     <label class="btn" for="file" role="button" tabindex="0" id="fileLbl">Open JSONL file</label>
     <input type="file" id="file" accept=".jsonl,.json,.txt,.log,.ndjson">
     <button id="serBtn" type="button">Connect to master (USB)</button>
@@ -158,8 +175,10 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
   <details>
     <summary>Help: inputs, format and limits</summary>
     <ul>
+      <li><b>Link to a replay.</b> <code>index.html?replay=demo_events_sim.jsonl&amp;speed=20</code> plays that file at 20x as soon as the page opens (optional <code>&amp;at=end</code> or <code>&amp;at=250</code> (seconds into the log) or <code>&amp;at=sf235</code> to start paused at that moment). The bundled <code>demo_events_sim.jsonl</code> is also embedded in this page, so it works from <code>file://</code> too; any other file name needs the page to be served (<code>python -m http.server</code> in <code>dashboard/</code>) because Chrome does not let a file page read other files.</li>
       <li><b>Replay.</b> Open a JSON-lines log (first line <code>meta</code>; then <code>begin</code>/<code>change</code>/<code>status</code> events, schema 2 also one <code>sample</code> line per superframe, <code>restart</code> lines, and <code>node</code> lines for an immediate sensor DEAD/ALIVE change). Schema 1 logs (events only) still work. Playback runs on the <code>t_us</code> clock in the file: 1x is real time, 10x and 60x are faster. Events are logged only when the class changes (and as a periodic status); schema 2 samples fill the gaps, so the chart, the sensor "last report" and the calibration progress are continuous.</li>
-      <li><b>Simulated log.</b> "Load simulated log" reads <code>demo_events_sim.jsonl</code> from the same folder, made by the PC network simulator (netsim) from the project's firmware code. A page opened from disk (<code>file://</code>) usually cannot read other files; then the page says so and opens the file picker: choose that file.</li>
+      <li><b>Damage demo (simulated).</b> Plays <code>demo_events_sim.jsonl</code>, made by the PC network simulator (netsim) from the project's firmware code: a simulated 10-storey building, sensors on floors 5 and 10, a local impact, a building-wide event, a frequency shift on one sensor and finally a permanent 30 % stiffness loss in storey 1 (natural frequency about 4 % lower). The page reads the file from its folder when it can, otherwise it uses the copy embedded in the page.</li>
+      <li><b>Panels.</b> Std ratio r (vibration level / own baseline, threshold T) and AE ratio (int8 autoencoder reconstruction error / own baseline, threshold T_ae) are the two detectors of rule f (an event if EITHER fires, each smoothed 2-of-3). The natural-frequency panel shows each sensor's f1 estimate against its own commissioned f1_0 with a band of plus/minus the DAMAGE threshold; the DAMAGE banner turns red after the pooled f1 drop has stayed at or above the threshold for P superframes.</li>
       <li><b>Live over USB.</b> Chrome or Edge on a desktop only (Web Serial API), 115200 baud. Close any other program using the port first (PlatformIO or Arduino serial monitor). The master firmware prints the same JSON lines as the simulator; the page keeps lines that are JSON objects of the schema and ignores everything else, including the <code>R,</code> and <code>S,</code> CSV lines and <code>#</code> comments. If the master reboots, its clock starts again at 0; a <code>restart</code> line marks it and the page continues the timeline after the last line.</li>
       <li><b>MQTT live (cloud).</b> The master (or <code>tools/sim_publisher.py</code>, or the Wokwi cloud demo) publishes the same JSON lines to an MQTT broker under <code>resonance/&lt;site&gt;/&lt;type&gt;</code>; this page subscribes over MQTT-over-WebSocket (default: the free public HiveMQ broker, site id from the firmware config) and feeds each message through the same parser as the other sources. Anybody who knows the site id can read a public broker's topics, so use it for simulator or demo data only; a private broker with TLS and a password works by changing the URL and the options. The retained <code>meta</code> arrives at once, so a page that joins late still knows the floors. The counters show messages received and lines dropped (malformed or buffer full); lines the master or the broker dropped are only visible in the master's <code>S,mqtt</code> statistics. Cross-topic arrival order is not guaranteed by MQTT: the page re-sorts by time. Browser notifications (permission asked when you click "Enable notifications") fire for new <code>begin</code> events and sensors going offline. Needs <code>vendor/mqtt.min.js</code> (MQTT.js, MIT); without it the rest of the page works as before.</li>
       <li><b>Demo.</b> A short scripted scenario written to follow schema 2 exactly. It is not hardware data and not simulator output.</li>
@@ -178,6 +197,14 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
     <div class="big" id="bText">No data yet</div>
     <div class="sub" id="bSub">Run the demo, open a log file or connect to the master.</div>
     <div id="bChip"></div>
+  </div>
+</section>
+
+<section id="dmgBanner" class="card d-na" aria-live="polite" aria-label="Structural damage indication" hidden>
+  <div class="glyph" id="dGlyph" aria-hidden="true">&#9675;</div>
+  <div>
+    <div class="big" id="dText">Damage detector</div>
+    <div class="sub" id="dSub"></div>
   </div>
 </section>
 
@@ -208,18 +235,41 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
     <div class="legend" id="legend"></div>
   </section>
 
-  <section class="card c7"><h2>Vibration ratio r1, r2 over time</h2>
-    <canvas id="chart" role="img" aria-label="Chart of vibration ratio over time"></canvas>
-    <div id="chartInfo" class="na" style="font-size:.85rem;margin-top:4px">r = vibration level divided by that floor's normal (baseline) level. Schema 2 logs have a point every superframe (about 1.4 s); schema 1 logs only where an event was logged. Hover or touch the chart to read a value.</div>
+  <section class="card c6"><h2>Std ratio r1, r2 (detector b)</h2>
+    <canvas id="chart" class="cv" role="img" aria-label="Chart of vibration ratio over time"></canvas>
+    <div id="chartInfo" class="na" style="font-size:.85rem;margin-top:4px">r = vibration level (az standard deviation) divided by that floor's normal (baseline) level; an event if r reaches T. A point every superframe (about 1.4 s) in schema 2/3 logs; schema 1 logs only where an event was logged. Hover or touch the chart to read a value.</div>
+  </section>
+
+  <section class="card c6" id="aeCard"><h2>TinyML autoencoder ratio (detector e)</h2>
+    <canvas id="aeChart" class="cv" role="img" aria-label="Chart of the autoencoder ratio over time"></canvas>
+    <div id="aeInfo" class="na" style="font-size:.85rem;margin-top:4px">AE ratio = reconstruction error of the int8 autoencoder on each sensor divided by its own commissioning level; an event if it reaches T_ae. It catches what the std ratio misses: frequency shifts and sparse impacts. Shown clipped at 6 x T_ae.</div>
+  </section>
+
+  <section class="card c6" id="f1Card"><h2>Natural frequency f1 per sensor</h2>
+    <canvas id="f1Chart" class="cv" role="img" aria-label="Chart of the first natural frequency over time"></canvas>
+    <div id="f1Info" class="na" style="font-size:.85rem;margin-top:4px">Solid = f1 estimate (Hz) of each sensor, thin line = its commissioned f1_0, shaded = f1_0 minus/plus the DAMAGE threshold. A sustained drop below the band is the damage signature.</div>
+  </section>
+
+  <section class="card c6" id="dropCard"><h2>Pooled f1 drop (DAMAGE input)</h2>
+    <canvas id="dropChart" class="cv" role="img" aria-label="Chart of the pooled natural frequency drop over time"></canvas>
+    <div id="dropInfo" class="na" style="font-size:.85rem;margin-top:4px">Pooled drop = mean of the sensors' (f1_0 - f1) / f1_0 in percent. DAMAGE begins after it stays at or above the threshold for P consecutive superframes and ends after P below half of it.</div>
   </section>
 
   <section class="card c5"><h2>Counters</h2>
     <div class="counters" id="counters"></div>
   </section>
 
+  <section class="card c7" id="dmgHistCard"><h2>DAMAGE history</h2>
+    <div class="tablewrap" style="max-height:230px"><table>
+      <thead><tr><th scope="col">Time</th><th scope="col">Superframe</th><th scope="col">What</th><th scope="col">Pooled drop</th><th scope="col">f1 now (Hz)</th><th scope="col">f1_0 (Hz)</th></tr></thead>
+      <tbody id="dmgHist"></tbody>
+    </table></div>
+    <div id="dmgHistNote" class="na" style="font-size:.85rem;margin-top:4px"></div>
+  </section>
+
   <section class="card c12"><h2>Event history</h2>
     <div class="tablewrap"><table>
-      <thead><tr><th scope="col">Time</th><th scope="col">Superframe</th><th scope="col">Kind</th><th scope="col">State</th><th scope="col">Floor</th><th scope="col">r1</th><th scope="col">r2</th><th scope="col">Duration</th></tr></thead>
+      <thead><tr><th scope="col">Time</th><th scope="col">Superframe</th><th scope="col">Kind</th><th scope="col">State</th><th scope="col">Floor</th><th scope="col">Detector</th><th scope="col">r1</th><th scope="col">r2</th><th scope="col">AE1</th><th scope="col">AE2</th><th scope="col">Duration</th></tr></thead>
       <tbody id="hist"></tbody>
     </table></div>
     <div id="histNote" class="na" style="font-size:.85rem;margin-top:4px"></div>
@@ -360,6 +410,343 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
 {"type":"sample","t_us":157358000,"sf":11,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9351,"r2":0.9439,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":112}
 {"type":"sample","t_us":158758000,"sf":12,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8709,"r2":1.0658,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":113}
 {"type":"sample","t_us":160158000,"sf":13,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.1123,"r2":0.9161,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":114}</script>
+<script type="text/plain" id="sim-data">
+{"type":"meta","schema":3,"source":"netsim","rule":"f","T":3,"T_ae":6,"gate":92.12,"use_raw":false,"debounce":1,"commission_windows":20,"status_every_sf":64,"dmg_delta":0.02,"dmg_p":32,"superframe_s":1.4,"floors":[5,10],"epoch":2866824256,"samples":true}
+{"type":"sample","t_us":1329818,"sf":0,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[1,1],"closed":1}
+{"type":"change","t_us":1329818,"sf":0,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"base1":0,"base2":0,"alive":[true,true],"closed":1,"events":1,"commission_n":[1,1]}
+{"type":"sample","t_us":2730426,"sf":1,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[2,2],"closed":2}
+{"type":"sample","t_us":4129401,"sf":2,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[3,3],"closed":3}
+{"type":"sample","t_us":5529705,"sf":3,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[4,4],"closed":4}
+{"type":"sample","t_us":6929865,"sf":4,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[5,5],"closed":5}
+{"type":"sample","t_us":8329906,"sf":5,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[6,6],"closed":6}
+{"type":"sample","t_us":9729540,"sf":6,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[7,7],"closed":7}
+{"type":"sample","t_us":11130804,"sf":7,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[8,8],"closed":8}
+{"type":"sample","t_us":12529681,"sf":8,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[9,9],"closed":9}
+{"type":"sample","t_us":13930174,"sf":9,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[10,10],"closed":10}
+{"type":"sample","t_us":15330707,"sf":10,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[11,11],"closed":11}
+{"type":"sample","t_us":16730211,"sf":11,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[12,12],"closed":12}
+{"type":"sample","t_us":18130718,"sf":12,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[13,13],"closed":13}
+{"type":"sample","t_us":19529457,"sf":13,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[14,14],"closed":14}
+{"type":"sample","t_us":20928710,"sf":14,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[15,15],"closed":15}
+{"type":"sample","t_us":22330644,"sf":15,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[16,16],"closed":16}
+{"type":"sample","t_us":23730089,"sf":16,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[17,17],"closed":17}
+{"type":"sample","t_us":25129433,"sf":17,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[18,18],"closed":18}
+{"type":"sample","t_us":26530236,"sf":18,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[19,19],"closed":19}
+{"type":"sample","t_us":27929961,"sf":19,"class":"COMMISSIONING","slave":0,"degraded_alive":0,"r1":null,"r2":null,"ae":[null,null],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":20}
+{"type":"sample","t_us":29330892,"sf":20,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.018909,"r2":0.892846,"ae":[1.777076,1.786858],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":21}
+{"type":"change","t_us":29330892,"sf":20,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.018909,"r2":0.892846,"ae":[1.777076,1.786858],"f1":[null,null],"drop":[null,null],"dmg":0,"base1":150.5301,"base2":225.3885,"alive":[true,true],"closed":21,"events":2,"commission_n":[20,20]}
+{"type":"sample","t_us":30730359,"sf":21,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.346805,"r2":1.233958,"ae":[1.313207,0.9611576],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":22}
+{"type":"sample","t_us":32130931,"sf":22,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.586482,"r2":1.477982,"ae":[1.503811,1.888235],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":23}
+{"type":"sample","t_us":33531349,"sf":23,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.210772,"r2":1.186572,"ae":[0.8765108,1.482016],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":24}
+{"type":"sample","t_us":34929743,"sf":24,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6264493,"r2":0.5835015,"ae":[0.8932362,0.4811064],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":25}
+{"type":"sample","t_us":36329937,"sf":25,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.048832,"r2":0.9925649,"ae":[1.085276,0.7537755],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":26}
+{"type":"sample","t_us":37730499,"sf":26,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.700649,"r2":1.6261,"ae":[2.080796,0.7665672],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":27}
+{"type":"sample","t_us":39129493,"sf":27,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.341558,"r2":1.205831,"ae":[1.692405,0.6356672],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":28}
+{"type":"sample","t_us":40529250,"sf":28,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6931372,"r2":0.6225276,"ae":[0.7727684,0.880882],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":29}
+{"type":"sample","t_us":41930628,"sf":29,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.088619,"r2":1.065072,"ae":[1.165109,1.041341],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":30}
+{"type":"sample","t_us":43329268,"sf":30,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.596405,"r2":0.4349227,"ae":[1.691024,1.22808],"f1":[null,null],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":31}
+{"type":"sample","t_us":44729290,"sf":31,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8271563,"r2":0.7196182,"ae":[1.167139,1.289989],"f1":[7.064308,7.075086],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":32}
+{"type":"sample","t_us":46130479,"sf":32,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.09468,"r2":1.0931,"ae":[1.009997,0.568932],"f1":[7.07197,7.084737],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":33}
+{"type":"sample","t_us":47530258,"sf":33,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8695918,"r2":0.8376825,"ae":[0.8620794,0.9362979],"f1":[7.077237,7.091074],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":34}
+{"type":"sample","t_us":48930541,"sf":34,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7805238,"r2":0.6688816,"ae":[1.186037,1.385766],"f1":[7.077603,7.090816],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":35}
+{"type":"sample","t_us":50330743,"sf":35,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.738556,"r2":0.5920863,"ae":[1.837273,0.9850463],"f1":[7.075678,7.090248],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":36}
+{"type":"sample","t_us":51729272,"sf":36,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.930271,"r2":0.859953,"ae":[2.274213,1.307852],"f1":[7.075254,7.08976],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":37}
+{"type":"sample","t_us":53129692,"sf":37,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.286964,"r2":1.233541,"ae":[0.8336207,0.8385913],"f1":[7.069816,7.083859],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":38}
+{"type":"sample","t_us":54529558,"sf":38,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9563748,"r2":0.8195652,"ae":[1.184456,1.410018],"f1":[7.058326,7.073084],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":39}
+{"type":"sample","t_us":55929427,"sf":39,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7023198,"r2":0.6082093,"ae":[1.212816,1.131111],"f1":[7.057126,7.0723],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":40}
+{"type":"sample","t_us":57329466,"sf":40,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.448583,"r2":1.44235,"ae":[1.357111,0.7125418],"f1":[7.049345,7.064447],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":41}
+{"type":"sample","t_us":58731140,"sf":41,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.246817,"r2":1.21731,"ae":[0.7454804,1.558453],"f1":[7.035581,7.051766],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":42}
+{"type":"sample","t_us":60130434,"sf":42,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9524866,"r2":0.9464431,"ae":[1.146628,1.689556],"f1":[7.028255,7.045098],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":43}
+{"type":"sample","t_us":61531029,"sf":43,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.042291,"r2":0.8870987,"ae":[1.489996,1.093157],"f1":[7.010428,7.030412],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":44}
+{"type":"sample","t_us":62929766,"sf":44,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.822809,"r2":0.7872631,"ae":[0.9373769,0.7979605],"f1":[7.014849,7.03723],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":45}
+{"type":"sample","t_us":64329824,"sf":45,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6779857,"r2":0.6396787,"ae":[1.494819,0.6725896],"f1":[7.013588,7.036353],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":46}
+{"type":"sample","t_us":65730131,"sf":46,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.137017,"r2":1.08706,"ae":[0.9308105,0.7544034],"f1":[7.018845,7.04401],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":47}
+{"type":"sample","t_us":67129864,"sf":47,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.049525,"r2":0.9684964,"ae":[2.283295,1.28767],"f1":[7.021376,7.047384],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":48}
+{"type":"sample","t_us":68529958,"sf":48,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6626,"r2":0.6348647,"ae":[1.185936,1.649536],"f1":[6.997893,7.0285],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":49}
+{"type":"sample","t_us":69929446,"sf":49,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6549951,"r2":0.6387758,"ae":[1.189928,1.644205],"f1":[6.99345,7.02533],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":50}
+{"type":"sample","t_us":71331243,"sf":50,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7450522,"r2":0.6517438,"ae":[1.773304,0.8407642],"f1":[6.990767,7.021453],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":51}
+{"type":"sample","t_us":72730435,"sf":51,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7097213,"r2":0.649475,"ae":[1.088963,1.526282],"f1":[6.989515,7.020747],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":52}
+{"type":"sample","t_us":74130790,"sf":52,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8355806,"r2":0.776723,"ae":[2.264257,0.532052],"f1":[6.989973,7.018416],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":53}
+{"type":"sample","t_us":75530317,"sf":53,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.193162,"r2":1.175492,"ae":[1.56755,0.8480567],"f1":[7.021705,7.05006],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":54}
+{"type":"sample","t_us":76930235,"sf":54,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6420433,"r2":0.5311242,"ae":[2.490443,1.39838],"f1":[7.02769,7.059393],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":55}
+{"type":"sample","t_us":78329223,"sf":55,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6765185,"r2":0.5812463,"ae":[1.268075,0.9220744],"f1":[7.014132,7.045008],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":56}
+{"type":"sample","t_us":79729203,"sf":56,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6514124,"r2":0.6480576,"ae":[0.9315974,1.721178],"f1":[7.016568,7.046929],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":57}
+{"type":"sample","t_us":81130542,"sf":57,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9911014,"r2":0.9885437,"ae":[1.02203,1.677703],"f1":[7.019186,7.043592],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":58}
+{"type":"sample","t_us":82529361,"sf":58,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.38389,"r2":1.375379,"ae":[0.8561484,2.50564],"f1":[7.020013,7.047045],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":59}
+{"type":"sample","t_us":83929224,"sf":59,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.991446,"r2":0.9239289,"ae":[1.076856,0.6831104],"f1":[7.049712,7.073184],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":60}
+{"type":"sample","t_us":85330322,"sf":60,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9966775,"r2":0.9044995,"ae":[1.297746,1.284064],"f1":[7.040988,7.065392],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":61}
+{"type":"sample","t_us":86730116,"sf":61,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7236325,"r2":0.6368468,"ae":[1.120201,2.247036],"f1":[7.055048,7.079429],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":62}
+{"type":"sample","t_us":88129642,"sf":62,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.715929,"r2":0.7156416,"ae":[0.8257346,1.449055],"f1":[7.060552,7.085643],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":63}
+{"type":"sample","t_us":89529261,"sf":63,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6600158,"r2":0.5876147,"ae":[0.9856636,1.104256],"f1":[7.059057,7.084033],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":64}
+{"type":"status","t_us":89529261,"sf":63,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6600158,"r2":0.5876147,"ae":[0.9856636,1.104256],"f1":[7.059057,7.084033],"drop":[null,null],"dmg":0,"base1":150.5301,"base2":225.3885,"alive":[true,true],"closed":64,"events":2,"commission_n":[20,20]}
+{"type":"sample","t_us":90930140,"sf":64,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.64607,"r2":0.5220734,"ae":[1.112576,0.9697075],"f1":[7.04044,7.063693],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":65}
+{"type":"sample","t_us":92330076,"sf":65,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7297638,"r2":0.6326072,"ae":[1.032941,0.8958162],"f1":[7.03114,7.054],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":66}
+{"type":"sample","t_us":93729627,"sf":66,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7440191,"r2":0.6362293,"ae":[1.198993,0.9433137],"f1":[7.024699,7.050658],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":67}
+{"type":"sample","t_us":95129425,"sf":67,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.306249,"r2":1.262553,"ae":[2.058438,0.9753354],"f1":[7.026318,7.04862],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":68}
+{"type":"sample","t_us":96529929,"sf":68,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7165284,"r2":0.6307872,"ae":[1.260794,0.808013],"f1":[7.026958,7.048201],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":69}
+{"type":"sample","t_us":97931074,"sf":69,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.084225,"r2":1.032712,"ae":[1.194329,0.7023523],"f1":[7.03934,7.059776],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":70}
+{"type":"sample","t_us":99329883,"sf":70,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9066479,"r2":0.8283183,"ae":[1.930615,1.834252],"f1":[7.043911,7.061941],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":71}
+{"type":"sample","t_us":100729669,"sf":71,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7984433,"r2":0.6573826,"ae":[0.5637963,1.128173],"f1":[7.041708,7.060631],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":72}
+{"type":"sample","t_us":102129240,"sf":72,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9064903,"r2":0.8698235,"ae":[2.229337,0.9518982],"f1":[7.065624,7.08281],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":73}
+{"type":"sample","t_us":103530261,"sf":73,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.176022,"r2":1.106037,"ae":[0.9926475,1.200522],"f1":[7.076235,7.092692],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":74}
+{"type":"sample","t_us":104929705,"sf":74,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.532712,"r2":1.51566,"ae":[1.155469,0.7982047],"f1":[7.06155,7.079733],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":75}
+{"type":"sample","t_us":106329755,"sf":75,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8167706,"r2":0.7597669,"ae":[1.337924,1.979389],"f1":[7.068985,7.083091],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":76}
+{"type":"sample","t_us":107729369,"sf":76,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6263359,"r2":0.5506486,"ae":[0.8423489,1.507056],"f1":[7.070031,7.08356],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":77}
+{"type":"sample","t_us":109130472,"sf":77,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.352728,"r2":1.251116,"ae":[2.16783,0.9410521],"f1":[7.061336,7.074138],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":78}
+{"type":"sample","t_us":110529457,"sf":78,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.41993,"r2":1.304525,"ae":[1.155593,1.342334],"f1":[7.041096,7.051881],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":79}
+{"type":"sample","t_us":111929261,"sf":79,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.076734,"r2":0.9859632,"ae":[0.9849805,1.686884],"f1":[7.039528,7.047257],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":80}
+{"type":"sample","t_us":113329680,"sf":80,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.557107,"r2":1.500965,"ae":[1.133332,0.9544501],"f1":[7.028184,7.035132],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":81}
+{"type":"sample","t_us":114729103,"sf":81,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8322516,"r2":0.7639253,"ae":[0.8745766,1.29653],"f1":[7.025726,7.030217],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":82}
+{"type":"sample","t_us":116130067,"sf":82,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.503074,"r2":1.401242,"ae":[1.224058,0.7661839],"f1":[7.030457,7.034089],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":83}
+{"type":"sample","t_us":117530157,"sf":83,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.010774,"r2":0.8915966,"ae":[1.31527,1.022745],"f1":[7.026676,7.030478],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":84}
+{"type":"sample","t_us":118928870,"sf":84,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7706651,"r2":0.6983767,"ae":[1.648517,1.183552],"f1":[7.025528,7.030602],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":85}
+{"type":"sample","t_us":120330372,"sf":85,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7858921,"r2":0.6412471,"ae":[3.592132,0.6998679],"f1":[7.013688,7.016704],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":86}
+{"type":"sample","t_us":121730248,"sf":86,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8471565,"r2":0.83992,"ae":[1.211852,0.9932969],"f1":[7.014097,7.016126],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":87}
+{"type":"sample","t_us":123130348,"sf":87,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.155325,"r2":1.100226,"ae":[1.351717,1.560427],"f1":[7.024418,7.025589],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":88}
+{"type":"sample","t_us":124530134,"sf":88,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.087348,"r2":1.008737,"ae":[1.044597,1.375825],"f1":[7.015592,7.015697],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":89}
+{"type":"sample","t_us":125930559,"sf":89,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.022499,"r2":0.9830511,"ae":[1.276253,1.777884],"f1":[7.022292,7.025275],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":90}
+{"type":"sample","t_us":127330681,"sf":90,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.084578,"r2":1.060219,"ae":[0.858504,0.5732175],"f1":[7.012565,7.012658],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":91}
+{"type":"sample","t_us":128729256,"sf":91,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.141779,"r2":1.102583,"ae":[2.209723,2.11553],"f1":[6.989649,6.99227],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":92}
+{"type":"sample","t_us":130130536,"sf":92,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8606519,"r2":0.80889,"ae":[1.827211,0.7063817],"f1":[6.999242,7.003362],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":93}
+{"type":"sample","t_us":131529754,"sf":93,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8747982,"r2":0.7315139,"ae":[1.372885,1.134601],"f1":[7.001042,7.003731],"drop":[null,null],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":94}
+{"type":"sample","t_us":132930238,"sf":94,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.289014,"r2":1.190547,"ae":[3.045827,1.022936],"f1":[6.990741,6.993132],"drop":[0.0052926,0.0078427],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":95}
+{"type":"sample","t_us":134330376,"sf":95,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.39099,"r2":1.307271,"ae":[0.6144372,1.609833],"f1":[7.001066,7.003785],"drop":[0.0038235,0.0063313],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":96}
+{"type":"sample","t_us":135730452,"sf":96,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.384496,"r2":1.309645,"ae":[2.330777,0.8217171],"f1":[7.000208,7.001865],"drop":[0.0039455,0.0066037],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":97}
+{"type":"sample","t_us":137130879,"sf":97,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9257373,"r2":0.9451779,"ae":[2.319036,0.6374365],"f1":[7.004463,7.007448],"drop":[0.0033401,0.0058116],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":98}
+{"type":"sample","t_us":138529579,"sf":98,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.687074,"r2":1.57777,"ae":[1.590066,1.922304],"f1":[7.000854,7.000884],"drop":[0.0038537,0.0067428],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":99}
+{"type":"sample","t_us":139930294,"sf":99,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.405428,"r2":1.286627,"ae":[2.85817,2.815009],"f1":[7.003909,7.0032],"drop":[0.003419,0.0064143],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":100}
+{"type":"sample","t_us":141330075,"sf":100,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.318214,"r2":1.207437,"ae":[1.557905,1.277434],"f1":[7.008833,7.010154],"drop":[0.0027182,0.0054277],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":101}
+{"type":"sample","t_us":142730496,"sf":101,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.666726,"r2":1.544239,"ae":[0.8891523,0.6152125],"f1":[7.012143,7.017162],"drop":[0.0022474,0.0044334],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":102}
+{"type":"sample","t_us":144130811,"sf":102,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.282533,"r2":1.309642,"ae":[1.729306,1.067863],"f1":[7.028461,7.034978],"drop":[-0.0000746,0.0019057],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":103}
+{"type":"sample","t_us":145529979,"sf":103,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9218883,"r2":0.8689592,"ae":[1.671806,0.9194967],"f1":[7.029555,7.036913],"drop":[-0.0002303,0.0016312],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":104}
+{"type":"sample","t_us":146929626,"sf":104,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9501063,"r2":0.8891211,"ae":[2.218448,0.7837883],"f1":[7.03511,7.044327],"drop":[-0.0010206,0.0005793],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":105}
+{"type":"sample","t_us":148329195,"sf":105,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.056799,"r2":0.9958689,"ae":[1.846825,0.5704312],"f1":[7.036177,7.046239],"drop":[-0.0011724,0.0003081],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":106}
+{"type":"sample","t_us":149728869,"sf":106,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7296271,"r2":0.6383258,"ae":[1.660212,1.150898],"f1":[7.042444,7.050318],"drop":[-0.0020642,-0.0002707],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":107}
+{"type":"sample","t_us":151130103,"sf":107,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9660736,"r2":0.8243915,"ae":[1.153509,1.344307],"f1":[7.042747,7.050702],"drop":[-0.0021073,-0.0003251],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":108}
+{"type":"sample","t_us":152529633,"sf":108,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.31738,"r2":1.2316,"ae":[1.953639,1.89869],"f1":[7.030021,7.036356],"drop":[-0.0002965,0.0017102],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":109}
+{"type":"sample","t_us":153929289,"sf":109,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8472408,"r2":0.7522103,"ae":[1.284193,1.015946],"f1":[7.031814,7.039346],"drop":[-0.0005517,0.0012861],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":110}
+{"type":"sample","t_us":155329793,"sf":110,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8743653,"r2":0.7667277,"ae":[2.839286,1.038906],"f1":[7.032681,7.041241],"drop":[-0.0006751,0.0010172],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":111}
+{"type":"sample","t_us":156730855,"sf":111,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.666663,"r2":1.535588,"ae":[0.6784306,0.5183893],"f1":[7.050443,7.060428],"drop":[-0.0032023,-0.001705],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":112}
+{"type":"sample","t_us":158129993,"sf":112,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9442215,"r2":0.877875,"ae":[2.320106,1.558097],"f1":[7.058605,7.069622],"drop":[-0.0043638,-0.0030094],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":113}
+{"type":"sample","t_us":159530543,"sf":113,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8173428,"r2":0.6972022,"ae":[1.961306,0.8221108],"f1":[7.05805,7.069587],"drop":[-0.0042848,-0.0030044],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":114}
+{"type":"sample","t_us":160930720,"sf":114,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.101662,"r2":1.05104,"ae":[0.8718719,0.5298889],"f1":[7.055691,7.070927],"drop":[-0.0039491,-0.0031945],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":115}
+{"type":"sample","t_us":162330161,"sf":115,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.031323,"r2":0.9602194,"ae":[1.050641,1.202735],"f1":[7.066109,7.081622],"drop":[-0.0054314,-0.0047119],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":116}
+{"type":"sample","t_us":163730487,"sf":116,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.256916,"r2":1.259268,"ae":[0.6493403,0.7610736],"f1":[7.0682,7.08269],"drop":[-0.005729,-0.0048634],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":117}
+{"type":"sample","t_us":165129966,"sf":117,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.425372,"r2":1.31736,"ae":[0.9285907,1.600505],"f1":[7.075843,7.087867],"drop":[-0.0068165,-0.005598],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":118}
+{"type":"sample","t_us":166529911,"sf":118,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.842393,"r2":0.7020304,"ae":[2.619962,1.360325],"f1":[7.076697,7.089093],"drop":[-0.006938,-0.0057719],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":119}
+{"type":"sample","t_us":167930731,"sf":119,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6195449,"r2":0.6172439,"ae":[1.269856,1.151633],"f1":[7.072516,7.086192],"drop":[-0.0063432,-0.0053602],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":120}
+{"type":"sample","t_us":169329123,"sf":120,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.897722,"r2":0.8882719,"ae":[0.6842374,1.434696],"f1":[7.077032,7.091224],"drop":[-0.0069857,-0.0060742],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":121}
+{"type":"sample","t_us":170729748,"sf":121,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":5.583373,"r2":1.349615,"ae":[23.62842,1.508206],"f1":[7.073521,7.076653],"drop":[-0.0064861,-0.0040069],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":122}
+{"type":"sample","t_us":172130106,"sf":122,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":2.545332,"r2":0.7004229,"ae":[45.38567,1.820636],"f1":[7.076464,7.078432],"drop":[-0.0069048,-0.0042594],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":123}
+{"type":"begin","t_us":172130106,"sf":122,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":2.545332,"r2":0.7004229,"ae":[45.38567,1.820636],"f1":[7.076464,7.078432],"drop":[-0.0069048,-0.0042594],"dmg":0,"base1":150.5301,"base2":225.3885,"alive":[true,true],"closed":123,"events":3,"commission_n":[20,20]}
+{"type":"sample","t_us":173529475,"sf":123,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":5.043415,"r2":0.608454,"ae":[84.24853,0.7699051],"f1":[7.121583,7.08964],"drop":[-0.0133249,-0.0058495],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":124}
+{"type":"sample","t_us":174929467,"sf":124,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":8.513802,"r2":0.8693127,"ae":[20.00296,0.6562935],"f1":[null,7.087854],"drop":[null,-0.0055962],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":125}
+{"type":"sample","t_us":176330518,"sf":125,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":3.305035,"r2":1.230402,"ae":[41.27053,0.7542067],"f1":[null,7.087569],"drop":[null,-0.0055557],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":126}
+{"type":"sample","t_us":177730036,"sf":126,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":5.360289,"r2":0.9140731,"ae":[26.67424,1.125784],"f1":[null,7.100781],"drop":[null,-0.0074301],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":127}
+{"type":"sample","t_us":179129587,"sf":127,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":5.960602,"r2":0.9428369,"ae":[33.31635,1.036064],"f1":[null,7.098129],"drop":[null,-0.0070538],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":128}
+{"type":"status","t_us":179129587,"sf":127,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":5.960602,"r2":0.9428369,"ae":[33.31635,1.036064],"f1":[null,7.098129],"drop":[null,-0.0070538],"dmg":0,"base1":150.5301,"base2":225.3885,"alive":[true,true],"closed":128,"events":3,"commission_n":[20,20]}
+{"type":"sample","t_us":180529583,"sf":128,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":2.225724,"r2":1.089191,"ae":[8.486023,1.282153],"f1":[null,7.105373],"drop":[null,-0.0080817],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":129}
+{"type":"sample","t_us":181930093,"sf":129,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":4.526908,"r2":0.847631,"ae":[61.22152,2.322187],"f1":[null,7.092694],"drop":[null,-0.0062828],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":130}
+{"type":"sample","t_us":183331044,"sf":130,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":4.397841,"r2":0.4894579,"ae":[61.10322,1.541573],"f1":[null,7.107416],"drop":[null,-0.0083715],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":131}
+{"type":"sample","t_us":184729616,"sf":131,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":5.395682,"r2":0.747499,"ae":[22.32094,1.946273],"f1":[null,7.105819],"drop":[null,-0.0081449],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":132}
+{"type":"sample","t_us":186130414,"sf":132,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":0.9051599,"r2":0.7772356,"ae":[0.9320721,0.8859167],"f1":[null,7.102833],"drop":[null,-0.0077212],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":133}
+{"type":"sample","t_us":187528622,"sf":133,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.632218,"r2":1.522002,"ae":[1.869174,1.356618],"f1":[null,7.114686],"drop":[null,-0.009403],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":134}
+{"type":"change","t_us":187528622,"sf":133,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.632218,"r2":1.522002,"ae":[1.869174,1.356618],"f1":[null,7.114686],"drop":[null,-0.009403],"dmg":0,"base1":150.5301,"base2":225.3885,"alive":[true,true],"closed":134,"events":4,"commission_n":[20,20]}
+{"type":"sample","t_us":188929976,"sf":134,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.458781,"r2":1.321675,"ae":[2.897731,1.874283],"f1":[null,7.101287],"drop":[null,-0.007502],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":135}
+{"type":"sample","t_us":190329826,"sf":135,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7259403,"r2":0.6150102,"ae":[0.7880958,0.7856593],"f1":[null,7.09811],"drop":[null,-0.0070511],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":136}
+{"type":"sample","t_us":191730649,"sf":136,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9549073,"r2":0.9097769,"ae":[1.345349,0.6454694],"f1":[null,7.094915],"drop":[null,-0.0065979],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":137}
+{"type":"sample","t_us":193130067,"sf":137,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6509546,"r2":0.5811761,"ae":[3.43957,1.599238],"f1":[null,7.101644],"drop":[null,-0.0075525],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":138}
+{"type":"sample","t_us":194529527,"sf":138,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.5688664,"r2":0.5246375,"ae":[0.827817,1.055938],"f1":[null,7.098827],"drop":[null,-0.007153],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":139}
+{"type":"sample","t_us":195930404,"sf":139,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8698251,"r2":0.8578584,"ae":[0.9948814,0.8598247],"f1":[null,7.103181],"drop":[null,-0.0077706],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":140}
+{"type":"sample","t_us":197329528,"sf":140,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9417312,"r2":0.8853056,"ae":[2.776581,0.8025653],"f1":[null,7.125312],"drop":[null,-0.0109105],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":141}
+{"type":"sample","t_us":198730420,"sf":141,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.175842,"r2":1.139328,"ae":[1.119466,1.331757],"f1":[null,7.138613],"drop":[null,-0.0127975],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":142}
+{"type":"sample","t_us":200129638,"sf":142,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9693031,"r2":0.9283936,"ae":[1.7729,1.246465],"f1":[null,7.14572],"drop":[null,-0.013806],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":143}
+{"type":"sample","t_us":201528898,"sf":143,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.037459,"r2":0.95624,"ae":[0.7750857,0.9808194],"f1":[null,7.138745],"drop":[null,-0.0128163],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":144}
+{"type":"sample","t_us":202930418,"sf":144,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":2.44765,"r2":2.405815,"ae":[4.71236,3.026229],"f1":[null,7.130078],"drop":[null,-0.0115866],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":145}
+{"type":"sample","t_us":204329432,"sf":145,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":2.840172,"r2":2.689814,"ae":[4.027162,2.741167],"f1":[null,7.12768],"drop":[null,-0.0112465],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":146}
+{"type":"sample","t_us":205729355,"sf":146,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.683662,"r2":1.613672,"ae":[3.214152,3.017504],"f1":[null,7.11967],"drop":[null,-0.01011],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":147}
+{"type":"sample","t_us":207129878,"sf":147,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":5.448371,"r2":5.302577,"ae":[3.756287,2.949014],"f1":[null,7.090745],"drop":[null,-0.0060063],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":148}
+{"type":"sample","t_us":208529610,"sf":148,"class":"BUILDING","slave":0,"degraded_alive":0,"r1":3.406137,"r2":3.452006,"ae":[6.197906,4.396177],"f1":[null,7.05879],"drop":[null,-0.0014726],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":149}
+{"type":"begin","t_us":208529610,"sf":148,"class":"BUILDING","slave":0,"degraded_alive":0,"r1":3.406137,"r2":3.452006,"ae":[6.197906,4.396177],"f1":[null,7.05879],"drop":[null,-0.0014726],"dmg":0,"base1":150.5301,"base2":225.3885,"alive":[true,true],"closed":149,"events":5,"commission_n":[20,20]}
+{"type":"sample","t_us":209929874,"sf":149,"class":"BUILDING","slave":0,"degraded_alive":0,"r1":4.0953,"r2":3.930594,"ae":[2.948099,2.096514],"f1":[7.063346,7.062127],"drop":[-0.0050384,-0.0019461],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":150}
+{"type":"sample","t_us":211330436,"sf":150,"class":"BUILDING","slave":0,"degraded_alive":0,"r1":3.282177,"r2":3.081173,"ae":[8.323852,8.132105],"f1":[7.038251,7.043624],"drop":[-0.0014676,0.000679],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":151}
+{"type":"sample","t_us":212729404,"sf":151,"class":"BUILDING","slave":0,"degraded_alive":0,"r1":3.255055,"r2":3.322115,"ae":[2.057252,1.199162],"f1":[7.061751,7.067636],"drop":[-0.0048114,-0.0027276],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":152}
+{"type":"sample","t_us":214131046,"sf":152,"class":"BUILDING","slave":0,"degraded_alive":0,"r1":1.981879,"r2":1.980944,"ae":[3.448209,2.885269],"f1":[7.066518,7.073488],"drop":[-0.0054897,-0.0035579],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":153}
+{"type":"sample","t_us":215530226,"sf":153,"class":"BUILDING","slave":0,"degraded_alive":0,"r1":3.889396,"r2":3.773846,"ae":[1.935055,0.9179235],"f1":[7.061048,7.068717],"drop":[-0.0047113,-0.0028811],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":154}
+{"type":"sample","t_us":216930374,"sf":154,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":2.469157,"r2":2.406942,"ae":[7.552827,4.745969],"f1":[7.068094,7.076914],"drop":[-0.005714,-0.0040439],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":155}
+{"type":"change","t_us":216930374,"sf":154,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":2.469157,"r2":2.406942,"ae":[7.552827,4.745969],"f1":[7.068094,7.076914],"drop":[-0.005714,-0.0040439],"dmg":0,"base1":150.5301,"base2":225.3885,"alive":[true,true],"closed":155,"events":6,"commission_n":[20,20]}
+{"type":"sample","t_us":218330461,"sf":155,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":2.260424,"r2":2.191536,"ae":[3.979121,2.812997],"f1":[7.055183,7.074454],"drop":[-0.0038769,-0.0036949],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":156}
+{"type":"sample","t_us":219730011,"sf":156,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7066401,"r2":0.6066343,"ae":[1.947571,0.9289918],"f1":[7.045041,7.073336],"drop":[-0.0024337,-0.0035364],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":157}
+{"type":"sample","t_us":221129195,"sf":157,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9922579,"r2":0.9499942,"ae":[1.471166,0.9885029],"f1":[7.044512,7.071233],"drop":[-0.0023585,-0.0032379],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":158}
+{"type":"sample","t_us":222529549,"sf":158,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9523042,"r2":0.8109909,"ae":[2.057263,1.709041],"f1":[7.049246,7.067556],"drop":[-0.0030321,-0.0027163],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":159}
+{"type":"sample","t_us":223930334,"sf":159,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.227437,"r2":1.249326,"ae":[0.7928262,1.673929],"f1":[7.04663,7.062716],"drop":[-0.0026598,-0.0020296],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":160}
+{"type":"sample","t_us":225330077,"sf":160,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7253548,"r2":0.6642759,"ae":[1.488984,1.55642],"f1":[7.043444,7.061257],"drop":[-0.0022065,-0.0018227],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":161}
+{"type":"sample","t_us":226729712,"sf":161,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8064139,"r2":0.7444291,"ae":[0.4530468,1.57083],"f1":[7.048761,7.064607],"drop":[-0.002963,-0.0022979],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":162}
+{"type":"sample","t_us":228130059,"sf":162,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8605567,"r2":0.7959931,"ae":[0.7975714,0.775895],"f1":[7.050408,7.065491],"drop":[-0.0031974,-0.0024234],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":163}
+{"type":"sample","t_us":229530897,"sf":163,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9651504,"r2":0.9559704,"ae":[1.13153,0.9588972],"f1":[7.046832,7.06758],"drop":[-0.0026886,-0.0027197],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":164}
+{"type":"sample","t_us":230930318,"sf":164,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.5638455,"r2":0.4923496,"ae":[0.9744073,1.735044],"f1":[7.046159,7.067156],"drop":[-0.0025928,-0.0026595],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":165}
+{"type":"sample","t_us":232328951,"sf":165,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9182606,"r2":0.8423356,"ae":[3.610585,2.087103],"f1":[7.038748,7.061063],"drop":[-0.0015383,-0.0017951],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":166}
+{"type":"sample","t_us":233730066,"sf":166,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.486804,"r2":1.484306,"ae":[2.842571,1.697226],"f1":[7.044011,7.066052],"drop":[-0.0022872,-0.0025029],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":167}
+{"type":"sample","t_us":235129320,"sf":167,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.662013,"r2":1.628149,"ae":[0.8415257,1.116464],"f1":[7.046737,7.068236],"drop":[-0.0026751,-0.0028128],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":168}
+{"type":"sample","t_us":236529391,"sf":168,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6729908,"r2":1.876265,"ae":[1.752452,4.657008],"f1":[7.044625,7.066466],"drop":[-0.0023745,-0.0025616],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":169}
+{"type":"sample","t_us":237930114,"sf":169,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6812054,"r2":1.8711,"ae":[2.137998,8.910069],"f1":[7.044259,7.066415],"drop":[-0.0023224,-0.0025545],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":170}
+{"type":"sample","t_us":239330094,"sf":170,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":1.024959,"r2":1.967398,"ae":[0.9954811,6.228858],"f1":[7.043801,7.066253],"drop":[-0.0022573,-0.0025314],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":171}
+{"type":"begin","t_us":239330094,"sf":170,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":1.024959,"r2":1.967398,"ae":[0.9954811,6.228858],"f1":[7.043801,7.066253],"drop":[-0.0022573,-0.0025314],"dmg":0,"base1":150.5301,"base2":225.3885,"alive":[true,true],"closed":171,"events":7,"commission_n":[20,20]}
+{"type":"sample","t_us":240730468,"sf":171,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":0.7629346,"r2":1.894288,"ae":[1.170203,6.090281],"f1":[7.043316,7.065728],"drop":[-0.0021883,-0.0024569],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":172}
+{"type":"sample","t_us":242129097,"sf":172,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":0.847477,"r2":1.914502,"ae":[1.445926,8.521838],"f1":[7.041655,7.064006],"drop":[-0.0019519,-0.0022126],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":173}
+{"type":"sample","t_us":243529164,"sf":173,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":0.5615032,"r2":1.834764,"ae":[1.338379,6.769838],"f1":[7.038635,7.060777],"drop":[-0.0015223,-0.0017545],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":174}
+{"type":"sample","t_us":244930208,"sf":174,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":0.6663463,"r2":1.846758,"ae":[1.442754,5.867326],"f1":[7.036756,7.05917],"drop":[-0.0012548,-0.0015266],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":175}
+{"type":"sample","t_us":246329902,"sf":175,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":1.068406,"r2":2.043929,"ae":[2.454603,7.463977],"f1":[7.039561,7.061826],"drop":[-0.001654,-0.0019033],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":176}
+{"type":"sample","t_us":247730520,"sf":176,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":0.9293536,"r2":1.976877,"ae":[1.727471,6.163503],"f1":[7.039281,7.059881],"drop":[-0.0016141,-0.0016274],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":177}
+{"type":"sample","t_us":249130150,"sf":177,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":0.958308,"r2":1.937431,"ae":[3.291462,5.795109],"f1":[7.035478,7.056404],"drop":[-0.001073,-0.001134],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":178}
+{"type":"sample","t_us":250530430,"sf":178,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":1.274308,"r2":2.175864,"ae":[1.347685,7.718278],"f1":[7.035794,7.056273],"drop":[-0.001118,-0.0011154],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":179}
+{"type":"sample","t_us":251928833,"sf":179,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":0.8263758,"r2":1.898791,"ae":[1.226645,6.494263],"f1":[7.028629,7.052255],"drop":[-0.0000984,-0.0005455],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":180}
+{"type":"sample","t_us":253330185,"sf":180,"class":"LOCAL","slave":2,"degraded_alive":0,"r1":0.9354089,"r2":0.9586123,"ae":[2.142795,1.197971],"f1":[7.059212,7.086056],"drop":[-0.0044501,-0.005341],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":181}
+{"type":"sample","t_us":254730444,"sf":181,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.157781,"r2":1.151667,"ae":[0.7995381,1.214651],"f1":[7.067405,7.099032],"drop":[-0.0056158,-0.007182],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":182}
+{"type":"change","t_us":254730444,"sf":181,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.157781,"r2":1.151667,"ae":[0.7995381,1.214651],"f1":[7.067405,7.099032],"drop":[-0.0056158,-0.007182],"dmg":0,"base1":150.5301,"base2":225.3885,"alive":[true,true],"closed":182,"events":8,"commission_n":[20,20]}
+{"type":"sample","t_us":256130154,"sf":182,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8852255,"r2":0.909273,"ae":[0.6384444,0.7899731],"f1":[7.11903,7.13824],"drop":[-0.0129616,-0.0127446],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":183}
+{"type":"sample","t_us":257529968,"sf":183,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.068661,"r2":1.022341,"ae":[2.99946,1.282276],"f1":[7.082901,7.103902],"drop":[-0.0078207,-0.0078729],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":184}
+{"type":"sample","t_us":258930137,"sf":184,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9631228,"r2":0.9004546,"ae":[1.680081,1.438698],"f1":[7.06416,7.079199],"drop":[-0.0051541,-0.0043681],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":185}
+{"type":"sample","t_us":260329856,"sf":185,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.070567,"r2":0.9513189,"ae":[1.334001,1.311153],"f1":[7.128211,7.185713],"drop":[-0.014268,-0.01948],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":186}
+{"type":"sample","t_us":261730034,"sf":186,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.071144,"r2":1.034599,"ae":[0.7465,0.9111475],"f1":[7.0202,7.07603],"drop":[0.0011008,-0.0039186],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":187}
+{"type":"sample","t_us":263129371,"sf":187,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.200953,"r2":1.155752,"ae":[1.253255,0.9537292],"f1":[7.082463,7.120051],"drop":[-0.0077584,-0.0101641],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":188}
+{"type":"sample","t_us":264530265,"sf":188,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.295029,"r2":1.25657,"ae":[0.831597,0.8754887],"f1":[7.058691,7.09639],"drop":[-0.004376,-0.0068072],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":189}
+{"type":"sample","t_us":265929519,"sf":189,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8904125,"r2":0.786899,"ae":[3.157517,1.632397],"f1":[7.06065,7.099912],"drop":[-0.0046548,-0.0073069],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":190}
+{"type":"sample","t_us":267329181,"sf":190,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9069455,"r2":0.8569202,"ae":[0.8727201,1.001865],"f1":[7.08097,7.113239],"drop":[-0.0075461,-0.0091977],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":191}
+{"type":"sample","t_us":268729830,"sf":191,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.173486,"r2":1.157865,"ae":[0.6963671,1.163442],"f1":[7.136147,7.173184],"drop":[-0.0153971,-0.0177024],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":192}
+{"type":"status","t_us":268729830,"sf":191,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.173486,"r2":1.157865,"ae":[0.6963671,1.163442],"f1":[7.136147,7.173184],"drop":[-0.0153971,-0.0177024],"dmg":0,"base1":150.5301,"base2":225.3885,"alive":[true,true],"closed":192,"events":8,"commission_n":[20,20]}
+{"type":"sample","t_us":270130850,"sf":192,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.857428,"r2":0.7595239,"ae":[1.319511,0.7504557],"f1":[7.145668,7.18394],"drop":[-0.0167518,-0.0192284],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":193}
+{"type":"sample","t_us":271529854,"sf":193,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.421454,"r2":1.331338,"ae":[3.364921,2.410992],"f1":[7.108975,7.156768],"drop":[-0.0115308,-0.0153734],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":194}
+{"type":"sample","t_us":272929595,"sf":194,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8195903,"r2":0.7010069,"ae":[2.878177,2.199498],"f1":[7.104819,7.150602],"drop":[-0.0109395,-0.0144986],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":195}
+{"type":"sample","t_us":274329575,"sf":195,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8065651,"r2":0.7301717,"ae":[1.323292,1.319525],"f1":[7.08298,7.133089],"drop":[-0.007832,-0.0120138],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":196}
+{"type":"sample","t_us":275729961,"sf":196,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8007891,"r2":0.7270846,"ae":[1.607713,1.314763],"f1":[7.071113,7.122094],"drop":[-0.0061434,-0.010454],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":197}
+{"type":"sample","t_us":277130738,"sf":197,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7414547,"r2":0.6789218,"ae":[1.696605,1.006607],"f1":[7.092785,7.139782],"drop":[-0.0092272,-0.0129634],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":198}
+{"type":"sample","t_us":278529341,"sf":198,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.396022,"r2":1.269526,"ae":[1.633148,0.8234745],"f1":[7.009691,7.067864],"drop":[0.0025962,-0.0027601],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":199}
+{"type":"sample","t_us":279930442,"sf":199,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.797922,"r2":1.671222,"ae":[2.282753,1.25933],"f1":[6.935209,6.989808],"drop":[0.0131942,0.0083143],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":200}
+{"type":"sample","t_us":281330216,"sf":200,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.455853,"r2":1.343162,"ae":[2.200852,3.640399],"f1":[6.919003,6.971744],"drop":[0.0155002,0.0108772],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":201}
+{"type":"sample","t_us":282729889,"sf":201,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.352262,"r2":1.207165,"ae":[3.756379,1.384805],"f1":[6.910388,6.960458],"drop":[0.0167259,0.0124783],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":202}
+{"type":"sample","t_us":284130475,"sf":202,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7437723,"r2":0.6633271,"ae":[2.036098,0.9413624],"f1":[6.901839,6.954851],"drop":[0.0179424,0.0132738],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":203}
+{"type":"sample","t_us":285530123,"sf":203,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.316534,"r2":1.216886,"ae":[1.714249,1.26614],"f1":[6.877021,6.923547],"drop":[0.0214737,0.0177151],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":204}
+{"type":"sample","t_us":286929696,"sf":204,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.082669,"r2":0.9949315,"ae":[2.227952,1.276734],"f1":[6.867682,6.916578],"drop":[0.0228025,0.0187039],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":205}
+{"type":"sample","t_us":288330165,"sf":205,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9188048,"r2":0.858743,"ae":[1.468809,1.821753],"f1":[6.851936,6.900318],"drop":[0.025043,0.0210107],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":206}
+{"type":"sample","t_us":289730127,"sf":206,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.358366,"r2":1.269508,"ae":[1.419679,0.9654168],"f1":[6.855877,6.898486],"drop":[0.0244822,0.0212707],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":207}
+{"type":"sample","t_us":291129317,"sf":207,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.495305,"r2":1.407766,"ae":[2.277152,1.623808],"f1":[6.822899,6.860107],"drop":[0.0291746,0.0267157],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":208}
+{"type":"sample","t_us":292530125,"sf":208,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8180763,"r2":0.6974993,"ae":[1.941802,1.186863],"f1":[6.831948,6.870455],"drop":[0.0278871,0.0252476],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":209}
+{"type":"sample","t_us":293930347,"sf":209,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.743059,"r2":1.570031,"ae":[3.269895,1.280537],"f1":[6.837971,6.867611],"drop":[0.0270302,0.0256511],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":210}
+{"type":"sample","t_us":295329465,"sf":210,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.203657,"r2":1.181602,"ae":[5.544991,2.271191],"f1":[6.832206,6.859646],"drop":[0.0278504,0.0267811],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":211}
+{"type":"sample","t_us":296729925,"sf":211,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.5063772,"r2":0.4225629,"ae":[1.589872,0.554401],"f1":[6.831205,6.858215],"drop":[0.0279928,0.0269842],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":212}
+{"type":"sample","t_us":298129637,"sf":212,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9371477,"r2":0.8012376,"ae":[0.693845,1.200785],"f1":[6.830774,6.854606],"drop":[0.0280542,0.0274962],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":213}
+{"type":"sample","t_us":299529854,"sf":213,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6245455,"r2":0.6008998,"ae":[1.547817,1.013339],"f1":[6.818391,6.838818],"drop":[0.0298161,0.0297361],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":214}
+{"type":"sample","t_us":300930929,"sf":214,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.276132,"r2":1.155648,"ae":[3.100984,2.08625],"f1":[6.798633,6.814865],"drop":[0.0326275,0.0331345],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":215}
+{"type":"sample","t_us":302328579,"sf":215,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8161651,"r2":0.6737797,"ae":[1.252604,1.243173],"f1":[6.799289,6.811511],"drop":[0.0325342,0.0336103],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":216}
+{"type":"sample","t_us":303730433,"sf":216,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.280944,"r2":1.190112,"ae":[2.731841,2.370048],"f1":[6.795642,6.809834],"drop":[0.0330531,0.0338483],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":217}
+{"type":"sample","t_us":305130219,"sf":217,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6323493,"r2":0.6166669,"ae":[1.133526,0.5982223],"f1":[6.794414,6.810335],"drop":[0.0332278,0.0337772],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":218}
+{"type":"sample","t_us":306529656,"sf":218,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9891853,"r2":0.8455768,"ae":[1.417904,1.227474],"f1":[6.793667,6.805065],"drop":[0.0333341,0.0345249],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":219}
+{"type":"sample","t_us":307929475,"sf":219,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.044609,"r2":0.9470603,"ae":[1.060945,0.642861],"f1":[6.788153,6.796365],"drop":[0.0341187,0.0357591],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":220}
+{"type":"sample","t_us":309330412,"sf":220,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7540162,"r2":0.5975131,"ae":[1.52593,0.8233494],"f1":[6.784081,6.793942],"drop":[0.0346981,0.036103],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":221}
+{"type":"sample","t_us":310729564,"sf":221,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8310235,"r2":0.7231691,"ae":[1.880629,1.600163],"f1":[6.782973,6.792722],"drop":[0.0348558,0.0362761],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":222}
+{"type":"sample","t_us":312129808,"sf":222,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6309509,"r2":0.5972723,"ae":[1.333345,1.498975],"f1":[6.777107,6.786482],"drop":[0.0356904,0.0371613],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":223}
+{"type":"sample","t_us":313530918,"sf":223,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7815878,"r2":0.6784722,"ae":[2.191514,1.746926],"f1":[6.758794,6.766245],"drop":[0.0382962,0.0400324],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":224}
+{"type":"sample","t_us":314929904,"sf":224,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7111025,"r2":0.6434036,"ae":[2.631781,0.8755493],"f1":[6.752992,6.760941],"drop":[0.0391217,0.040785],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":225}
+{"type":"sample","t_us":316329980,"sf":225,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8174452,"r2":0.6720313,"ae":[0.8287377,1.34257],"f1":[6.767671,6.774193],"drop":[0.037033,0.0389049],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":226}
+{"type":"sample","t_us":317729305,"sf":226,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.5611694,"r2":0.4823029,"ae":[2.446168,1.294804],"f1":[6.766449,6.773416],"drop":[0.0372069,0.0390151],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":227}
+{"type":"sample","t_us":319129068,"sf":227,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.445433,"r2":1.345961,"ae":[1.826673,3.995396],"f1":[6.769201,6.776231],"drop":[0.0368154,0.0386157],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":228}
+{"type":"sample","t_us":320529027,"sf":228,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8725223,"r2":0.7180388,"ae":[2.250143,1.312317],"f1":[6.767764,6.776002],"drop":[0.0370198,0.0386482],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":229}
+{"type":"sample","t_us":321929459,"sf":229,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9971796,"r2":0.854415,"ae":[3.160116,1.304503],"f1":[6.767069,6.775164],"drop":[0.0371187,0.0387671],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":230}
+{"type":"sample","t_us":323329093,"sf":230,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.260461,"r2":1.102374,"ae":[2.25625,1.173005],"f1":[6.768303,6.776222],"drop":[0.0369431,0.038617],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":231}
+{"type":"sample","t_us":324730177,"sf":231,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7410921,"r2":0.6690174,"ae":[0.7987221,0.9866982],"f1":[6.756577,6.766966],"drop":[0.0386117,0.0399301],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":232}
+{"type":"sample","t_us":326130235,"sf":232,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.206375,"r2":1.069048,"ae":[2.631629,1.770342],"f1":[6.741639,6.751718],"drop":[0.0407372,0.0420936],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":233}
+{"type":"sample","t_us":327530121,"sf":233,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7904997,"r2":0.7326159,"ae":[2.115897,0.6223249],"f1":[6.740418,6.748914],"drop":[0.0409108,0.0424913],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":234}
+{"type":"sample","t_us":328931152,"sf":234,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.964233,"r2":0.8425498,"ae":[3.577898,2.101422],"f1":[6.737488,6.748022],"drop":[0.0413278,0.0426179],"dmg":0,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":235}
+{"type":"sample","t_us":330330855,"sf":235,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.60124,"r2":1.506014,"ae":[2.231196,1.3888],"f1":[6.732718,6.744511],"drop":[0.0420064,0.043116],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":236}
+{"type":"damage","t_us":330330855,"sf":235,"state":"BEGIN","drop":0.0425612,"f1":[6.732718,6.744511],"f1_0":[7.027937,7.04841]}
+{"type":"sample","t_us":331730212,"sf":236,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.886805,"r2":0.815096,"ae":[2.013662,0.5043424],"f1":[6.742658,6.75469],"drop":[0.0405921,0.0416719],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":237}
+{"type":"sample","t_us":333129676,"sf":237,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7899836,"r2":0.6534356,"ae":[2.205684,1.593291],"f1":[6.750041,6.763401],"drop":[0.0395415,0.040436],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":238}
+{"type":"sample","t_us":334529827,"sf":238,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.549949,"r2":0.4798449,"ae":[0.8242779,1.009879],"f1":[6.735717,6.749478],"drop":[0.0415798,0.0424113],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":239}
+{"type":"sample","t_us":335930197,"sf":239,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.003575,"r2":0.8575117,"ae":[2.539831,1.616408],"f1":[6.739245,6.751768],"drop":[0.0410777,0.0420864],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":240}
+{"type":"sample","t_us":337331348,"sf":240,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.180619,"r2":1.190019,"ae":[2.250012,1.527006],"f1":[6.723833,6.730635],"drop":[0.0432708,0.0450847],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":241}
+{"type":"sample","t_us":338730504,"sf":241,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.069306,"r2":0.9810514,"ae":[2.688557,1.587553],"f1":[6.695553,6.708744],"drop":[0.0472946,0.0481906],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":242}
+{"type":"sample","t_us":340130745,"sf":242,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7232739,"r2":0.6134607,"ae":[2.12029,1.420188],"f1":[6.706151,6.722961],"drop":[0.0457867,0.0461735],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":243}
+{"type":"sample","t_us":341529949,"sf":243,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.778313,"r2":0.7216557,"ae":[2.526646,2.321563],"f1":[6.693986,6.71016],"drop":[0.0475176,0.0479896],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":244}
+{"type":"sample","t_us":342930976,"sf":244,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.029472,"r2":0.9581264,"ae":[1.414982,0.546172],"f1":[6.698744,6.715802],"drop":[0.0468406,0.0471892],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":245}
+{"type":"sample","t_us":344330075,"sf":245,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8510808,"r2":0.8536431,"ae":[0.7353263,0.8169302],"f1":[6.701198,6.719795],"drop":[0.0464914,0.0466226],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":246}
+{"type":"sample","t_us":345730497,"sf":246,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.111267,"r2":1.020029,"ae":[2.305925,1.014098],"f1":[6.718125,6.742593],"drop":[0.0440829,0.0433882],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":247}
+{"type":"sample","t_us":347130812,"sf":247,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8818006,"r2":0.7215859,"ae":[3.965649,2.868588],"f1":[6.714556,6.738968],"drop":[0.0445907,0.0439024],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":248}
+{"type":"sample","t_us":348529917,"sf":248,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7646852,"r2":0.7014166,"ae":[0.7912431,0.7474639],"f1":[6.710296,6.736401],"drop":[0.0451969,0.0442666],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":249}
+{"type":"sample","t_us":349929599,"sf":249,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.999262,"r2":0.9289119,"ae":[1.588472,2.139976],"f1":[6.692107,6.71677],"drop":[0.047785,0.0470518],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":250}
+{"type":"sample","t_us":351330167,"sf":250,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.096705,"r2":0.9976953,"ae":[2.239323,2.372563],"f1":[6.671498,6.693828],"drop":[0.0507175,0.0503068],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":251}
+{"type":"sample","t_us":352729584,"sf":251,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7206713,"r2":0.5803877,"ae":[1.701596,1.478942],"f1":[6.656819,6.680665],"drop":[0.052806,0.0521742],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":252}
+{"type":"sample","t_us":354129555,"sf":252,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.938347,"r2":0.820538,"ae":[1.147349,0.8388534],"f1":[6.659694,6.683314],"drop":[0.052397,0.0517984],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":253}
+{"type":"sample","t_us":355530496,"sf":253,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.161226,"r2":1.064959,"ae":[1.063445,1.809666],"f1":[6.664237,6.687393],"drop":[0.0517506,0.0512197],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":254}
+{"type":"sample","t_us":356929258,"sf":254,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.162003,"r2":1.107259,"ae":[1.310482,0.6204371],"f1":[6.681092,6.703692],"drop":[0.0493523,0.0489073],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":255}
+{"type":"sample","t_us":358330519,"sf":255,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.070851,"r2":0.9311467,"ae":[3.243749,2.221692],"f1":[6.676638,6.69984],"drop":[0.0499861,0.0494538],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":256}
+{"type":"status","t_us":358330519,"sf":255,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.070851,"r2":0.9311467,"ae":[3.243749,2.221692],"f1":[6.676638,6.69984],"drop":[0.0499861,0.0494538],"dmg":1,"base1":150.5301,"base2":225.3885,"alive":[true,true],"closed":256,"events":8,"commission_n":[20,20]}
+{"type":"sample","t_us":359730532,"sf":256,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6053854,"r2":0.5928093,"ae":[3.040491,1.153166],"f1":[6.67492,6.697174],"drop":[0.0502305,0.049832],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":257}
+{"type":"sample","t_us":361129834,"sf":257,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.098863,"r2":1.033833,"ae":[1.28759,1.025683],"f1":[6.684478,6.704475],"drop":[0.0488705,0.0487962],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":258}
+{"type":"sample","t_us":362529990,"sf":258,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7846061,"r2":0.7069666,"ae":[2.114563,1.770128],"f1":[6.681967,6.703108],"drop":[0.0492278,0.0489901],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":259}
+{"type":"sample","t_us":363929957,"sf":259,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.224554,"r2":1.128075,"ae":[0.8430015,0.8303088],"f1":[6.681756,6.700779],"drop":[0.0492579,0.0493205],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":260}
+{"type":"sample","t_us":365330551,"sf":260,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9762838,"r2":0.9090541,"ae":[1.308621,0.6824704],"f1":[6.692915,6.710943],"drop":[0.04767,0.0478785],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":261}
+{"type":"sample","t_us":366729937,"sf":261,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.417668,"r2":1.28581,"ae":[1.941245,1.781101],"f1":[6.70259,6.720974],"drop":[0.0462934,0.0464554],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":262}
+{"type":"sample","t_us":368130577,"sf":262,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7023935,"r2":0.663572,"ae":[2.090789,0.9699357],"f1":[6.693913,6.713579],"drop":[0.0475281,0.0475046],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":263}
+{"type":"sample","t_us":369530088,"sf":263,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.44128,"r2":1.322069,"ae":[1.707915,1.346271],"f1":[6.711227,6.726949],"drop":[0.0450644,0.0456077],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":264}
+{"type":"sample","t_us":370929420,"sf":264,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7440557,"r2":0.7100908,"ae":[2.137191,1.765285],"f1":[6.724344,6.741119],"drop":[0.043198,0.0435973],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":265}
+{"type":"sample","t_us":372330624,"sf":265,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7151818,"r2":0.5275325,"ae":[1.239492,1.031169],"f1":[6.719253,6.736808],"drop":[0.0439224,0.0442089],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":266}
+{"type":"sample","t_us":373731170,"sf":266,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8227969,"r2":0.7445668,"ae":[1.103413,0.7157299],"f1":[6.727567,6.743527],"drop":[0.0427394,0.0432556],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":267}
+{"type":"sample","t_us":375129686,"sf":267,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8161009,"r2":0.7480082,"ae":[0.9539153,1.168257],"f1":[6.742892,6.763566],"drop":[0.0405588,0.0404125],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":268}
+{"type":"sample","t_us":376530160,"sf":268,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.363994,"r2":1.274077,"ae":[1.819623,0.9744323],"f1":[6.766522,6.781955],"drop":[0.0371965,0.0378036],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":269}
+{"type":"sample","t_us":377930935,"sf":269,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6789266,"r2":0.557628,"ae":[0.5004693,1.356218],"f1":[6.773652,6.786209],"drop":[0.0361821,0.0372001],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":270}
+{"type":"sample","t_us":379330655,"sf":270,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8914765,"r2":0.7937475,"ae":[1.603226,1.287135],"f1":[6.768134,6.780279],"drop":[0.0369672,0.0380414],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":271}
+{"type":"sample","t_us":380729233,"sf":271,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.202497,"r2":1.104052,"ae":[1.178325,1.175282],"f1":[6.76907,6.783827],"drop":[0.036834,0.037538],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":272}
+{"type":"sample","t_us":382129366,"sf":272,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.187347,"r2":1.135311,"ae":[1.615454,1.843864],"f1":[6.775467,6.792867],"drop":[0.0359238,0.0362554],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":273}
+{"type":"sample","t_us":383530385,"sf":273,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.634566,"r2":1.581376,"ae":[3.292557,2.441142],"f1":[6.770805,6.783585],"drop":[0.0365871,0.0375724],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":274}
+{"type":"sample","t_us":384930138,"sf":274,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.294902,"r2":1.210732,"ae":[2.769319,2.123689],"f1":[6.765062,6.780618],"drop":[0.0374043,0.0379933],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":275}
+{"type":"sample","t_us":386329373,"sf":275,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.445841,"r2":1.308698,"ae":[1.475589,2.136269],"f1":[6.77317,6.78572],"drop":[0.0362505,0.0372695],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":276}
+{"type":"sample","t_us":387730200,"sf":276,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7550368,"r2":0.7159544,"ae":[1.061085,1.979545],"f1":[6.76727,6.783644],"drop":[0.0370902,0.037564],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":277}
+{"type":"sample","t_us":389129913,"sf":277,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8215536,"r2":0.7325479,"ae":[1.101131,1.202314],"f1":[6.769119,6.785184],"drop":[0.036827,0.0373454],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":278}
+{"type":"sample","t_us":390529852,"sf":278,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9962248,"r2":0.893717,"ae":[1.925842,1.582021],"f1":[6.772198,6.784681],"drop":[0.0363889,0.0374168],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":279}
+{"type":"sample","t_us":391929353,"sf":279,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6713491,"r2":0.5810999,"ae":[2.504101,1.315484],"f1":[6.775112,6.788253],"drop":[0.0359743,0.0369101],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":280}
+{"type":"sample","t_us":393330241,"sf":280,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.237435,"r2":1.141348,"ae":[1.549399,2.109809],"f1":[6.771544,6.783083],"drop":[0.0364819,0.0376436],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":281}
+{"type":"sample","t_us":394729795,"sf":281,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9075634,"r2":0.7888528,"ae":[1.781798,2.739744],"f1":[6.78118,6.792869],"drop":[0.0351108,0.0362552],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":282}
+{"type":"sample","t_us":396130249,"sf":282,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9541041,"r2":0.8993257,"ae":[0.6642075,0.8098498],"f1":[6.801641,6.815304],"drop":[0.0321996,0.0330722],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":283}
+{"type":"sample","t_us":397529841,"sf":283,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6100764,"r2":0.4485222,"ae":[1.283722,1.029367],"f1":[6.805,6.818038],"drop":[0.0317215,0.0326843],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":284}
+{"type":"sample","t_us":398930612,"sf":284,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.402321,"r2":1.243494,"ae":[3.837961,1.85545],"f1":[6.800219,6.8123],"drop":[0.0324019,0.0334984],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":285}
+{"type":"sample","t_us":400329506,"sf":285,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.281939,"r2":1.127146,"ae":[1.833565,0.6359027],"f1":[6.803579,6.8145],"drop":[0.0319237,0.0331863],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":286}
+{"type":"sample","t_us":401729183,"sf":286,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.97489,"r2":1.865337,"ae":[2.430117,2.696452],"f1":[6.788337,6.799978],"drop":[0.0340925,0.0352466],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":287}
+{"type":"sample","t_us":403130829,"sf":287,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9057813,"r2":0.889587,"ae":[1.569429,1.516143],"f1":[6.794533,6.805938],"drop":[0.0332108,0.034401],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":288}
+{"type":"sample","t_us":404529947,"sf":288,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8062456,"r2":0.7011056,"ae":[2.429529,1.239728],"f1":[6.793588,6.806175],"drop":[0.0333453,0.0343674],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":289}
+{"type":"sample","t_us":405930710,"sf":289,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.028033,"r2":0.8807344,"ae":[1.195518,0.8765296],"f1":[6.797521,6.81222],"drop":[0.0327857,0.0335098],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":290}
+{"type":"sample","t_us":407329137,"sf":290,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.221015,"r2":1.072746,"ae":[2.161619,1.854345],"f1":[6.809496,6.823218],"drop":[0.0310817,0.0319493],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":291}
+{"type":"sample","t_us":408729870,"sf":291,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8013003,"r2":0.6860351,"ae":[1.068731,2.437035],"f1":[6.814892,6.831603],"drop":[0.030314,0.0307598],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":292}
+{"type":"sample","t_us":410129424,"sf":292,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.172414,"r2":1.056927,"ae":[3.775215,1.457128],"f1":[6.811935,6.829877],"drop":[0.0307347,0.0310046],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":293}
+{"type":"sample","t_us":411529901,"sf":293,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.089695,"r2":0.9623866,"ae":[0.894491,1.225244],"f1":[6.810524,6.827596],"drop":[0.0309355,0.0313282],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":294}
+{"type":"sample","t_us":412929916,"sf":294,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.661125,"r2":1.542152,"ae":[1.793018,1.854484],"f1":[6.791158,6.80599],"drop":[0.0336911,0.0343936],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":295}
+{"type":"sample","t_us":414330697,"sf":295,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9548703,"r2":0.8244351,"ae":[0.5642383,0.6287922],"f1":[6.788514,6.805397],"drop":[0.0340674,0.0344778],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":296}
+{"type":"sample","t_us":415730820,"sf":296,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9138039,"r2":0.8699462,"ae":[1.335618,2.211578],"f1":[6.793033,6.809894],"drop":[0.0334243,0.0338397],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":297}
+{"type":"sample","t_us":417129140,"sf":297,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6835483,"r2":0.6393372,"ae":[1.484787,0.4431552],"f1":[6.79612,6.813691],"drop":[0.0329851,0.033301],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":298}
+{"type":"sample","t_us":418530002,"sf":298,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.355082,"r2":1.236845,"ae":[2.207283,1.892318],"f1":[6.790422,6.805296],"drop":[0.0337958,0.0344921],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":299}
+{"type":"sample","t_us":419930625,"sf":299,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.208919,"r2":1.141231,"ae":[2.700333,1.283239],"f1":[6.794168,6.810784],"drop":[0.0332629,0.0337135],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":300}
+{"type":"sample","t_us":421330232,"sf":300,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.383734,"r2":1.241202,"ae":[2.000131,1.136421],"f1":[6.770915,6.787416],"drop":[0.0365715,0.0370289],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":301}
+{"type":"sample","t_us":422729037,"sf":301,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9220302,"r2":0.8093202,"ae":[2.253092,1.273522],"f1":[6.765475,6.783545],"drop":[0.0373455,0.0375781],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":302}
+{"type":"sample","t_us":424130220,"sf":302,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.421416,"r2":1.341439,"ae":[2.13975,3.740979],"f1":[6.770079,6.795122],"drop":[0.0366905,0.0359355],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":303}
+{"type":"sample","t_us":425529332,"sf":303,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.695656,"r2":1.592924,"ae":[1.20585,2.171706],"f1":[6.776229,6.798862],"drop":[0.0358153,0.0354049],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":304}
+{"type":"sample","t_us":426930793,"sf":304,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.145013,"r2":1.076868,"ae":[2.009867,0.9519311],"f1":[6.782311,6.805741],"drop":[0.0349499,0.0344289],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":305}
+{"type":"sample","t_us":428329506,"sf":305,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.413518,"r2":1.283176,"ae":[2.357677,1.646633],"f1":[6.791687,6.816617],"drop":[0.0336158,0.0328858],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":306}
+{"type":"sample","t_us":429729992,"sf":306,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.030265,"r2":0.925527,"ae":[3.818174,0.9911551],"f1":[6.799439,6.818623],"drop":[0.0325128,0.0326014],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":307}
+{"type":"sample","t_us":431129814,"sf":307,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.6963382,"r2":0.6226999,"ae":[0.5538642,1.561251],"f1":[6.802305,6.823852],"drop":[0.032105,0.0318595],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":308}
+{"type":"sample","t_us":432529643,"sf":308,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.087573,"r2":0.9693708,"ae":[1.063494,0.9068833],"f1":[6.796517,6.814086],"drop":[0.0329285,0.033245],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":309}
+{"type":"sample","t_us":433930445,"sf":309,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.612394,"r2":1.429492,"ae":[3.732374,3.245373],"f1":[6.767211,6.784188],"drop":[0.0370985,0.0374868],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":310}
+{"type":"sample","t_us":435329844,"sf":310,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.116142,"r2":0.9893125,"ae":[2.147377,1.136442],"f1":[6.765098,6.780331],"drop":[0.0373992,0.0380341],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":311}
+{"type":"sample","t_us":436729568,"sf":311,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.042362,"r2":0.9450785,"ae":[1.513781,1.307343],"f1":[6.760544,6.776455],"drop":[0.0380471,0.0385839],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":312}
+{"type":"sample","t_us":438128800,"sf":312,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.049386,"r2":0.9705669,"ae":[2.712466,1.477269],"f1":[6.753138,6.771068],"drop":[0.0391009,0.0393483],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":313}
+{"type":"sample","t_us":439529802,"sf":313,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.180662,"r2":1.059384,"ae":[1.830572,1.221523],"f1":[6.749209,6.76727],"drop":[0.03966,0.0398871],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":314}
+{"type":"sample","t_us":440930171,"sf":314,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.42529,"r2":1.273838,"ae":[1.799038,0.5226769],"f1":[6.751062,6.768052],"drop":[0.0393963,0.0397761],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":315}
+{"type":"sample","t_us":442329537,"sf":315,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8900923,"r2":0.7977064,"ae":[1.769913,1.095278],"f1":[6.747314,6.765279],"drop":[0.0399296,0.0401696],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":316}
+{"type":"sample","t_us":443729787,"sf":316,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.052714,"r2":0.9664265,"ae":[1.952871,0.987564],"f1":[6.753583,6.769966],"drop":[0.0390376,0.0395046],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":317}
+{"type":"sample","t_us":445129930,"sf":317,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.047738,"r2":0.9637158,"ae":[1.81562,3.354474],"f1":[6.755823,6.774433],"drop":[0.0387189,0.0388709],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":318}
+{"type":"sample","t_us":446529255,"sf":318,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9095384,"r2":0.8045637,"ae":[2.365339,1.62431],"f1":[6.750438,6.772116],"drop":[0.0394851,0.0391996],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":319}
+{"type":"sample","t_us":447929995,"sf":319,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7766185,"r2":0.6657837,"ae":[1.234747,0.8672715],"f1":[6.754239,6.776181],"drop":[0.0389443,0.0386228],"dmg":1,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":320}
+{"type":"status","t_us":447929995,"sf":319,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7766185,"r2":0.6657837,"ae":[1.234747,0.8672715],"f1":[6.754239,6.776181],"drop":[0.0389443,0.0386228],"dmg":1,"base1":150.5301,"base2":225.3885,"alive":[true,true],"closed":320,"events":8,"commission_n":[20,20]}
+</script>
 <script src="vendor/mqtt.min.js"></script>
 <script>
 "use strict";
@@ -375,9 +762,9 @@ function fresh(){
   return {meta:null,mode:"none",source:"",demo:false,
     ev:[],ts:[],hist:[],segs:[],
     cL1:[],cL2:[],cB:[],lastEntry:[],lastChg:[],lastAlive1:[],lastAlive2:[],
-    sm:[],smT:[],nl:[],rs:[],tOff:0,lastT:0,rebased:0,
-    prevKey:-1,monStart:null,rmax:0,
-    stats:{ok:0,bad:0,ignored:0,other:0,outOfOrder:0,capped:0,samples:0,restarts:0,nodes:0},warns:{},
+    sm:[],smT:[],nl:[],dl:[],rs:[],tOff:0,lastT:0,rebased:0,
+    prevKey:-1,monStart:null,rmax:0,aemax:0,
+    stats:{ok:0,bad:0,ignored:0,other:0,outOfOrder:0,capped:0,samples:0,restarts:0,nodes:0,damage:0},warns:{},
     eLines:[],t0:0,tEnd:0,playhead:0,k:0,ks:0,playing:false,speed:10,
     lastArrival:0,raw:[],port:null,reader:null,
     kind:"",mq:null,mqRecv:0,mqDup:0,mqSeen:null,mqSeenQ:[],mqBuf:[],mqSeq:0,mqMax:null,mqTimer:null,mqMaster:"",mqSite:"",mqEver:false,mqEpoch:null,mqStatus:null,mqClosed:null,mqBreak:false,bootEpoch:null,feedRetained:false};
@@ -400,7 +787,29 @@ function common(o){
   if(deg!==0&&deg!==1&&deg!==2) return null;
   var r1=rv(o.r1), r2=rv(o.r2); if(r1===undefined||r2===undefined) return null;
   if(!Array.isArray(o.alive)||o.alive.length!==2||typeof o.alive[0]!=="boolean"||typeof o.alive[1]!=="boolean") return null;
-  return {type:o.type,t:o.t_us,sf:o.sf,cls:c,slave:o.slave,deg:deg,r1:r1,r2:r2,a1:o.alive[0],a2:o.alive[1]};
+  var n={type:o.type,t:o.t_us,sf:o.sf,cls:c,slave:o.slave,deg:deg,r1:r1,r2:r2,a1:o.alive[0],a2:o.alive[1],
+    ae1:null,ae2:null,f1a:null,f1b:null,dr1:null,dr2:null,dmg:null,has3:false};
+  if(!ext3(o,n)) return null;
+  return n;
+}
+function pair(a){
+  // schema 3 optional [x,y] of number|null; undefined = not in the line; false = malformed
+  if(a===undefined) return undefined;
+  if(!Array.isArray(a)||a.length!==2) return false;
+  for(var i=0;i<2;i++) if(a[i]!==null&&!isNum(a[i])) return false;
+  return a;
+}
+function ext3(o,n){
+  // schema 3 additions (ae, f1, drop, dmg) of sample and event lines; all optional so schema 1 and 2 lines still parse
+  var ae=pair(o.ae), f1=pair(o.f1), dr=pair(o.drop);
+  if(ae===false||f1===false||dr===false) return false;
+  if(o.dmg!==undefined&&o.dmg!==0&&o.dmg!==1) return false;
+  if(ae){n.ae1=ae[0];n.ae2=ae[1]}
+  if(f1){n.f1a=f1[0];n.f1b=f1[1]}
+  if(dr){n.dr1=dr[0];n.dr2=dr[1]}
+  if(o.dmg!==undefined) n.dmg=o.dmg;
+  n.has3=!!(ae||f1||dr||o.dmg!==undefined);
+  return true;
 }
 function cnOf(o,n){
   // commission_n: optional [n1,n2] of counts; null for schema 1
@@ -450,8 +859,10 @@ function parseLine(line,live){
       S.meta={schema:o.schema,source:typeof o.source==="string"?o.source:null,rule:o.rule,T:isNum(o.T)?o.T:null,
         commission_windows:isCount(o.commission_windows)&&o.commission_windows>0?o.commission_windows:20,
         status_every_sf:o.status_every_sf,superframe_s:isNum(o.superframe_s)&&o.superframe_s>0?o.superframe_s:1.4,
-        floors:fl,epoch:isNum(o.epoch)?o.epoch:null,samples:o.samples===true};
-      if(o.schema<1||o.schema>SCHEMA_MAX) warn("schema","Log schema is "+o.schema+" but this dashboard understands schemas 1 to 3 (schema 3 only adds fields and the damage line, which this version does not draw yet). Values may be wrong or missing.");
+        floors:fl,epoch:isNum(o.epoch)?o.epoch:null,samples:o.samples===true,
+        T_ae:isNum(o.T_ae)?o.T_ae:null,gate:isNum(o.gate)?o.gate:null,dmg_delta:isNum(o.dmg_delta)?o.dmg_delta:null,dmg_p:isCount(o.dmg_p)?o.dmg_p:null,
+        debounce:isCount(o.debounce)?o.debounce:null};
+      if(o.schema<1||o.schema>SCHEMA_MAX) warn("schema","Log schema is "+o.schema+" but this dashboard understands schemas 1 to 3. Values may be wrong or missing.");
       $("simFlag").hidden=!(S.meta.source==="netsim");
       if(live) S.raw.push(line);
       return "meta";
@@ -481,6 +892,19 @@ function parseLine(line,live){
       S.stats.nodes++;
       if(live) S.raw.push(line);
       touch(tn,live); return "event";
+    }
+    if(o.type==="damage"){
+      // schema 3: {"type":"damage","t_us","sf","state":"BEGIN"|"END"|"BASELINE","drop","f1":[a,b],"f1_0":[a,b]} (+ "slave" for BASELINE)
+      if(!isNum(o.t_us)||o.t_us<0||!isCount(o.sf)||(o.state!=="BEGIN"&&o.state!=="END"&&o.state!=="BASELINE")) return "bad";
+      var df=pair(o.f1), d0=pair(o.f1_0); if(df===false||d0===false) return "bad";
+      if(o.drop!==null&&o.drop!==undefined&&!isNum(o.drop)) return "bad";
+      if(o.state==="BASELINE"&&o.slave!==1&&o.slave!==2) return "bad";
+      if(S.dl.length>=LIVE_CAP){S.stats.capped++;return "ignored"}
+      var td=o.t_us+S.tOff;
+      S.dl.push({t:td,sf:o.sf,state:o.state,drop:isNum(o.drop)?o.drop:null,f1:df||[null,null],f0:d0||[null,null],slave:o.state==="BASELINE"?o.slave:0});
+      S.stats.damage++;
+      if(live) S.raw.push(line);
+      touch(td,live); return "event";
     }
     if(o.type==="restart"){
       if(!isNum(o.t_us)||o.t_us<0) return "bad";
@@ -541,7 +965,18 @@ function addEvent(e){
   if(!sg.length||sg[sg.length-1].key!==kk) sg.push({key:kk,t:e.t,cls:e.cls,slave:e.slave,deg:e.deg});
 }
 function addSample(m){
+  // derived schema-3 fields, cumulative over the samples before this one (same result for replay, live and a re-sort rebuild)
+  var pv=S.sm.length?S.sm[S.sm.length-1]:null, dl=S.meta&&S.meta.dmg_delta!==null?S.meta.dmg_delta:null;
+  var d1=m.dr1, d2=m.dr2, pd=null;
+  if(d1!==null&&d2!==null) pd=(d1+d2)/2; else if(d1!==null) pd=d1; else if(d2!==null) pd=d2;
+  m.pd=pd;
+  m.cm1=(pv&&pv.cm1)||d1!==null; m.cm2=(pv&&pv.cm2)||d2!==null;
+  m.f01=(m.f1a!==null&&d1!==null&&d1<1)?m.f1a/(1-d1):null; m.f02=(m.f1b!==null&&d2!==null&&d2<1)?m.f1b/(1-d2):null;
+  m.f0k1=m.f01!==null?m.f01:(pv?pv.f0k1:null); m.f0k2=m.f02!==null?m.f02:(pv?pv.f0k2:null);
+  m.run=(pd===null||dl===null)?(pv?pv.run:0):(pd>=dl?(pv?pv.run:0)+1:0);
   S.sm.push(m); S.smT.push(m.t);
+  if(m.ae1!==null&&m.ae1>S.aemax)S.aemax=m.ae1;
+  if(m.ae2!==null&&m.ae2>S.aemax)S.aemax=m.ae2;
   if(S.monStart===null&&m.cls!==0)S.monStart=m.t;
   if(m.r1!==null&&m.r1>S.rmax)S.rmax=m.r1;
   if(m.r2!==null&&m.r2>S.rmax)S.rmax=m.r2;
@@ -552,7 +987,7 @@ function showMsgs(){
   Object.keys(S.warns).forEach(function(k){h+='<div class="warn">'+esc(S.warns[k])+'</div>'});
   var s=S.stats;
   if(S.mode!=="none"){
-    h+='<div class="na" style="font-size:.85rem;margin-top:4px">Lines read: '+s.ok+' valid ('+S.ev.length+' events, '+s.samples+' samples, '+s.restarts+' restarts, '+s.nodes+' sensor health changes), '+s.bad+' malformed (skipped), '+s.ignored+' ignored (other types, R/S/E/# lines)'+(S.mode==="live"?', '+s.other+(S.kind==="mqtt"?' other messages':' other serial lines'):'')+(s.outOfOrder?'; '+s.outOfOrder+' out of time order (re-sorted)':'')+(s.capped?'; '+s.capped+' dropped (buffer full)':'')+'.</div>';
+    h+='<div class="na" style="font-size:.85rem;margin-top:4px">Lines read: '+s.ok+' valid ('+S.ev.length+' events, '+s.samples+' samples, '+s.restarts+' restarts, '+s.nodes+' sensor health changes'+(s.damage?', '+s.damage+' damage lines':'')+'), '+s.bad+' malformed (skipped), '+s.ignored+' ignored (other types, R/S/E/# lines)'+(S.mode==="live"?', '+s.other+(S.kind==="mqtt"?' other messages':' other serial lines'):'')+(s.outOfOrder?'; '+s.outOfOrder+' out of time order (re-sorted)':'')+(s.capped?'; '+s.capped+' dropped (buffer full)':'')+'.</div>';
   }
   box.innerHTML=h;
 }
@@ -572,6 +1007,7 @@ function finalise(){
     warn("order","The log was not in time order; lines were re-sorted by t_us.");
   }
   S.nl.sort(function(a,b){return a.t-b.t});
+  S.dl.sort(function(a,b){return a.t-b.t});
   if(!S.meta) warn("meta","No meta line found: the threshold T and the floor numbers are unknown and no schema check was possible.");
   if(!S.ev.length&&!S.sm.length) warn("empty","No valid events found in this input.");
   if(S.rebased) warn("rebase","The master clock restarted at 0 "+S.rebased+" time(s) (reboot); the timeline continues after the last line before each restart, so gaps are not shown.");
@@ -579,7 +1015,7 @@ function finalise(){
 }
 function resetDerived(){
   var f=fresh(); ["ev","ts","hist","segs","cL1","cL2","cB","lastEntry","lastChg","lastAlive1","lastAlive2","sm","smT"].forEach(function(k){S[k]=f[k]});
-  S.prevKey=-1;S.monStart=null;S.rmax=0;
+  S.prevKey=-1;S.monStart=null;S.rmax=0;S.aemax=0;
 }
 function updateRange(){
   var a=[],b=[];
@@ -587,6 +1023,7 @@ function updateRange(){
   if(S.sm.length){a.push(S.sm[0].t);b.push(S.sm[S.sm.length-1].t)}
   if(S.rs.length){a.push(S.rs[0].t);b.push(S.rs[S.rs.length-1].t)}
   if(S.nl.length){a.push(S.nl[0].t);b.push(S.nl[S.nl.length-1].t)}
+  if(S.dl.length){a.push(S.dl[0].t);b.push(S.dl[S.dl.length-1].t)}
   if(!a.length){S.t0=0;S.tEnd=0;return}
   S.t0=Math.min.apply(null,a);
   S.tEnd=Math.max.apply(null,b)+2*sfus();
@@ -630,20 +1067,42 @@ function loadFile(f){
   f.text().then(function(t){ loadText(t,f.name,false) },function(e){ startSource("none","error",false); warn("read","Could not read the file: "+e) });
 }
 var SIM_URL="demo_events_sim.jsonl";
-async function loadSim(){
-  var text;
+function embeddedSim(){ var e=document.getElementById("sim-data"); return e?e.textContent.replace(/^\n/,""):"" }
+/* Plays a bundled/served log. The page's own folder is tried first; for the bundled simulated log the copy embedded in this page is the
+   fallback (a file:// page cannot fetch other files in Chrome). opts: {speed, at, play} from the ?replay= link. */
+async function loadSim(opts){
+  opts=opts||{};
+  var name=opts.url||SIM_URL, text="", how="";
   try{
-    var r=await fetch(SIM_URL,{cache:"no-store"});
+    var r=await fetch(name,{cache:"no-store"});
     if(!r.ok) throw new Error("HTTP "+r.status);
-    text=await r.text();
+    text=await r.text(); how=name;
   }catch(e){
-    var fileUrl=(location.protocol==="file:");
-    warn("sim",(fileUrl?"This page is opened from disk (file://) and the browser does not let it read other files, so "+SIM_URL+" could not be loaded automatically. ":"Could not fetch "+SIM_URL+" ("+(e&&e.message||e)+"). ")+
-      "Choose "+SIM_URL+" (it is in the same folder as this page, dashboard/) in the file picker, or drop it on the page.");
-    try{ $("file").click() }catch(_){}
-    return;
+    if(name===SIM_URL&&embeddedSim()){ text=embeddedSim(); how=SIM_URL+" (copy embedded in this page)"; }
+    else {
+      var fileUrl=(location.protocol==="file:");
+      warn("sim",(fileUrl?"This page is opened from disk (file://) and the browser does not let it read other files, so "+name+" could not be loaded automatically. ":"Could not fetch "+name+" ("+(e&&e.message||e)+"). ")+
+        "Serve the folder (python -m http.server in dashboard/) or choose the file in the file picker, or drop it on the page.");
+      try{ $("file").click() }catch(_){}
+      return;
+    }
   }
-  return loadText(text,"Simulated log ("+SIM_URL+")",false);
+  await loadText(text,"Simulated log ("+how+")",false);
+  if(opts.speed){ setSpeed(opts.speed) }
+  if(opts.at!==undefined){ seekTo(opts.at) }
+  togglePlay(opts.play!==false&&opts.at===undefined?true:!!opts.play);
+}
+function setSpeed(v){
+  var sel=$("speed"), has=false; for(var i=0;i<sel.options.length;i++) if(+sel.options[i].value===v) has=true;
+  if(!has){ var o=document.createElement("option"); o.value=String(v); o.textContent=v+"x"; sel.appendChild(o) }
+  sel.value=String(v); S.speed=v;
+}
+function seekTo(at){ // "end" | seconds into the log | "sf<N>"
+  var t;
+  if(at==="end") t=S.tEnd;
+  else if(/^sf\d+$/.test(at)){ var want=+at.slice(2), best=null; for(var i=0;i<S.sm.length;i++) if(S.sm[i].sf>=want){best=S.sm[i];break} t=best?best.t:S.tEnd }
+  else t=S.t0+(+at)*1e6;
+  setPlayhead(t);
 }
 
 /* ---------- live (Web Serial) ---------- */
@@ -710,7 +1169,7 @@ function mqMasterEval(my){
   var stale=st.state==="offline"&&isNum(st.epoch)&&my.meta&&isNum(my.meta.epoch)&&st.epoch!==my.meta.epoch;
   if(!stale) my.mqMaster=st.state; else if(my.mqMaster==="offline") my.mqMaster="";
 }
-function mqRank(o){ switch(o.type){case "meta":return -1;case "restart":return 0;case "node":return 1;case "sample":return 2;default:return 3} }
+function mqRank(o){ switch(o.type){case "meta":return -1;case "restart":return 0;case "node":return 1;case "sample":return 2;case "damage":return 2.5;default:return 3} }
 function mqFeed(my,text,retained){
   if(S!==my) return;
   S.feedRetained=!!retained;
@@ -726,6 +1185,7 @@ function liveResort(){
   var ev=S.ev, sm=S.sm, n=ev.length, m=sm.length;
   var bad=(n>1&&ev[n-1].t<ev[n-2].t)||(m>1&&sm[m-1].t<sm[m-2].t);
   if(S.nl.length>1&&S.nl[S.nl.length-1].t<S.nl[S.nl.length-2].t) S.nl.sort(function(a,b){return a.t-b.t});
+  if(S.dl.length>1&&S.dl[S.dl.length-1].t<S.dl[S.dl.length-2].t) S.dl.sort(function(a,b){return a.t-b.t});
   if(!bad) return;
   S.stats.outOfOrder++;
   var e2=ev.slice().sort(function(a,b){return a.t-b.t}), s2=sm.slice().sort(function(a,b){return a.t-b.t});
@@ -932,11 +1392,33 @@ function stateText(e){
    Baselines come from the latest event, which is the only line that carries them. */
 function view(k,ks){
   var e=k?S.ev[k-1]:null, s=ks?S.sm[ks-1]:null;
-  if(s) return {src:"sample",t:s.t,sf:s.sf,cls:s.cls,slave:s.slave,deg:s.deg,r1:s.r1,r2:s.r2,a1:s.a1,a2:s.a2,
+  var x3=function(q){return {ae1:q.ae1,ae2:q.ae2,f1a:q.f1a,f1b:q.f1b,dr1:q.dr1,dr2:q.dr2,dmg:q.dmg,has3:q.has3,pd:pooledOf(q),
+    run:q.run===undefined?null:q.run,cm1:q.cm1===undefined?null:q.cm1,cm2:q.cm2===undefined?null:q.cm2}};
+  var o;
+  if(s) o={src:"sample",t:s.t,sf:s.sf,cls:s.cls,slave:s.slave,deg:s.deg,r1:s.r1,r2:s.r2,a1:s.a1,a2:s.a2,
     age1:s.age1,age2:s.age2,cn1:s.cn1,cn2:s.cn2,b1:e?e.b1:0,b2:e?e.b2:0,hasBase:!!e,ev:e};
-  if(!e) return null;
-  return {src:"event",t:e.t,sf:e.sf,cls:e.cls,slave:e.slave,deg:e.deg,r1:e.r1,r2:e.r2,a1:e.a1,a2:e.a2,
+  else if(e) o={src:"event",t:e.t,sf:e.sf,cls:e.cls,slave:e.slave,deg:e.deg,r1:e.r1,r2:e.r2,a1:e.a1,a2:e.a2,
     age1:undefined,age2:undefined,cn1:e.cn1,cn2:e.cn2,b1:e.b1,b2:e.b2,hasBase:true,ev:e};
+  else return null;
+  var q=x3(s||e); for(var kk in q) o[kk]=q[kk];
+  return o;
+}
+function pooledOf(q){
+  if(q.pd!==undefined) return q.pd;
+  var d1=q.dr1,d2=q.dr2;
+  if(d1!==null&&d1!==undefined&&d2!==null&&d2!==undefined) return (d1+d2)/2;
+  if(d1!==null&&d1!==undefined) return d1;
+  if(d2!==null&&d2!==undefined) return d2;
+  return null;
+}
+function f0Of(q,i){ // commissioned f1 of sensor i (1|2) derived like the master does: f1 / (1 - drop)
+  var f=i===1?q.f1a:q.f1b, d=i===1?q.dr1:q.dr2;
+  return (f!==null&&f!==undefined&&d!==null&&d!==undefined&&d<1)?f/(1-d):null;
+}
+function dmgActiveAt(t){ // from the damage lines alone (logs without sample dmg flags)
+  var a=false;
+  for(var i=0;i<S.dl.length&&S.dl[i].t<=t;i++){ if(S.dl[i].state==="BEGIN")a=true; else if(S.dl[i].state==="END")a=false }
+  return a;
 }
 
 /* Immediate health from `node` lines: a slave's DEAD / ALIVE change is shown at once, not at the next sample (which can carry it a
@@ -969,7 +1451,7 @@ var CSS;
 function readColors(){
   var cs=getComputedStyle(document.documentElement), g=function(n){return cs.getPropertyValue(n).trim()};
   CSS={comm:g("--comm"),ambient:g("--ambient"),local:g("--local"),building:g("--building"),nodata:g("--nodata"),
-    text:g("--text"),muted:g("--muted"),line:g("--line"),card:g("--card"),r1:g("--r1"),r2:g("--r2")};
+    text:g("--text"),muted:g("--muted"),line:g("--line"),card:g("--card"),r1:g("--r1"),r2:g("--r2"),dmg:g("--dmg")};
   patCache={};
 }
 var patCache={};
@@ -1136,7 +1618,7 @@ function renderHist(k,now){
     if(j+1<n) dur=(S.ts[hs[j+1]]-e.t)/1e6; else {dur=(cur-e.t)/1e6; ongoing=true}
     var fl=floors();
     var where=e.cls===2?(fl?("floor "+fl[e.slave-1]):("sensor "+e.slave)):(e.cls===3?"both":"&ndash;");
-    rows.push({t:e.t,o:1,h:'<tr><td>'+(S.mode==="replay"?'<button type="button" data-t="'+e.t+'" aria-label="Jump to '+fmtRel(e.t)+'">'+fmtRel(e.t)+'</button>':fmtRel(e.t))+'</td><td>'+e.sf+'</td><td>'+e.type+'</td><td>'+GLYPH[e.cls]+' '+esc(stateText(e))+(e.deg?' (degraded)':'')+'</td><td>'+where+'</td><td>'+fmtR(e.r1)+'</td><td>'+fmtR(e.r2)+'</td><td>'+fmtDur(dur)+(ongoing?' (ongoing)':'')+'</td></tr>'});
+    rows.push({t:e.t,o:1,h:'<tr><td>'+(S.mode==="replay"?'<button type="button" data-t="'+e.t+'" aria-label="Jump to '+fmtRel(e.t)+'">'+fmtRel(e.t)+'</button>':fmtRel(e.t))+'</td><td>'+e.sf+'</td><td>'+e.type+'</td><td>'+GLYPH[e.cls]+' '+esc(stateText(e))+(e.deg?' (degraded)':'')+'</td><td>'+where+'</td><td>'+detectorHtml(e)+'</td><td>'+fmtR(e.r1)+'</td><td>'+fmtR(e.r2)+'</td><td>'+fmtAe(e.ae1)+'</td><td>'+fmtAe(e.ae2)+'</td><td>'+fmtDur(dur)+(ongoing?' (ongoing)':'')+'</td></tr>'});
   }
   // sensor health changes (node lines) up to the playhead, merged by time; a node line sorts before the event of the same instant
   var nn=nodeAt(cur)+1, nstart=Math.max(0,nn-200);
@@ -1145,11 +1627,11 @@ function renderHist(k,now){
     for(var z=q+1;z<nn;z++) if(S.nl[z].slave===nd.slave){dur2=(S.nl[z].t-nd.t)/1e6; ong=false; break}
     if(dur2===null) dur2=(cur-nd.t)/1e6;
     var lbl=fl2?("floor "+fl2[nd.slave-1]):("sensor "+nd.slave);
-    rows.push({t:nd.t,o:0,h:'<tr><td>'+(S.mode==="replay"?'<button type="button" data-t="'+nd.t+'" aria-label="Jump to '+fmtRel(nd.t)+'">'+fmtRel(nd.t)+'</button>':fmtRel(nd.t))+'</td><td>'+nd.sf+'</td><td>node</td><td>'+(nd.alive?'✔ Sensor '+nd.slave+' alive again':'✖ Sensor '+nd.slave+' offline')+'</td><td>'+lbl+'</td><td>&ndash;</td><td>&ndash;</td><td>'+(nd.alive?'&ndash;':fmtDur(dur2)+(ong?' (ongoing)':''))+'</td></tr>'});
+    rows.push({t:nd.t,o:0,h:'<tr><td>'+(S.mode==="replay"?'<button type="button" data-t="'+nd.t+'" aria-label="Jump to '+fmtRel(nd.t)+'">'+fmtRel(nd.t)+'</button>':fmtRel(nd.t))+'</td><td>'+nd.sf+'</td><td>node</td><td>'+(nd.alive?'✔ Sensor '+nd.slave+' alive again':'✖ Sensor '+nd.slave+' offline')+'</td><td>'+lbl+'</td><td>&ndash;</td><td>&ndash;</td><td>&ndash;</td><td>&ndash;</td><td>&ndash;</td><td>'+(nd.alive?'&ndash;':fmtDur(dur2)+(ong?' (ongoing)':''))+'</td></tr>'});
   }
   rows.sort(function(a,b){return b.t-a.t||a.o-b.o});
   var h=rows.slice(0,200).map(function(r){return r.h}).join("");
-  $("hist").innerHTML=h||'<tr><td colspan="8" class="na">No begin/change events yet.</td></tr>';
+  $("hist").innerHTML=h||'<tr><td colspan="11" class="na">No begin/change events yet.</td></tr>';
   var nodeTxt=nn?(", "+nn+" sensor health change"+(nn===1?"":"s")):"";
   $("histNote").textContent=(n>200?("Showing the latest 200 of "+n+" begin/change events"):(n?n+" begin/change events":"No begin/change events"))+nodeTxt+" (periodic status lines are not listed).";
 }
@@ -1158,21 +1640,22 @@ function renderTimeline(k){
   var sg=S.segs, span=Math.max(1,S.mode==="live"?curTime()-S.t0:S.tEnd-S.t0);
   if(!sg.length){ctx.fillStyle=CSS.muted;ctx.font="13px system-ui";ctx.fillText("No data",8,20);return}
   var xs=function(t){return (t-S.t0)/span*W};
-  var tEnd=S.mode==="live"?curTime():S.tEnd, rowH=H-22, barY=0;
+  var tEnd=S.mode==="live"?curTime():S.tEnd, rowH=H-34, barY=0;
   for(var i=0;i<sg.length;i++){
     var s=sg[i], x0=xs(s.t), x1=xs(i+1<sg.length?sg[i+1].t:tEnd), w=Math.max(1,x1-x0);
     ctx.fillStyle=segPattern(ctx,s); ctx.fillRect(x0,barY,w,rowH);
     ctx.fillStyle=CSS.text; ctx.fillRect(x0,barY,1,rowH);
     if(w>22){ctx.fillStyle=CSS.text;ctx.font="bold 13px system-ui";
       var lab2=s.cls===2?"▲"+s.slave:GLYPH[s.cls]; ctx.fillStyle=CSS.card; ctx.fillRect(x0+2,barY+2,ctx.measureText(lab2).width+6,18); ctx.fillStyle=CSS.text; ctx.fillText(lab2,x0+5,barY+16);}
-    if(s.deg){ctx.fillStyle=pattern(ctx,"fwd",CSS.text);ctx.fillRect(x0,rowH+4,w,8)}
+    if(s.deg){ctx.fillStyle=pattern(ctx,"fwd",CSS.text);ctx.fillRect(x0,rowH+4,w,6)}
   }
+  dmgIntervals(tEnd).forEach(function(iv){ var x0=xs(iv[0]),x1=xs(iv[1]); ctx.fillStyle=CSS.dmg; ctx.fillRect(x0,rowH+12,Math.max(2,x1-x0),9); ctx.fillStyle=CSS.card; ctx.font="bold 9px system-ui"; if(x1-x0>60) ctx.fillText("DAMAGE",x0+4,rowH+20) });
   ctx.strokeStyle=CSS.text;ctx.lineWidth=1;ctx.strokeRect(.5,.5,W-1,rowH);
   // master restarts: thick vertical line with an R
   for(var q=0;q<S.rs.length;q++){ if(S.rs[q].first) continue; var rx=xs(S.rs[q].t);
     ctx.fillStyle=CSS.text;ctx.fillRect(rx-1.5,0,3,rowH+2);
     ctx.fillStyle=CSS.card;ctx.fillRect(rx+3,rowH-17,14,15);ctx.fillStyle=CSS.text;ctx.font="bold 12px system-ui";ctx.fillText("R",rx+6,rowH-5);}
-  ctx.fillStyle=CSS.muted;ctx.font="11px system-ui";ctx.fillText("degraded (one sensor offline) = striped bar; R = master restart",4,H-1);
+  ctx.fillStyle=CSS.muted;ctx.font="11px system-ui";ctx.fillText("degraded (one sensor offline) = striped bar; red bar = DAMAGE alarm; R = master restart",4,H-1);
   if(S.mode==="replay"){
     var px=xs(S.playhead);
     ctx.fillStyle="rgba(128,128,128,.35)"; ctx.fillRect(px,0,W-px,rowH);
@@ -1184,58 +1667,215 @@ function chartSrc(){
   var useS=S.sm.length>0, live=S.mode==="live";
   return {arr:useS?S.sm:S.ev, ts:useS?S.smT:S.ts, k:useS?(live?S.sm.length:S.ks):(live?S.ev.length:S.k), what:useS?"sample":"event"};
 }
-function renderChart(){
+function niceTicks(lo,hi,n){
+  var raw=(hi-lo)/n, mag=Math.pow(10,Math.floor(Math.log(raw)/Math.LN10)), f=raw/mag, st=(f<=1?1:f<=2?2:f<=5?5:10)*mag, a=Math.ceil(lo/st-1e-9)*st, out=[];
+  for(var v=a;v<=hi+1e-9&&out.length<40;v+=st) out.push(Math.round(v/st)*st);
+  return out;
+}
+function fmtTick(v,st){ return st>=1?String(Math.round(v)):v.toFixed(st>=.1?1:2) }
+/* generic time-series chart on one canvas.
+   o: {ymin,ymax,ticks[],tickText(v),series:[{get(e)->number|null,col,sq}],hl:[{v,col,label,dash}],bands:[{lo,hi,col,t0}],lines:[{v,col,t0}],
+       legend:[{col,sq,text}],empty:text,aria} */
+function drawChart(id,o){
   var cs=chartSrc(), arr=cs.arr, tsA=cs.ts, k=cs.k;
-  var c=$("chart"), o=setupCanvas(c), ctx=o.ctx, W=o.w, H=o.h, L=44, R=10, Tp=10, B=26;
-  var pw=W-L-R, ph=H-Tp-B, T=S.meta&&S.meta.T!==null?S.meta.T:null;
+  var c=$(id), cc=setupCanvas(c), ctx=cc.ctx, W=cc.w, H=cc.h, L=44, R=10, Tp=10, B=26;
+  var pw=W-L-R, ph=H-Tp-B;
   var span=Math.max(1,S.mode==="live"?curTime()-S.t0:S.tEnd-S.t0);
-  var ymax=Math.max(T!==null?T*1.5:2,S.rmax*1.1,2);
-  var xs=function(t){return L+(t-S.t0)/span*pw}, ys=function(v){return Tp+ph-Math.min(v,ymax)/ymax*ph};
+  if(o.empty){ ctx.fillStyle=CSS.muted;ctx.font="13px system-ui";ctx.fillText(o.empty,L+6,Tp+24); c.setAttribute("aria-label",o.aria+" (no data)"); return }
+  var ymin=o.ymin, ymax=o.ymax;
+  var xs=function(t){return L+(t-S.t0)/span*pw}, ys=function(v){return Tp+ph-(Math.min(Math.max(v,ymin),ymax)-ymin)/(ymax-ymin)*ph};
   ctx.font="11px system-ui";ctx.lineWidth=1;
-  var step=ymax>20?5:ymax>10?2:1;
-  for(var v=0;v<=ymax;v+=step){ctx.strokeStyle=CSS.line;ctx.beginPath();ctx.moveTo(L,ys(v)+.5);ctx.lineTo(W-R,ys(v)+.5);ctx.stroke();ctx.fillStyle=CSS.muted;ctx.textAlign="right";ctx.fillText(String(v),L-5,ys(v)+4)}
+  for(var q0=0;q0<o.ticks.length;q0++){var v0=o.ticks[q0];ctx.strokeStyle=CSS.line;ctx.beginPath();ctx.moveTo(L,ys(v0)+.5);ctx.lineTo(W-R,ys(v0)+.5);ctx.stroke();ctx.fillStyle=CSS.muted;ctx.textAlign="right";ctx.fillText(o.tickText(v0),L-5,ys(v0)+4)}
   ctx.textAlign="center";
   var nt=Math.max(2,Math.min(8,Math.floor(pw/90)));
   for(var q=0;q<=nt;q++){var tt=S.t0+span*q/nt;ctx.fillStyle=CSS.muted;ctx.fillText(fmtDur((tt-S.t0)/1e6),xs(tt),H-8)}
   ctx.textAlign="left";
+  // DAMAGE periods as a faint red column
+  dmgIntervals(S.mode==="live"?curTime():S.tEnd).forEach(function(iv){ var x0=xs(iv[0]),x1=xs(iv[1]); ctx.fillStyle=CSS.dmg; ctx.globalAlpha=.10; ctx.fillRect(x0,Tp,Math.max(1,x1-x0),ph); ctx.globalAlpha=1 });
+  (o.bands||[]).forEach(function(b){ var x0=xs(b.t0); ctx.fillStyle=b.col; ctx.globalAlpha=.16; ctx.fillRect(x0,ys(b.hi),W-R-x0,Math.max(1,ys(b.lo)-ys(b.hi))); ctx.globalAlpha=1 });
   for(var z=0;z<S.rs.length;z++){ if(S.rs[z].first) continue; var zx=xs(S.rs[z].t); ctx.strokeStyle=CSS.text;ctx.lineWidth=1;ctx.setLineDash([2,3]);ctx.beginPath();ctx.moveTo(zx+.5,Tp);ctx.lineTo(zx+.5,Tp+ph);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=CSS.text;ctx.fillText("restart",zx+3,Tp+ph-4)}
-  if(T!==null){
-    ctx.strokeStyle=CSS.building;ctx.lineWidth=2;ctx.setLineDash([7,4]);ctx.beginPath();ctx.moveTo(L,ys(T));ctx.lineTo(W-R,ys(T));ctx.stroke();ctx.setLineDash([]);
-    ctx.fillStyle=CSS.building;ctx.font="bold 11px system-ui";ctx.fillText("event threshold T = "+T,L+6,ys(T)-4);
-  } else { ctx.fillStyle=CSS.muted;ctx.fillText("threshold T not available (no meta line)",L+6,Tp+12) }
-  [["r1",CSS.r1,false],["r2",CSS.r2,true]].forEach(function(sr){
-    var key=sr[0],col=sr[1],sq=sr[2];
+  (o.lines||[]).forEach(function(l){ ctx.strokeStyle=l.col;ctx.lineWidth=1.5;ctx.setLineDash([2,3]);ctx.beginPath();ctx.moveTo(xs(l.t0),ys(l.v)+.5);ctx.lineTo(W-R,ys(l.v)+.5);ctx.stroke();ctx.setLineDash([]) });
+  (o.hl||[]).forEach(function(h){
+    ctx.strokeStyle=h.col;ctx.lineWidth=2;ctx.setLineDash(h.dash||[7,4]);ctx.beginPath();ctx.moveTo(L,ys(h.v));ctx.lineTo(W-R,ys(h.v));ctx.stroke();ctx.setLineDash([]);
+    if(h.label){ctx.fillStyle=h.col;ctx.font="bold 11px system-ui";ctx.fillText(h.label,L+6,ys(h.v)-4)}
+  });
+  (o.series||[]).forEach(function(sr){
+    var col=sr.col,sq=sr.sq;
     ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=2;
     if(sq)ctx.setLineDash([6,3]);
     var dense=k>pw*2, i, r, x, y;
     if(!dense){
       var gap=sfus()*2.5;   // a hole longer than this is not joined (sensor offline, master restart)
       ctx.beginPath();var pen=false, lastX=null;
-      for(i=0;i<k;i++){r=arr[i][key];if(r===null){pen=false;continue}
+      for(i=0;i<k;i++){r=sr.get(arr[i]);if(r===null){pen=false;continue}
         x=xs(tsA[i]);y=ys(r); if(pen&&lastX!==null&&tsA[i]-lastX<=gap)ctx.lineTo(x,y);else{ctx.moveTo(x,y);pen=true} lastX=tsA[i]}
       ctx.stroke();ctx.setLineDash([]);
       var mk=k>400?0:1;   // point markers only while they are not a smear
-      if(cs.what==="event"||mk) for(i=0;i<k;i++){r=arr[i][key];if(r===null)continue;x=xs(tsA[i]);y=ys(r);
+      if(cs.what==="event"||mk) for(i=0;i<k;i++){r=sr.get(arr[i]);if(r===null)continue;x=xs(tsA[i]);y=ys(r);
         if(sq)ctx.fillRect(x-3,y-3,6,6);else{ctx.beginPath();ctx.arc(x,y,3.2,0,7);ctx.fill()}}
     } else {
       ctx.setLineDash([]);var cx=-1,mn=0,mx=0;
       var flush=function(){if(cx>=0){ctx.beginPath();ctx.moveTo(cx+.5,ys(mn));ctx.lineTo(cx+.5,ys(mx)-(mx===mn?1:0));ctx.stroke()}};
-      for(i=0;i<k;i++){r=arr[i][key];if(r===null)continue;var px2=Math.floor(xs(tsA[i]));
+      for(i=0;i<k;i++){r=sr.get(arr[i]);if(r===null)continue;var px2=Math.floor(xs(tsA[i]));
         if(px2!==cx){flush();cx=px2;mn=mx=r}else{if(r<mn)mn=r;if(r>mx)mx=r}}
       flush();
     }
     ctx.setLineDash([]);
   });
-  // legend
-  ctx.font="12px system-ui";var lx=W-R-230;
-  ctx.fillStyle=CSS.card;ctx.fillRect(lx-4,Tp,230,18);
-  ctx.strokeStyle=CSS.r1;ctx.fillStyle=CSS.r1;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(lx,Tp+9);ctx.lineTo(lx+18,Tp+9);ctx.stroke();ctx.beginPath();ctx.arc(lx+9,Tp+9,3.2,0,7);ctx.fill();
-  ctx.fillText("r1 "+lab(1),lx+24,Tp+13);
-  ctx.strokeStyle=CSS.r2;ctx.fillStyle=CSS.r2;ctx.setLineDash([6,3]);ctx.beginPath();ctx.moveTo(lx+112,Tp+9);ctx.lineTo(lx+130,Tp+9);ctx.stroke();ctx.setLineDash([]);ctx.fillRect(lx+118,Tp+6,6,6);
-  ctx.fillText("r2 "+lab(2),lx+136,Tp+13);
+  // legend (top right)
+  ctx.font="12px system-ui";
+  var lg=o.legend||[], tw=0, wd=lg.map(function(l){var w=ctx.measureText(l.text).width+34;tw+=w;return w}), lx=W-R-tw;
+  ctx.fillStyle=CSS.card;ctx.fillRect(lx-4,Tp,tw+4,18);
+  lg.forEach(function(l,ix){
+    ctx.strokeStyle=l.col;ctx.fillStyle=l.col;ctx.lineWidth=2;
+    if(l.sq)ctx.setLineDash([6,3]);
+    ctx.beginPath();ctx.moveTo(lx,Tp+9);ctx.lineTo(lx+18,Tp+9);ctx.stroke();ctx.setLineDash([]);
+    if(l.sq)ctx.fillRect(lx+6,Tp+6,6,6);else{ctx.beginPath();ctx.arc(lx+9,Tp+9,3.2,0,7);ctx.fill()}
+    ctx.fillStyle=CSS.text;ctx.fillText(l.text,lx+24,Tp+13);
+    lx+=wd[ix];
+  });
   if(S.mode==="replay"){var px=xs(S.playhead);ctx.fillStyle=CSS.text;ctx.fillRect(px-1,Tp,2,ph)}
-  c.setAttribute("aria-label","Chart of r1 and r2 over time with threshold "+(T!==null?T:"unknown")+". "+k+" "+cs.what+" lines shown.");
+  c.setAttribute("aria-label",o.aria+". "+k+" "+cs.what+" lines shown.");
 }
+function dmgIntervals(tEnd){
+  var out=[], st=null;
+  for(var i=0;i<S.dl.length;i++){
+    var d=S.dl[i];
+    if(d.state==="BEGIN"){ if(st===null) st=d.t }
+    else if(d.state==="END"){ if(st!==null){out.push([st,d.t]);st=null} }
+  }
+  if(st!==null) out.push([st,Math.max(st,tEnd)]);
+  return out;
+}
+function renderChart(){
+  var T=S.meta&&S.meta.T!==null?S.meta.T:null;
+  var ymax=Math.max(T!==null?T*1.5:2,S.rmax*1.1,2), step=ymax>20?5:ymax>10?2:1, ticks=[];
+  for(var v=0;v<=ymax;v+=step) ticks.push(v);
+  drawChart("chart",{ymin:0,ymax:ymax,ticks:ticks,tickText:String,
+    series:[{get:function(e){return e.r1},col:CSS.r1,sq:false},{get:function(e){return e.r2},col:CSS.r2,sq:true}],
+    hl:T!==null?[{v:T,col:CSS.building,label:"std threshold T = "+T}]:[],
+    legend:[{col:CSS.r1,sq:false,text:"r1 "+lab(1)},{col:CSS.r2,sq:true,text:"r2 "+lab(2)}],
+    aria:"Chart of r1 and r2 over time with threshold "+(T!==null?T:"unknown")});
+  if(T===null){ var c=$("chart").getContext("2d"); c.fillStyle=CSS.muted;c.font="11px system-ui";c.fillText("threshold T not available (no meta line)",50,22) }
+}
+function has3(){ return !!(S.meta&&S.meta.schema>=3) || (S.sm.length>0&&S.sm[S.sm.length-1].has3) || (S.ev.length>0&&S.ev[S.ev.length-1].has3) }
+function renderAe(){
+  var m=S.meta, Tae=m&&m.T_ae!==null?m.T_ae:null;
+  var ac=$("aeCard"); ac.hidden=!has3();
+  if(ac.hidden) return;
+  var top=Tae!==null?Tae*6:20, ymax=Math.max(Tae!==null?Tae*2:4,Math.min(S.aemax*1.1,top)), ticks=niceTicks(0,ymax,5);
+  var clipped=S.aemax>ymax;
+  drawChart("aeChart",{ymin:0,ymax:ymax,ticks:ticks,tickText:String,
+    series:[{get:function(e){return e.ae1===undefined?null:e.ae1},col:CSS.r1,sq:false},{get:function(e){return e.ae2===undefined?null:e.ae2},col:CSS.r2,sq:true}],
+    hl:Tae!==null?[{v:Tae,col:CSS.building,label:"AE threshold T_ae = "+Tae}]:[],
+    legend:[{col:CSS.r1,sq:false,text:"AE1 "+lab(1)},{col:CSS.r2,sq:true,text:"AE2 "+lab(2)}],
+    aria:"Chart of the autoencoder ratio per sensor with threshold "+(Tae!==null?Tae:"unknown")});
+  $("aeInfo").textContent="AE ratio = reconstruction error of the int8 autoencoder on each sensor divided by its own commissioning level; an event if it reaches T_ae"+(Tae!==null?" = "+Tae:"")+". It catches what the std ratio misses: frequency shifts and sparse impacts. Shown clipped at "+(+ymax.toFixed(1))+(clipped?" (peak "+(+S.aemax.toFixed(1))+")":"")+". Not available during the first 20 windows (commissioning).";
+}
+function renderF1(){
+  var cs=chartSrc(), arr=cs.arr, k=cs.k, m=S.meta, delta=m&&m.dmg_delta!==null?m.dmg_delta:null;
+  var fc=$("f1Card"), dc=$("dropCard"); var show=has3()||S.dl.length>0; fc.hidden=dc.hidden=!show;
+  if(!show) return;
+  var lo=Infinity,hi=-Infinity,first=[null,null],last=[null,null],i,e,j,f,f0;
+  for(i=0;i<k;i++){ e=arr[i];
+    for(j=1;j<=2;j++){ f=j===1?e.f1a:e.f1b; if(f!==null&&f!==undefined){ if(f<lo)lo=f; if(f>hi)hi=f }
+      f0=f0Of(e,j); if(f0!==null){ if(first[j-1]===null)first[j-1]=e.t; last[j-1]=f0 } }
+  }
+  var cols=[CSS.r1,CSS.r2], bands=[], lines=[];
+  for(j=0;j<2;j++) if(last[j]!==null){
+    var dd=delta!==null?delta:0.02;
+    bands.push({lo:last[j]*(1-dd),hi:last[j]*(1+dd),col:cols[j],t0:first[j]});
+    lines.push({v:last[j],col:cols[j],t0:first[j]});
+    if(last[j]*(1-dd)<lo)lo=last[j]*(1-dd); if(last[j]*(1+dd)>hi)hi=last[j]*(1+dd);
+  }
+  var emp=(lo===Infinity)?"No f1 estimate yet (a sensor needs 32 windows, about 45 s, then ~96 windows to commission f1_0)":null;
+  var pad=(hi-lo)*.12||.1, ymin=lo-pad, ymax=hi+pad, tk=niceTicks(ymin,ymax,5), st=tk.length>1?tk[1]-tk[0]:1;
+  drawChart("f1Chart",{ymin:ymin,ymax:ymax,ticks:tk,tickText:function(v){return fmtTick(v,st)},bands:bands,lines:lines,empty:emp,
+    series:[{get:function(e){return e.f1a===undefined?null:e.f1a},col:CSS.r1,sq:false},{get:function(e){return e.f1b===undefined?null:e.f1b},col:CSS.r2,sq:true}],
+    legend:[{col:CSS.r1,sq:false,text:"f1 "+lab(1)+" (Hz)"},{col:CSS.r2,sq:true,text:"f1 "+lab(2)+" (Hz)"}],aria:"Chart of the first natural frequency per sensor in Hz"});
+  // pooled drop in percent
+  var dmin=0,dmax=Math.max(delta!==null?delta*250:5,2),have=false;
+  for(i=0;i<k;i++){ var p=pooledOf(arr[i]); if(p!==null){ have=true; if(p*100>dmax)dmax=p*100*1.1; if(p*100<dmin)dmin=p*100*1.2 } }
+  dmin=Math.min(dmin,-1);
+  var tk2=niceTicks(dmin,dmax,5), st2=tk2.length>1?tk2[1]-tk2[0]:1;
+  drawChart("dropChart",{ymin:dmin,ymax:dmax,ticks:tk2,tickText:function(v){return fmtTick(v,st2)+" %"},empty:have?null:"No pooled drop yet (needs a commissioned f1 on at least one sensor)",
+    series:[{get:function(e){var p=pooledOf(e);return p===null?null:p*100},col:CSS.dmg,sq:false}],
+    hl:(delta!==null?[{v:delta*100,col:CSS.dmg,label:"DAMAGE threshold "+(+(delta*100).toFixed(2))+" %",dash:[7,4]}]:[]).concat([{v:0,col:CSS.line,dash:[]}]),
+    legend:[{col:CSS.dmg,sq:false,text:"pooled drop"}],aria:"Chart of the pooled natural frequency drop in percent"});
+}
+/* ---------- schema 3 panels: system line, DAMAGE banner, DAMAGE history, detector tags ---------- */
+var F1_M=32, F1_C=64;   // slave f1 tracker constants (firmware: f1track.h F1T_M / F1T_C); not carried in the log
+function pct(x,d){ return (x*100).toFixed(d===undefined?1:d)+" %" }
+function hz(x){ return x===null||x===undefined?"–":x.toFixed(2) }
+function renderSys(){
+  var m=S.meta, el=$("sysLine");
+  if(!m){ el.textContent=""; return }
+  var h="";
+  if(m.rule==="f"&&m.T_ae!==null) h+='<b>Rule f</b>: event if std ratio r &ge; T=<b>'+m.T+'</b> OR TinyML AE ratio &ge; T_ae=<b>'+m.T_ae+'</b> (each smoothed 2-of-3'+(m.debounce>1?', debounce '+m.debounce:'')+')'+(m.gate!==null?' &middot; noise gate '+m.gate+' counts':'');
+  else h+='<b>Rule '+esc(m.rule===undefined?"?":m.rule)+'</b>: event if std ratio r &ge; T='+(m.T!==null?'<b>'+m.T+'</b>':'?')+' (no autoencoder in this log)';
+  if(m.dmg_delta!==null) h+=' &middot; f1 tracker M='+F1_M+' windows, commissioning C='+F1_C+' &middot; DAMAGE if pooled f1 drop &ge; &delta;=<b>'+pct(m.dmg_delta,0)+'</b> for P=<b>'+(m.dmg_p!==null?m.dmg_p:"?")+'</b> superframes';
+  h+=' &middot; superframe '+m.superframe_s+' s &middot; '+(m.source?esc(m.source):'source n/a')+(m.floors?' &middot; sensors on floors '+m.floors[0]+' and '+m.floors[1]:'');
+  el.innerHTML=h;
+}
+function renderDmgBanner(v){
+  var b=$("dmgBanner"), show=has3()||S.dl.length>0; b.hidden=!show;
+  if(!show) return;
+  var g=$("dGlyph"), t=$("dText"), s=$("dSub"), m=S.meta, delta=m&&m.dmg_delta!==null?m.dmg_delta:null, P=m&&m.dmg_p!==null?m.dmg_p:null;
+  var cur=curTime(), dmg=v&&v.dmg!==null&&v.dmg!==undefined?v.dmg===1:dmgActiveAt(cur);
+  var pd=v?v.pd:null, cls="d-na", gl="○", big, sub="";
+  var lastB=null; for(var i=0;i<S.dl.length&&S.dl[i].t<=cur;i++) if(S.dl[i].state==="BEGIN") lastB=S.dl[i];
+  if(!v){ big="Waiting for data"; }
+  else if(dmg){
+    cls="d-alarm"; gl="⚠"; big="DAMAGE INDICATED"+(pd!==null?": natural frequency down "+pct(pd):"");
+    sub="The first natural frequency f1 has stayed below its commissioned value ("+(delta!==null?"threshold "+pct(delta,0)+" for "+(P||"P")+" superframes":"")+")"+
+      (v.f1a!==null||v.f1b!==null?"; f1 now "+hz(v.f1a)+" / "+hz(v.f1b)+" Hz":"")+(lastB?"; alarm since "+fmtRel(lastB.t)+" into the log (superframe "+lastB.sf+")":"")+". A stiffness loss in the lower storeys looks like this.";
+  } else if(pd!==null){
+    var run=v.run===null?0:v.run;
+    if(run>0&&delta!==null){ cls="d-warn"; gl="▲"; big="Natural frequency down "+pct(pd)+": watching";
+      sub="Pooled drop at or above "+pct(delta,0)+" for "+run+" of "+(P||"P")+" superframes; the DAMAGE alarm starts when it stays there for "+(P||"P")+"."; }
+    else { cls="d-ok"; gl="●"; big="No damage indicated";
+      sub="Pooled natural-frequency drop "+pct(pd)+" (alarm at "+(delta!==null?pct(delta,0):"the threshold")+" sustained)"+(v.f1a!==null||v.f1b!==null?"; f1 now "+hz(v.f1a)+" / "+hz(v.f1b)+" Hz":"")+(S.dl.some(function(d){return d.t<=cur&&d.state==="END"})?"; the last alarm has ended.":".") }
+  } else if(v.f1a!==null||v.f1b!==null){ big="Commissioning the natural frequency (f1)"; gl="○";
+    sub="f1 estimates are valid ("+hz(v.f1a)+" / "+hz(v.f1b)+" Hz); each sensor stores its f1_0 after about "+(F1_M+F1_C)+" windows of steady, single-peak data (about 2 minutes). Damage cannot be judged before that."; }
+  else { big="Waiting for f1 estimates"; sub="Each sensor needs "+F1_M+" windows (about 45 s) to start estimating its natural frequency."; }
+  if(v&&!dmg&&v.cm1!==null&&v.cm1!==v.cm2) sub+=" Only one sensor has a commissioned f1 so far.";
+  var bl=S.dl.filter(function(d){return d.t<=cur&&d.state==="BASELINE"});
+  if(bl.length) sub+=" Baseline note: "+bl.length+" sensor re-commissioning"+(bl.length>1?"s":"")+" (last at "+fmtRel(bl[bl.length-1].t)+").";
+  b.className="card "+cls; g.textContent=gl; t.textContent=big; s.textContent=sub;
+}
+function renderDmgHist(){
+  var cur=curTime(), rows=[], i, d;
+  for(i=S.dl.length-1;i>=0;i--){
+    d=S.dl[i]; if(d.t>cur) continue;
+    var what=d.state==="BEGIN"?"⚠ DAMAGE begins":d.state==="END"?"DAMAGE ends":"baseline note: sensor "+d.slave+" ("+lab(d.slave)+") re-commissioned, f1_0 reset";
+    rows.push('<tr'+(d.state==="BEGIN"?' class="dmgrow"':'')+'><td>'+(S.mode==="replay"?'<button type="button" data-t="'+d.t+'" aria-label="Jump to '+fmtRel(d.t)+'">'+fmtRel(d.t)+'</button>':fmtRel(d.t))+'</td><td>'+d.sf+'</td><td>'+esc(what)+'</td><td>'+(d.drop===null?'–':pct(d.drop))+'</td><td>'+hz(d.f1[0])+' / '+hz(d.f1[1])+'</td><td>'+hz(d.f0[0])+' / '+hz(d.f0[1])+'</td></tr>');
+  }
+  $("dmgHist").innerHTML=rows.join("")||'<tr><td colspan="6" class="na">No DAMAGE lines yet.</td></tr>';
+  $("dmgHistNote").textContent="DAMAGE begins after the pooled f1 drop stays at or above the threshold for P superframes; it ends after P superframes below half of it. BASELINE rows are notes: a sensor re-commissioned its f1_0 (for example after a reboot), which resets its reference.";
+  $("dmgHistCard").hidden=!(has3()||S.dl.length>0);
+}
+/* Which detector made an event: the instantaneous flags of the last 3 samples (decisions are smoothed 2-of-3 per detector) for the sensors
+   concerned. Approximation: the master's noise gate and AE-ready state are not in the log. Returns {std,ae,tip} or null. */
+function detectorOf(e){
+  var m=S.meta; if(!m||m.T===null||e.cls<2||(e.type!=="begin"&&e.type!=="change")) return null;
+  var sl=e.cls===2?[e.slave]:[1,2], Tae=m.T_ae, idx=S.sm.length?ub(S.smT,e.t)-1:-1, win=[];
+  if(idx>=0&&S.sm[idx].sf===e.sf){ for(var j=Math.max(0,idx-2);j<=idx;j++) win.push(S.sm[j]) } else win.push(e);
+  var need=win.length>=3?2:1, std=false, ae=false, tip=[];
+  sl.forEach(function(n){
+    var hs=0,ha=0;
+    win.forEach(function(w){ var r=n===1?w.r1:w.r2, a=n===1?w.ae1:w.ae2; if(r!==null&&r>=m.T)hs++; if(Tae!==null&&a!==null&&a!==undefined&&a>=Tae)ha++ });
+    if(hs>=need)std=true; if(ha>=need)ae=true;
+    var last=win[win.length-1], r2=n===1?last.r1:last.r2, a2=n===1?last.ae1:last.ae2;
+    tip.push("sensor "+n+": r "+(r2===null?"n/a":r2.toFixed(2))+" (T "+m.T+")"+(Tae!==null?", AE "+(a2===null||a2===undefined?"n/a":a2.toFixed(2))+" (T_ae "+Tae+")":""));
+  });
+  return {std:std,ae:ae,tip:tip.join("; ")};
+}
+function detectorHtml(e){
+  var d=detectorOf(e); if(!d) return '&ndash;';
+  if(!d.std&&!d.ae) return '<span class="na" title="'+esc(d.tip)+'">smoothed</span>';
+  return (d.std?'<span class="tag std" title="'+esc(d.tip)+'">std</span>':'')+(d.ae?'<span class="tag ae" title="'+esc(d.tip)+'">AE</span>':'');
+}
+function fmtAe(a){ return a===null||a===undefined?'<span class="na">–</span>':a.toFixed(1) }
 function renderLegend(){
   var h="";
   [["comm","○","Calibrating"],["ambient","●","Normal"],["local","▲","Local event (1 = sensor 1, 2 = sensor 2)"],["building","■","Building-wide event"],["nodata","◆","No data"]].forEach(function(x){
@@ -1253,7 +1893,8 @@ function render(now){
     "The log does not say which physical floors the sensors are on (schema 1); sensor 1 is drawn on the lower instrumented floor by assumption.";
   renderNodes(v,k,now);
   renderCounters(k,now);
-  renderTimeline(k);renderChart();renderHist(k,now);
+  renderSys();renderDmgBanner(v);
+  renderTimeline(k);renderChart();renderAe();renderF1();renderDmgHist();renderHist(k,now);
   // transport
   if(S.mode==="replay"){
     var span=Math.max(1,S.tEnd-S.t0);
@@ -1269,19 +1910,28 @@ function render(now){
 }
 
 /* ---------- chart hover ---------- */
-function chartHover(ev){
-  var cs=chartSrc(); if(!cs.arr.length) return;
-  var c=$("chart"), rc=c.getBoundingClientRect(), x=(ev.touches?ev.touches[0].clientX:ev.clientX)-rc.left;
-  var L=44,R=10,pw=c.clientWidth-L-R, span=Math.max(1,S.mode==="live"?curTime()-S.t0:S.tEnd-S.t0);
-  var t=S.t0+(x-L)/pw*span;
-  var i=Math.min(cs.k,ub(cs.ts,t))-1; if(i<0){return}
-  var e=cs.arr[i];
-  $("chartInfo").textContent="At "+fmtRel(e.t)+" (superframe "+e.sf+", "+e.type+"): r1 = "+(e.r1===null?"no report":e.r1.toFixed(2))+", r2 = "+(e.r2===null?"no report":e.r2.toFixed(2))+", state: "+stateText(e)+".";
+function chartHover(id,info,text){
+  return function(ev){
+    var cs=chartSrc(); if(!cs.arr.length) return;
+    var c=$(id), rc=c.getBoundingClientRect(), x=(ev.touches?ev.touches[0].clientX:ev.clientX)-rc.left;
+    var L=44,R=10,pw=c.clientWidth-L-R, span=Math.max(1,S.mode==="live"?curTime()-S.t0:S.tEnd-S.t0);
+    var t=S.t0+(x-L)/pw*span;
+    var i=Math.min(cs.k,ub(cs.ts,t))-1; if(i<0){return}
+    var e=cs.arr[i];
+    $(info).textContent="At "+fmtRel(e.t)+" (superframe "+e.sf+", "+e.type+"): "+text(e)+" State: "+stateText(e)+".";
+  };
 }
+function nz(x,d){ return x===null||x===undefined?"n/a":x.toFixed(d) }
+var HOVERS=[
+  ["chart","chartInfo",function(e){return "r1 = "+(e.r1===null?"no report":e.r1.toFixed(2))+", r2 = "+(e.r2===null?"no report":e.r2.toFixed(2))+"."}],
+  ["aeChart","aeInfo",function(e){return "AE1 = "+nz(e.ae1,2)+", AE2 = "+nz(e.ae2,2)+(S.meta&&S.meta.T_ae!==null?" (T_ae "+S.meta.T_ae+")":"")+"."}],
+  ["f1Chart","f1Info",function(e){return "f1 sensor 1 = "+nz(e.f1a,3)+" Hz, sensor 2 = "+nz(e.f1b,3)+" Hz; f1_0 = "+nz(f0Of(e,1),3)+" / "+nz(f0Of(e,2),3)+" Hz."}],
+  ["dropChart","dropInfo",function(e){var p=pooledOf(e);return "pooled drop = "+(p===null?"n/a":pct(p,2))+(e.dr1!==null&&e.dr1!==undefined?"; sensor 1 "+pct(e.dr1,2):"")+(e.dr2!==null&&e.dr2!==undefined?"; sensor 2 "+pct(e.dr2,2):"")+(e.dmg===1?"; DAMAGE active.":".")}]
+];
 
 /* ---------- wiring ---------- */
 $("demoBtn").onclick=loadDemo;
-$("simBtn").onclick=loadSim;
+$("simBtn").onclick=function(){loadSim()};
 $("file").onchange=function(e){loadFile(e.target.files[0]);e.target.value=""};
 $("fileLbl").onkeydown=function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();$("file").click()}};
 $("bPlay").onclick=function(){togglePlay()};
@@ -1292,9 +1942,9 @@ $("seek").oninput=function(){if(S.mode==="replay")setPlayhead(S.t0+(+$("seek").v
 $("hist").onclick=function(e){var b=e.target.closest("button[data-t]");if(b){S.playing=false;setPlayBtn();setPlayhead(+b.getAttribute("data-t"))}};
 $("tl").onclick=function(e){if(S.mode!=="replay"||!(S.ev.length||S.sm.length))return;var r=e.target.getBoundingClientRect();setPlayhead(S.t0+(e.clientX-r.left)/r.width*(S.tEnd-S.t0))};
 $("dlBtn").onclick=downloadRaw;
-$("chart").addEventListener("mousemove",chartHover);
-$("chart").addEventListener("touchstart",chartHover,{passive:true});
-$("chart").addEventListener("touchmove",chartHover,{passive:true});
+HOVERS.forEach(function(h){ var fn=chartHover(h[0],h[1],h[2]), c=$(h[0]);
+  c.addEventListener("mousemove",fn); c.addEventListener("touchstart",fn,{passive:true}); c.addEventListener("touchmove",fn,{passive:true}) });
+$("dmgHist").onclick=$("hist").onclick;
 $("themeBtn").onclick=function(){
   var r=document.documentElement, dark=getComputedStyle(r).colorScheme==="dark";
   r.setAttribute("data-theme",dark?"light":"dark"); readColors(); dirty=true; schedule();
@@ -1323,6 +1973,10 @@ updNotifBtn();
     if(q.get("broker")) $("mqUrl").value=q.get("broker");
     if(q.get("site")) $("mqSite").value=q.get("site");
     if(q.get("autoconnect")==="1") setTimeout(connectMqtt,0);
+    if(q.get("replay")){   // ?replay=demo_events_sim.jsonl&speed=20[&at=end|SECONDS|sfN][&play=0]
+      var sp=+q.get("speed"), at=q.get("at"), pl=q.get("play");
+      setTimeout(function(){ loadSim({url:q.get("replay"),speed:sp>0?sp:0,at:at===null?undefined:at,play:pl===null?undefined:pl!=="0"}) },0);
+    }
   }catch(e){}
 })();
 if(!("serial" in navigator)){
@@ -1340,7 +1994,7 @@ window.addEventListener("drop",function(e){e.preventDefault();dc=0;$("drop").cla
 renderLegend();
 readColors();
 dirty=true; schedule();
-window.__resonance={parseStatus:parseStatus,MQ:MQ,connectMqtt:connectMqtt,parseLine:parseLine,normalise:normalise,normaliseSample:normaliseSample,loadText:loadText,seek:setPlayhead,state:function(){return S},render:function(){render(0)}};
+window.__resonance={parseStatus:parseStatus,MQ:MQ,connectMqtt:connectMqtt,parseLine:parseLine,normalise:normalise,normaliseSample:normaliseSample,loadText:loadText,loadSim:loadSim,detectorOf:detectorOf,seek:setPlayhead,state:function(){return S},render:function(){render(0)}};
 })();
 </script>
 </body>
