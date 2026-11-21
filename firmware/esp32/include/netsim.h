@@ -16,6 +16,8 @@
 #include <vector>
 #include <queue>
 #include <functional>
+#include <memory>
+#include <chrono>
 #include "tiers.h"
 
 namespace netsim {
@@ -125,7 +127,8 @@ struct SimConfig {
     double corrupt = 0.0;   // per delivered copy: one random bit flipped
     uint32_t delay_us = 2000;
     uint32_t jitter_us = 1000;  // extra delay uniform in [0, jitter_us]
-    uint32_t compute_us = 30000;  // slave feature+tree time after the last sample
+    uint32_t compute_us = 30000;  // slave compute time after the last sample (model constant, NOT the host time; see SimResult::host_*)
+    bool analytics = true;        // slaves run the full pipeline (AE + f1 tracker, slave_pipe.h) on the window; false = tree features only (v2 behaviour)
     std::vector<Action> kills, revives;
     std::vector<TimedAction> kills_us, revives_us;
     std::vector<FailWindow> fail_windows;
@@ -150,6 +153,7 @@ struct ReportRec {  // one report accepted by the master
     uint32_t sf, epoch, window;
     uint8_t raw, state, flags;
     uint32_t master_sf, master_epoch;
+    float ae_ratio, f1_est, f1_drop;
 };
 struct Restart {
     uint64_t t;
@@ -183,6 +187,9 @@ struct SimResult {
     bool audited = false;
     std::vector<LatencyRec> death, recovery;
     uint32_t superframes = 0;
+    // Measured HOST time of SlaveNode::deliver_window (the full slave pipeline when analytics are on), all windows of both slaves.
+    uint64_t host_window_ns_total = 0, host_window_ns_max = 0;
+    uint32_t host_windows = 0;
 
     // Recompute the invariant counters from the raw records:
     //  * no slave transmits during one of its own sampling windows
@@ -257,6 +264,17 @@ struct SimResult {
         s += b;
         return s;
     }
+
+    // Measured host time (NOT deterministic, so it is not part of summary()): the slave pipeline per delivered window on this PC.
+    std::string host_summary() const {
+        char b[256];
+        if (host_windows)
+            snprintf(b, sizeof b, "host: slave pipeline per window mean=%.1f us max=%.1f us over %u windows (this PC, not the ESP32; model compute_us is a separate constant)\n",
+                     (double)host_window_ns_total / host_windows / 1000.0, (double)host_window_ns_max / 1000.0, host_windows);
+        else
+            snprintf(b, sizeof b, "host: no windows delivered\n");
+        return b;
+    }
 };
 
 class Sim : public MasterListener {
@@ -265,6 +283,11 @@ public:
         : cfg_(c), net_(c.seed * 2654435761ULL + 12345), aux_(c.seed * 0x9E3779B97F4A7C15ULL + 777),
           txf_(c.seed * 0xD1B54A32D192ED03ULL + 4242), synth_(c.seed), src_(src ? src : &synth_),
           master_(&mtx_, this), s1_(1, &stx_[0]), s2_(2, &stx_[1]) {
+        if (c.analytics) {
+            pipes_.reset(new SlaveAnalytics[NUM_SLAVES]);  // ~25 KB each: on the heap, never inside Sim / on the stack
+            s1_.attach(&pipes_[0]);
+            s2_.attach(&pipes_[1]);
+        }
         mtx_.sim = this; mtx_.node = 0;
         for (int i = 0; i < NUM_SLAVES; i++) { stx_[i].sim = this; stx_[i].node = i + 1; }
         for (int n = 0; n <= NUM_SLAVES; n++) { alive_[n] = true; sched_[n] = nominal_[n] = NEVER; }
@@ -309,7 +332,7 @@ public:
         res.reports_delivered[slave]++;
         if (r.flags & FLAG_UNSYNCED) res.unsynced_reports++;
         if (r.flags & FLAG_LOW_SIGNAL) res.low_signal_reports++;
-        ReportRec rr = {now, slave, r.sf, r.epoch, r.window, r.raw, r.state, r.flags, master_.current_sf(), master_.epoch()};
+        ReportRec rr = {now, slave, r.sf, r.epoch, r.window, r.raw, r.state, r.flags, master_.current_sf(), master_.epoch(), r.ae_ratio, r.f1_est, r.f1_drop};
         res.reports.push_back(rr);
         logf(now, "M   report slave=%u sf=%u win=%u raw=%u state=%u flags=0x%02x az_std=%.1f", slave, r.sf, r.window, r.raw, r.state, r.flags, (double)r.f[0]);
     }
@@ -465,7 +488,15 @@ private:
                 int16_t az[128], gx[128];
                 src_->get((uint8_t)n, sf, az, gx);
                 // The slave itself rejects a delivery whose window was abandoned (token mismatch).
-                if (slave(n).deliver_window(token, az, gx, e.t))
+                std::chrono::steady_clock::time_point h0 = std::chrono::steady_clock::now();
+                bool delivered = slave(n).deliver_window(token, az, gx, e.t);
+                if (delivered) {
+                    uint64_t ns = (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - h0).count();
+                    res.host_window_ns_total += ns;
+                    if (ns > res.host_window_ns_max) res.host_window_ns_max = ns;
+                    res.host_windows++;
+                }
+                if (delivered)
                     logf(e.t, "%s window done sf=%u state=%u", nname(n), sf, slave(n).report().state);
                 else {
                     res.windows_rejected++;
@@ -522,6 +553,7 @@ private:
     WindowSource *src_;
     NodeTx mtx_, stx_[NUM_SLAVES];
     Master master_;
+    std::unique_ptr<SlaveAnalytics[]> pipes_;
     SlaveNode s1_, s2_;
     std::priority_queue<Ev, std::vector<Ev>, std::greater<Ev> > q_;
     uint64_t seq_ = 0;

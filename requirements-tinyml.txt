@@ -1,0 +1,12 @@
+# Training / quantisation environment for the TinyML autoencoder (Python 3.12, .venv-tinyml).
+# The main .venv (requirements.txt, no TensorFlow) keeps working for everything else.
+tensorflow==2.21.0
+keras==3.15.1
+numpy==2.5.5
+scipy==1.18.1
+pandas==3.1.1
+matplotlib==3.11.2
+flatbuffers==25.12.19
+ml_dtypes==0.7.0
+h5py==3.14.0
+protobuf==7.36.2

@@ -330,6 +330,153 @@ void test_queue_sizing() {
     TEST_ASSERT_EQUAL(1 + 2 * NUM_SLAVES * POLL_ATTEMPTS, MAX_LEGIT_FRAMES_PER_SUPERFRAME);
 }
 
+// ---------------------------------------------------------------- channel scan
+void test_scan_cycles_all_channels_and_wraps() {
+    ChannelScan s(6);
+    TEST_ASSERT_EQUAL(6, s.channel());
+    uint64_t t = 1000;
+    TEST_ASSERT_FALSE(s.update(t, false));  // first call starts the scan on the current channel
+    TEST_ASSERT_TRUE(s.scanning());
+    TEST_ASSERT_EQUAL(6, s.channel());
+    uint8_t seen[14] = {0};
+    seen[6] = 1;
+    for (int i = 0; i < 13; i++) {
+        TEST_ASSERT_FALSE(s.update(t + SCAN_DWELL_US - 1, false));  // one us before the dwell ends: no hop
+        t += SCAN_DWELL_US;
+        TEST_ASSERT_TRUE(s.update(t, false));                       // exactly at the dwell: hop
+        TEST_ASSERT_TRUE(s.channel() >= SCAN_CH_MIN && s.channel() <= SCAN_CH_MAX);
+        seen[s.channel()]++;
+    }
+    for (int c = 1; c <= 13; c++) TEST_ASSERT_TRUE(seen[c] >= 1);
+    TEST_ASSERT_EQUAL(6, s.channel());  // a full lap returns to the start
+    TEST_ASSERT_EQUAL(13, s.hops());
+    // wrap 13 -> 1
+    TEST_ASSERT_EQUAL(1, scan_next(13));
+    TEST_ASSERT_EQUAL(2, scan_next(1));
+}
+
+void test_scan_dwell_outlasts_beacon_period() {
+    TEST_ASSERT_TRUE(SCAN_DWELL_US > SUPERFRAME_US);
+    TEST_ASSERT_EQUAL_UINT64(1500000, SCAN_DWELL_US);
+}
+
+void test_scan_locks_on_sync_and_stops() {
+    ChannelScan s(1);
+    uint64_t t = 0;
+    s.update(t, false);
+    t += SCAN_DWELL_US;
+    TEST_ASSERT_TRUE(s.update(t, false));
+    TEST_ASSERT_EQUAL(2, s.channel());
+    // a valid beacon arrives on channel 2 -> synced: no more hops, ever
+    TEST_ASSERT_FALSE(s.update(t + 10, true));
+    TEST_ASSERT_FALSE(s.scanning());
+    TEST_ASSERT_EQUAL(1, s.locks());
+    for (int i = 1; i < 100; i++) TEST_ASSERT_FALSE(s.update(t + 10 + (uint64_t)i * 1400000, true));
+    TEST_ASSERT_EQUAL(2, s.channel());
+    TEST_ASSERT_EQUAL(~(uint64_t)0, s.next_hop_us());
+    // lost again: the scan restarts on the locked channel (not on channel 1)
+    TEST_ASSERT_FALSE(s.update(t + 200000000ull, false));
+    TEST_ASSERT_TRUE(s.scanning());
+    TEST_ASSERT_EQUAL(2, s.channel());
+    TEST_ASSERT_TRUE(s.update(t + 200000000ull + SCAN_DWELL_US, false));
+    TEST_ASSERT_EQUAL(3, s.channel());
+}
+
+void test_scan_bad_start_channel_clamped() {
+    TEST_ASSERT_EQUAL(1, ChannelScan(0).channel());
+    TEST_ASSERT_EQUAL(1, ChannelScan(14).channel());
+    TEST_ASSERT_EQUAL(1, ChannelScan(255).channel());
+    TEST_ASSERT_EQUAL(13, ChannelScan(13).channel());
+    ChannelScan s(13);
+    s.update(0, false);
+    TEST_ASSERT_TRUE(s.update(SCAN_DWELL_US, false));
+    TEST_ASSERT_EQUAL(1, s.channel());
+}
+
+void test_scan_no_hop_while_synced_from_boot() {
+    ChannelScan s(5);
+    for (int i = 0; i < 1000; i++) TEST_ASSERT_FALSE(s.update((uint64_t)i * 1000000, true));
+    TEST_ASSERT_EQUAL(5, s.channel());
+    TEST_ASSERT_EQUAL(0, s.hops());
+}
+
+// The slave only hears the master when its radio is on the master's channel. Beacons every 1.4 s at an arbitrary
+// phase; every master channel 1..13 and every slave start channel must be found, within one lap + one dwell.
+namespace {
+class NullSend : public Transport {
+public:
+    bool broadcast(const uint8_t *, size_t, uint64_t) override { return true; }
+};
+}  // namespace
+
+static int run_scan_scenario(uint8_t master_ch, uint8_t start_ch, uint64_t phase_us, bool start_synced_then_lost, uint8_t *locked_ch,
+                             uint32_t *wrong_channel_beacons_heard) {
+    NullSend tx;
+    SlaveNode slave(1, &tx);
+    ChannelScan scan(start_ch);
+    int16_t az[WIN_N] = {0}, gx[WIN_N] = {0};
+    uint8_t radio_ch = start_ch;
+    uint64_t next_beacon = phase_us;
+    uint32_t sf = 0;
+    *wrong_channel_beacons_heard = 0;
+    uint64_t locked_at = 0;
+    const uint64_t t_end = 120ull * 1000000ull;
+    for (uint64_t t = 0; t < t_end; t += 10000) {
+        if (t >= next_beacon) {
+            if (start_synced_then_lost && t < 10000000ull) {
+                // before 10 s the master is on the slave's channel, then it moves to master_ch (router change)
+                if (radio_ch == start_ch) {
+                    uint8_t b[MAX_PAYLOAD];
+                    size_t n = encode_beacon(b, ID_MASTER, ID_BROADCAST, (uint16_t)sf, sf, 0xABCDu);
+                    slave.on_packet(b, n, t);
+                }
+            } else if (radio_ch == master_ch) {
+                uint8_t b[MAX_PAYLOAD];
+                size_t n = encode_beacon(b, ID_MASTER, ID_BROADCAST, (uint16_t)sf, sf, 0xABCDu);
+                slave.on_packet(b, n, t);
+            } else {
+                (*wrong_channel_beacons_heard)++;  // never counted into the slave: it was not listening on that channel
+            }
+            sf++;
+            next_beacon += SUPERFRAME_US;
+        }
+        slave.tick(t);
+        uint32_t token = slave.take_window_request();
+        if (token) slave.deliver_window(token, az, gx, t);
+        if (scan.update(t, slave.synced())) radio_ch = scan.channel();
+        if (slave.synced() && t > 10000000ull && radio_ch == master_ch && locked_at == 0) locked_at = t;
+        if (!start_synced_then_lost && slave.synced() && locked_at == 0) locked_at = t;
+    }
+    *locked_ch = radio_ch;
+    return locked_at != 0 && slave.synced() ? (int)(locked_at / 1000) : -1;
+}
+
+void test_scan_finds_master_on_every_channel_from_every_start() {
+    for (uint8_t m = 1; m <= 13; m++) {
+        for (uint8_t s0 = 1; s0 <= 13; s0++) {
+            uint8_t ch;
+            uint32_t wrong;
+            int at_ms = run_scan_scenario(m, s0, 300000 + (uint64_t)m * 77000 + s0 * 13000, false, &ch, &wrong);
+            char msg[64];
+            snprintf(msg, sizeof msg, "master ch %d, slave start %d", m, s0);
+            TEST_ASSERT_TRUE_MESSAGE(at_ms >= 0, msg);
+            TEST_ASSERT_EQUAL_MESSAGE(m, ch, msg);
+            // worst case: 12 wrong channels x 1.5 s dwell + the dwell on the right one up to the first beacon
+            TEST_ASSERT_TRUE_MESSAGE(at_ms <= 12 * 1500 + 1500 + 500, msg);
+        }
+    }
+}
+
+void test_scan_after_lost_when_master_changes_channel() {
+    // synced on channel 3 for 10 s, then the master moves to channel 11: slave goes LOST (5 missed beacons), scans, finds it
+    uint8_t ch;
+    uint32_t wrong;
+    int at_ms = run_scan_scenario(11, 3, 250000, true, &ch, &wrong);
+    TEST_ASSERT_TRUE(at_ms >= 0);
+    TEST_ASSERT_EQUAL(11, ch);
+    TEST_ASSERT_TRUE(wrong > 0);
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_prefilter);
@@ -351,5 +498,12 @@ int main(int, char **) {
     RUN_TEST(test_rtt_hist);
     RUN_TEST(test_noise_stats);
     RUN_TEST(test_queue_sizing);
+    RUN_TEST(test_scan_cycles_all_channels_and_wraps);
+    RUN_TEST(test_scan_dwell_outlasts_beacon_period);
+    RUN_TEST(test_scan_locks_on_sync_and_stops);
+    RUN_TEST(test_scan_bad_start_channel_clamped);
+    RUN_TEST(test_scan_no_hop_while_synced_from_boot);
+    RUN_TEST(test_scan_finds_master_on_every_channel_from_every_start);
+    RUN_TEST(test_scan_after_lost_when_master_changes_channel);
     return UNITY_END();
 }

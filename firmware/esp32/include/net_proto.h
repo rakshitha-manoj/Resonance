@@ -59,23 +59,30 @@ static_assert(POLL_WORST_END_US < SUPERFRAME_US, "polling must finish before the
 constexpr size_t MAX_PAYLOAD = 250;  // ESP-NOW limit
 
 constexpr uint8_t MAGIC   = 0xA7;
-constexpr uint8_t VERSION = 2;  // 2: master epoch added to BEACON/POLL/REPORT
+constexpr uint8_t VERSION = 3;  // 2: master epoch added to BEACON/POLL/REPORT; 3: REPORT carries ae_ratio, f1_est, f1_drop + 4 flag bits
 constexpr uint8_t ID_MASTER    = 0;
 constexpr uint8_t ID_BROADCAST = 0xFF;
 
 enum PktType : uint8_t { T_BEACON = 1, T_POLL = 2, T_REPORT = 3 };
 
-// Report flag bits (bits 2..7 reserved, send as 0).
+// Report flag bits (bits 6..7 reserved, send as 0).
 constexpr uint8_t FLAG_LOW_SIGNAL = 0x01;  // noise gate fired (az_std below NOISE_GATE_COUNTS)
 constexpr uint8_t FLAG_UNSYNCED   = 0x02;  // no beacon was received for this superframe
-constexpr uint8_t FLAGS_VALID     = FLAG_LOW_SIGNAL | FLAG_UNSYNCED;  // any other bit set => report rejected
+// Version 3 (slave analytics, see slave_pipe.h): the three extra floats are meaningful only with their flag.
+constexpr uint8_t FLAG_AE_READY          = 0x04;  // ae_ratio is valid (the slave's 20 commissioning windows are done)
+constexpr uint8_t FLAG_F1_VALID          = 0x08;  // f1_est is a valid estimate of this window
+constexpr uint8_t FLAG_F1_COMMISSIONED   = 0x10;  // the f1 tracker has its f1_0; with F1_VALID, f1_drop is valid
+constexpr uint8_t FLAG_F1_NOT_COMMISSIONED = 0x20;  // f1 commissioning is overdue (f1 outside 3..12 Hz, first mode invisible, unstable)
+constexpr uint8_t FLAGS_VALID     = FLAG_LOW_SIGNAL | FLAG_UNSYNCED | FLAG_AE_READY | FLAG_F1_VALID | FLAG_F1_COMMISSIONED |
+                                    FLAG_F1_NOT_COMMISSIONED;  // any other bit set => report rejected
 constexpr uint8_t NUM_CLASSES     = 3;     // raw class and smoothed state must be < NUM_CLASSES
 
 constexpr size_t HDR_LEN = 7;
 constexpr size_t CRC_LEN = 2;
 constexpr size_t BEACON_LEN = HDR_LEN + 4 + 4 + CRC_LEN;             // sf, epoch
 constexpr size_t POLL_LEN   = HDR_LEN + 4 + 4 + 1 + CRC_LEN;         // sf, epoch, attempt
-constexpr size_t REPORT_LEN = HDR_LEN + 4 + 4 + 4 + 1 + 1 + 1 + 5 * 4 + CRC_LEN;  // sf, epoch, window, raw, state, flags, 5 floats
+constexpr size_t REPORT_LEN = HDR_LEN + 4 + 4 + 4 + 1 + 1 + 1 + 5 * 4 + 3 * 4 + CRC_LEN;  // sf, epoch, window, raw, state, flags, 5 floats, ae_ratio, f1_est, f1_drop
+static_assert(REPORT_LEN == 56, "wire version 3 report is 56 bytes (44 in version 2)");
 static_assert(BEACON_LEN <= MAX_PAYLOAD, "beacon too large");
 static_assert(POLL_LEN <= MAX_PAYLOAD, "poll too large");
 static_assert(REPORT_LEN <= MAX_PAYLOAD, "report too large");
@@ -117,6 +124,9 @@ struct ReportPkt {
     uint8_t state;    // smoothed state
     uint8_t flags;
     float f[5];       // az_std, az_kurt, az_domfreq, gx_std, gx_domfreq
+    float ae_ratio;   // AE score / the slave's median commissioning score (valid iff FLAG_AE_READY)
+    float f1_est;     // first natural frequency estimate, Hz (valid iff FLAG_F1_VALID)
+    float f1_drop;    // (f1_0 - f1_est) / f1_0 (valid iff FLAG_F1_VALID && FLAG_F1_COMMISSIONED)
 };
 
 // ---------------------------------------------------------------- encode
@@ -166,6 +176,12 @@ static inline size_t encode_report(uint8_t *b, uint8_t src, uint8_t dst, uint16_
     b[n++] = r.flags;
     memcpy(b + n, r.f, 20);
     n += 20;
+    memcpy(b + n, &r.ae_ratio, 4);
+    n += 4;
+    memcpy(b + n, &r.f1_est, 4);
+    n += 4;
+    memcpy(b + n, &r.f1_drop, 4);
+    n += 4;
     return put_crc(b, n);
 }
 
@@ -210,6 +226,12 @@ static inline bool decode_report(const uint8_t *b, size_t len, ReportPkt *r) {
     r->state = b[n++];
     r->flags = b[n++];
     memcpy(r->f, b + n, 20);
+    n += 20;
+    memcpy(&r->ae_ratio, b + n, 4);
+    n += 4;
+    memcpy(&r->f1_est, b + n, 4);
+    n += 4;
+    memcpy(&r->f1_drop, b + n, 4);
     return true;
 }
 

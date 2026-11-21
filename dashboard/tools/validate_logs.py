@@ -1,10 +1,14 @@
-"""Validates JSON-lines event logs against the Resonance schema 2 (schema 1 logs are accepted as the subset).
+"""Validates JSON-lines event logs against the Resonance schema 3 (schema 2 and schema 1 logs are accepted as subsets).
 Usage:  .venv/Scripts/python.exe dashboard/tools/validate_logs.py FILE...   Exit code 1 if any file has an error.
 Checks: exact key sets and types per line type (meta, restart, sample, begin/change/status, node), enums, null rules, t_us
 non-decreasing, sample/closed consistency, sample vs event agreement for the same superframe, restart epoch chain,
 commission_n and age ranges, and for `node` lines: slave 1|2, state DEAD|ALIVE, DEAD/ALIVE alternate per slave (a master restart
 or a new meta line forgets the state: the master starts with both slaves alive), and the next sample's `alive` bit for that slave
 agrees with the node line. A second meta line (hardware reboot) restarts the closed/events counters.
+Schema 3 (additive over 2): meta also has dmg_delta / dmg_p (and T_ae / gate for rule f; T is always the std-ratio threshold, for rule f T_b), sample and event lines carry ae / f1 / drop
+([a, b] per slave, null = unknown) and dmg (0|1); the `damage` line {"type":"damage","t_us","sf","state":"BEGIN"|"END","drop",
+"f1":[..],"f1_0":[..]} (plus an informational BASELINE state with a `slave` key: that slave's f1_0 was reset) must alternate BEGIN / END, follows the sample whose `dmg` flips (BEGIN: dmg 1 and drop >= dmg_delta, END: dmg 0
+and drop < dmg_delta / 2), a slave that did not report in a sample (age != 0) has null ae / f1 / drop, and drop needs f1.
 """
 import json
 import sys
@@ -12,10 +16,15 @@ import sys
 CLASSES = {"COMMISSIONING", "AMBIENT", "LOCAL", "BUILDING", "NO_DATA"}
 META_KEYS = {"type", "schema", "source", "rule", "T", "use_raw", "debounce", "commission_windows", "status_every_sf",
              "superframe_s", "floors", "epoch", "samples"}
+META_KEYS_V3 = META_KEYS | {"dmg_delta", "dmg_p"}
+META_KEYS_V3_F = META_KEYS_V3 | {"T_ae", "gate"}
 META_KEYS_V1 = {"type", "schema", "rule", "T", "use_raw", "commission_windows", "status_every_sf", "superframe_s"}
 EVENT_KEYS_V1 = {"type", "t_us", "sf", "class", "slave", "degraded_alive", "r1", "r2", "base1", "base2", "alive", "closed", "events"}
 EVENT_KEYS_V2 = EVENT_KEYS_V1 | {"commission_n"}
 SAMPLE_KEYS = {"type", "t_us", "sf", "class", "slave", "degraded_alive", "r1", "r2", "alive", "age", "commission_n", "closed"}
+SAMPLE_KEYS_V3 = SAMPLE_KEYS | {"ae", "f1", "drop", "dmg"}
+EVENT_KEYS_V3 = EVENT_KEYS_V2 | {"ae", "f1", "drop", "dmg"}
+DAMAGE_KEYS = {"type", "t_us", "sf", "state", "drop", "f1", "f1_0"}
 RESTART_KEYS = {"type", "t_us", "epoch", "prev_epoch"}
 NODE_KEYS = {"type", "t_us", "sf", "slave", "state"}
 
@@ -26,6 +35,11 @@ def is_int(x, lo=0, hi=None):
 
 def is_num(x):
     return isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) != float("inf")
+
+
+def opt_pair(x, lo, hi):
+    """[a, b] with each None or a number in [lo, hi]"""
+    return isinstance(x, list) and len(x) == 2 and all(v is None or (is_num(v) and lo <= v <= hi) for v in x)
 
 
 def validate(path):
@@ -47,11 +61,14 @@ def validate(path):
         lines.pop()
     else:
         errs.append(f"{path}: last line is not terminated by a newline")
-    stats = {"lines": len(lines), "meta": 0, "sample": 0, "begin": 0, "change": 0, "status": 0, "restart": 0, "node": 0}
+    stats = {"lines": len(lines), "meta": 0, "sample": 0, "begin": 0, "change": 0, "status": 0, "restart": 0, "node": 0, "damage": 0}
+    dmg_state = 0          # DAMAGE state as the sample lines show it
+    dmg_pending = None     # (sf, new state) a sample announced; the damage line must follow before any other line
     schema = None
     last_t = -1
     meta = None
     last_epoch = None
+    meta_n = -10   # line number of the last meta line
     last_closed = 0
     last_events = 0
     first_event_closed = None
@@ -83,13 +100,27 @@ def validate(path):
                 samples_by_sf = {}
                 node_state = {1: True, 2: True}
                 node_pending = {}
+                dmg_state, dmg_pending = 0, None
             schema = o.get("schema")
-            if schema not in (1, 2):
+            if schema not in (1, 2, 3):
                 err(n, f"schema {schema}")
-            keys = META_KEYS if schema == 2 else META_KEYS_V1
+            if schema == 3:
+                keys = META_KEYS_V3_F if o.get("rule") == "f" else META_KEYS_V3
+            else:
+                keys = META_KEYS if schema == 2 else META_KEYS_V1
             if set(o) != keys:
                 err(n, f"meta keys {sorted(set(o) ^ keys)} differ")
-            if schema == 2:
+            if schema == 3:
+                if not (is_num(o.get("dmg_delta")) and 0 < o["dmg_delta"] < 1):
+                    err(n, "dmg_delta")
+                if not is_int(o.get("dmg_p"), 1):
+                    err(n, "dmg_p")
+                if o.get("rule") == "f":
+                    if not (is_num(o.get("T_ae")) and o["T_ae"] > 0):
+                        err(n, "T_ae")
+                    if not (is_num(o.get("gate")) and o["gate"] >= 0):
+                        err(n, "gate")
+            if schema in (2, 3):
                 if not isinstance(o.get("source"), str):
                     err(n, "source")
                 f = o.get("floors")
@@ -102,7 +133,7 @@ def validate(path):
                 if not is_int(o.get("debounce"), 1, 3):
                     err(n, "debounce")
                 last_epoch = o.get("epoch")
-            if not isinstance(o.get("rule"), str) or o["rule"] not in "abcd" or len(o["rule"]) != 1:
+            if not isinstance(o.get("rule"), str) or o["rule"] not in "abcdf" or len(o["rule"]) != 1:
                 err(n, "rule")
             if not is_num(o.get("T")):
                 err(n, "T")
@@ -115,6 +146,7 @@ def validate(path):
             if not is_num(o.get("superframe_s")) or o["superframe_s"] <= 0:
                 err(n, "superframe_s")
             meta = o
+            meta_n = n
             continue
         if ty == "restart":
             stats["restart"] += 1
@@ -132,15 +164,84 @@ def validate(path):
                 err(n, "restart prev_epoch")
             if o.get("prev_epoch") is not None and last_epoch is not None and o["prev_epoch"] != last_epoch:
                 err(n, f"prev_epoch {o['prev_epoch']} != previous epoch {last_epoch}")
-            if o.get("epoch") == last_epoch:
+            # The firmware's boot pattern is allowed: right after its meta line it prints restart with the SAME epoch and
+            # prev_epoch null (the host cannot tell a first boot from a reboot). Anywhere else an unchanged epoch is an error.
+            boot_pattern = (n == meta_n + 1 and o.get("prev_epoch") is None)
+            if o.get("epoch") == last_epoch and not boot_pattern:
                 err(n, "restart with unchanged epoch")
             last_epoch = o.get("epoch")
             node_state = {1: True, 2: True}
             node_pending = {}
             continue
+        if ty == "damage" and o.get("state") == "BASELINE":
+            # a slave's f1_0 was reset (it recommissioned): informational, no state change, extra key `slave`
+            stats["damage"] += 1
+            if schema != 3:
+                err(n, "damage line in a log older than schema 3")
+            if set(o) != DAMAGE_KEYS | {"slave"}:
+                err(n, f"damage BASELINE keys {sorted(set(o) ^ (DAMAGE_KEYS | {'slave'}))}")
+                continue
+            if not is_int(o["t_us"]) or o["t_us"] < last_t:
+                err(n, "damage BASELINE t_us")
+            else:
+                last_t = o["t_us"]
+            if o["slave"] not in (1, 2) or isinstance(o["slave"], bool):
+                err(n, "damage BASELINE slave")
+            if not (o["drop"] is None or (is_num(o["drop"]) and -1 <= o["drop"] <= 1)):
+                err(n, "damage BASELINE drop")
+            if not opt_pair(o["f1"], 0, 100) or not opt_pair(o["f1_0"], 0, 100):
+                err(n, "damage BASELINE f1 / f1_0")
+            elif o["slave"] in (1, 2) and o["f1_0"][o["slave"] - 1] is None:
+                err(n, "damage BASELINE without the slave's f1_0")
+            continue
+        if dmg_pending is not None and ty != "damage":
+            err(n, f"the sample of sf {dmg_pending[0]} flipped dmg to {dmg_pending[1]} but no damage line follows")
+            dmg_pending = None
+        if ty == "damage":
+            stats["damage"] += 1
+            if schema != 3:
+                err(n, "damage line in a log older than schema 3")
+            if set(o) != DAMAGE_KEYS:
+                err(n, f"damage keys {sorted(set(o) ^ DAMAGE_KEYS)}")
+                continue
+            if not is_int(o["t_us"]):
+                err(n, "damage t_us")
+            elif o["t_us"] < last_t:
+                err(n, f"damage t_us goes backwards ({o['t_us']} < {last_t})")
+            else:
+                last_t = o["t_us"]
+            if not is_int(o["sf"]):
+                err(n, "damage sf")
+            if o["state"] not in ("BEGIN", "END"):
+                err(n, f"damage state {o['state']}")
+                continue
+            new = 1 if o["state"] == "BEGIN" else 0
+            if dmg_pending is None:
+                err(n, "damage line without a sample whose dmg flips")
+            else:
+                if dmg_pending[0] != o["sf"]:
+                    err(n, f"damage sf {o['sf']} != the flipping sample's sf {dmg_pending[0]}")
+                if dmg_pending[1] != new:
+                    err(n, f"damage {o['state']} but the sample says dmg {dmg_pending[1]}")
+            dmg_pending = None
+            if not (is_num(o["drop"]) and -1 <= o["drop"] <= 1):
+                err(n, "damage drop")
+            elif meta and schema == 3:
+                d0 = meta.get("dmg_delta", 0.02)
+                if new and o["drop"] < d0 - 1e-6:
+                    err(n, f"BEGIN with pooled drop {o['drop']} < delta {d0}")
+                if not new and o["drop"] >= d0 / 2 + 1e-6:
+                    err(n, f"END with pooled drop {o['drop']} >= delta/2")
+            if not opt_pair(o["f1"], 0, 100):
+                err(n, "damage f1")
+            if not opt_pair(o["f1_0"], 0, 100):
+                err(n, "damage f1_0")
+            elif opt_pair(o["f1"], 0, 100) and any(o["f1"][i] is not None and o["f1_0"][i] is None for i in (0, 1)):
+                err(n, "damage f1 without f1_0")
+            continue
         if ty == "node":
             stats["node"] += 1
-            if schema != 2:
+            if schema < 2:
                 err(n, "node line in a schema 1 log")
             if set(o) != NODE_KEYS:
                 err(n, f"node keys {sorted(set(o) ^ NODE_KEYS)}")
@@ -170,11 +271,11 @@ def validate(path):
             continue
         stats[ty] += 1
         if ty == "sample":
-            if schema != 2:
+            if schema < 2:
                 err(n, "sample line in a schema 1 log")
-            keys = SAMPLE_KEYS
+            keys = SAMPLE_KEYS_V3 if schema == 3 else SAMPLE_KEYS
         else:
-            keys = EVENT_KEYS_V2 if schema == 2 else EVENT_KEYS_V1
+            keys = EVENT_KEYS_V3 if schema == 3 else EVENT_KEYS_V2 if schema == 2 else EVENT_KEYS_V1
         if set(o) != keys:
             err(n, f"{ty} keys {sorted(set(o) ^ keys)} differ")
             continue
@@ -206,7 +307,18 @@ def validate(path):
         if not is_int(o["closed"], 1):
             err(n, "closed")
         cn = o.get("commission_n")
-        if schema == 2:
+        if schema == 3:
+            if not opt_pair(o["ae"], 0, 1e9):
+                err(n, "ae")
+            if not opt_pair(o["f1"], 0, 100):
+                err(n, "f1")
+            if not opt_pair(o["drop"], -1, 1):
+                err(n, "drop")
+            elif opt_pair(o["f1"], 0, 100) and any(o["drop"][i] is not None and o["f1"][i] is None for i in (0, 1)):
+                err(n, "drop without f1")
+            if o["dmg"] not in (0, 1) or isinstance(o["dmg"], bool):
+                err(n, "dmg")
+        if schema >= 2:
             if not (isinstance(cn, list) and len(cn) == 2 and all(is_int(x, 0, 255) for x in cn)):
                 err(n, "commission_n")
             elif meta and any(x > meta["commission_windows"] for x in cn):
@@ -219,6 +331,11 @@ def validate(path):
                 for i in (0, 1):
                     if o["r1" if i == 0 else "r2"] is not None and age[i] != 0:
                         err(n, f"r{i+1} present but age != 0")
+                    if schema == 3 and age[i] != 0 and (o["ae"][i] is not None or o["f1"][i] is not None or o["drop"][i] is not None):
+                        err(n, f"slave {i+1} did not report (age {age[i]}) but has ae / f1 / drop values")
+            if schema == 3 and o.get("dmg") in (0, 1) and o["dmg"] != dmg_state:
+                dmg_pending = (o["sf"], o["dmg"])
+                dmg_state = o["dmg"]
             if isinstance(o["alive"], list) and len(o["alive"]) == 2:
                 for sl, want in node_pending.items():
                     if o["alive"][sl - 1] != want:
@@ -243,17 +360,19 @@ def validate(path):
                     err(n, k)
             if ty == "begin" and o["class"] not in ("LOCAL", "BUILDING"):
                 err(n, "begin must be LOCAL or BUILDING")
-            if schema == 2 and meta and meta.get("samples") and is_int(o["closed"]):
+            if schema >= 2 and meta and meta.get("samples") and is_int(o["closed"]):
                 s = samples_by_sf.get(o["closed"])
                 if s is None:
                     err(n, "event without a sample for the same closed superframe")
                 else:
-                    for k in ("t_us", "sf", "class", "slave", "degraded_alive", "r1", "r2", "alive", "commission_n"):
+                    for k in ("t_us", "sf", "class", "slave", "degraded_alive", "r1", "r2", "alive", "commission_n") + (("ae", "f1", "drop", "dmg") if schema == 3 else ()):
                         if s[k] != o[k]:
                             err(n, f"event {k}={o[k]} differs from the sample of the same superframe ({s[k]})")
-    if meta and schema == 2 and meta.get("samples") and stats["sample"] == 0:
+    if dmg_pending is not None:
+        errs.append(f"{path}: the last sample flipped dmg but no damage line follows")
+    if meta and schema >= 2 and meta.get("samples") and stats["sample"] == 0:
         errs.append(f"{path}: meta says samples=true but there are none")
-    if meta and schema == 2 and not meta.get("samples") and stats["sample"]:
+    if meta and schema >= 2 and not meta.get("samples") and stats["sample"]:
         errs.append(f"{path}: meta says samples=false but there are {stats['sample']}")
     if stats["meta"] != 1 and not (stats["meta"] > 1):
         errs.append(f"{path}: expected a meta line")

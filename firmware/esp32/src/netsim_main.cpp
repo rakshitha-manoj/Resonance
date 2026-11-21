@@ -11,14 +11,15 @@ static void usage() {
     printf("netsim [--seed N] [--superframes N] [--loss P] [--corrupt P] [--delay US] [--jitter US]\n"
            "       [--compute US] [--kill NODE:SF]... [--revive NODE:SF]... [--kill-us NODE:US]... [--revive-us NODE:US]...\n"
            "       [--tx-fail P] [--fail-send NODE:FROM_US:UNTIL_US]... [--master-late US] [--quiet]\n"
-           "       [--traces FILE] [--fusion] [--events-jsonl FILE] [--no-samples] [--floors A,B]\n"
+           "       [--traces FILE] [--fusion] [--events-jsonl FILE] [--no-samples] [--floors A,B] [--no-analytics]\n"
            "  loss/corrupt/tx-fail are probabilities 0..1 (per receiver link / per delivered copy / per send).\n"
            "  NODE is 0 (master), 1 or 2. Killing the master and reviving it = master restart with a fresh epoch\n"
            "  and superframe numbering from 0. --kill/--revive take effect at the beacon time of superframe SF;\n"
            "  the -us forms at an arbitrary microsecond. --master-late delays every master wakeup by up to US.\n"
-           "  --events-jsonl FILE writes the schema-2 event log (implies --fusion): meta, begin/change/status events, one\n"
-           "  'sample' line per superframe (drop them with --no-samples), a 'node' line per slave DEAD/ALIVE change and a\n"
-           "  'restart' line per master restart.\n"
+           "  --events-jsonl FILE writes the schema-3 event log (implies --fusion): meta, begin/change/status events, one\n"
+           "  'sample' line per superframe (drop them with --no-samples), a 'node' line per slave DEAD/ALIVE change, a\n"
+           "  'damage' line per DAMAGE begin/end and a 'restart' line per master restart.\n"
+           "  --no-analytics: slaves report the tree features only (no AE, no f1 tracker; wire v3 fields unavailable).\n"
            "  --floors A,B = physical floors of slave 1 and 2 (default: FILE.floors next to --traces, else 1,2).\n"
            "  Limits: i.i.d. loss, no collisions or airtime modelling.\n");
 }
@@ -73,6 +74,12 @@ struct FusionOut : fusion::json::JsonLineSink {
     }
     void on_sample(const fusion::Sample &s) override {
         if (jl) JsonLineSink::on_sample(s);
+    }
+    void on_damage(const fusion::DamageEvent &d) override {
+        char b[256];
+        snprintf(b, sizeof b, "fusion t=%llu sf=%u damage %s pooled_drop=%.5g", (unsigned long long)d.t_us, d.sf, d.begin ? "BEGIN" : "END", (double)d.drop);
+        lines_txt.push_back(b);
+        if (jl) JsonLineSink::on_damage(d);
     }
     bool write_line(const char *line, size_t len, bool) override { return fwrite(line, 1, len, jl) == len; }
 };
@@ -152,6 +159,7 @@ int main(int argc, char **argv) {
         if (!strcmp(a, "--quiet")) c.quiet = true;
         else if (!strcmp(a, "--fusion")) use_fusion = true;
         else if (!strcmp(a, "--no-samples")) samples = false;
+        else if (!strcmp(a, "--no-analytics")) c.analytics = false;
         else if (!strcmp(a, "--help") || !strcmp(a, "-h")) { usage(); return 0; }
         else if (!v) { usage(); return 1; }
         else if (!strcmp(a, "--seed")) c.seed = (uint32_t)strtoul(v, 0, 10), i++;
@@ -214,11 +222,14 @@ int main(int argc, char **argv) {
     if (!c.quiet)
         for (size_t i = 0; i < sim.res.log.size(); i++) printf("%s\n", sim.res.log[i].c_str());
     printf("%s", sim.res.summary().c_str());
+    printf("%s", sim.res.host_summary().c_str());
     if (use_fusion) {
         for (size_t i = 0; i < fout.lines_txt.size(); i++) printf("%s\n", fout.lines_txt[i].c_str());
         const fusion::Stats &st = fus.stats();
-        printf("fusion summary: rule=%c T=%g use_raw=%d superframes_closed=%u commissioned=%d base1=%.2f base2=%.2f\n", fus.config().rule, (double)fus.config().T,
-               fus.config().use_raw ? 1 : 0, st.closed, fus.commissioned() ? 1 : 0, (double)fus.baseline(1), (double)fus.baseline(2));
+        printf("fusion summary: rule=%c T=%g T_b=%g gate=%g use_raw=%d superframes_closed=%u commissioned=%d base1=%.2f base2=%.2f\n", fus.config().rule, (double)fus.config().T,
+               (double)fus.config().T_b, (double)fus.config().gate, fus.config().use_raw ? 1 : 0, st.closed, fus.commissioned() ? 1 : 0, (double)fus.baseline(1), (double)fus.baseline(2));
+        printf("fusion summary: damage active=%d begins=%u ends=%u f1_0=%.3f,%.3f ae_bad=%u f1_bad=%u\n", fus.damage_active() ? 1 : 0, st.dmg_begins, st.dmg_ends,
+               (double)fus.slave_f1_0(1), (double)fus.slave_f1_0(2), st.ae_bad, st.f1_bad);
         printf("fusion summary: COMMISSIONING=%u AMBIENT=%u LOCAL=%u (slave1=%u slave2=%u) BUILDING=%u NO_DATA=%u degraded=%u events=%u rejected_reports=%u restarts=%u\n",
                st.by_cls[fusion::COMMISSIONING], st.by_cls[fusion::AMBIENT], st.by_cls[fusion::LOCAL], st.local_by_slave[0], st.local_by_slave[1],
                st.by_cls[fusion::BUILDING], st.by_cls[fusion::NO_DATA], st.degraded_sf, fus.events_emitted(), st.rejected_reports, st.restarts);

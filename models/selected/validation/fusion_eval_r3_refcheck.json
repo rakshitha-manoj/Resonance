@@ -1,0 +1,36 @@
+{
+ "config": "f, T=6 (b T=3), k=1",
+ "buildings": 240,
+ "recordings": [
+  "hl",
+  "nz",
+  "uimp",
+  "ushift",
+  "imp5",
+  "imp10",
+  "sp5",
+  "sp10",
+  "shift5",
+  "shift10",
+  "s2",
+  "s3",
+  "s5"
+ ],
+ "superframes_checked": 151200,
+ "mismatches": 0,
+ "mismatches_by_recording": {
+  "hl": 0,
+  "nz": 0,
+  "uimp": 0,
+  "ushift": 0,
+  "imp5": 0,
+  "imp10": 0,
+  "sp5": 0,
+  "sp10": 0,
+  "shift5": 0,
+  "shift10": 0,
+  "s2": 0,
+  "s3": 0,
+  "s5": 0
+ }
+}
