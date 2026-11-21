@@ -13,6 +13,16 @@
 #define SPEC_ZOOM_DF 0.05f
 #define SPEC_ZOOM_N 181
 #define SPEC_BANDS 16
+#define SPEC_ZOOM_F0_MHZ 3000
+#define SPEC_ZOOM_DF_MHZ 50
+
+/* Compile-time link to the generated tables: re-run tools/gen_spectrum.py after changing any of these. */
+#if SPEC_TABLE_WIN_N != WIN_N || SPEC_TABLE_ZOOM_N != SPEC_ZOOM_N || SPEC_TABLE_F0_MHZ != SPEC_ZOOM_F0_MHZ || \
+    SPEC_TABLE_DF_MHZ != SPEC_ZOOM_DF_MHZ || SPEC_TABLE_FS_HZ != 100
+#error "spectrum_tables.h does not match spectrum.h: re-run tools/gen_spectrum.py"
+#endif
+typedef char spec_chk_hann_len[(sizeof(spec_hann) / sizeof(spec_hann[0]) == WIN_N) ? 1 : -1];
+typedef char spec_chk_coeff_len[(sizeof(spec_zoom_coeff) / sizeof(spec_zoom_coeff[0]) == SPEC_ZOOM_N) ? 1 : -1];
 
 /* p[k-1] = |DFT_k|^2 of the mean-removed window, k = 1..64; argmax(p)+1 times BIN_HZ == feat_domfreq. */
 static inline void spec_power(const int16_t *x, float *p) {
@@ -44,11 +54,13 @@ static inline void spec_zoom(const int16_t *az, float *z) {
 }
 
 /* Peak frequency (Hz): argmax + parabolic interpolation in log power over the 3 points around it.
-   Edges, or a non-positive neighbour/peak, or a non-concave triple: the grid frequency. */
+   Edges, or a non-positive neighbour/peak, or a non-concave triple: the grid frequency. NaN entries are skipped
+   (first maximum wins on ties); no finite entry at all: f0. */
 static inline float spec_peak(const float *z, int n, float f0, float df) {
-    int im = 0;
-    for (int i = 1; i < n; i++)
-        if (z[i] > z[im]) im = i;
+    int im = -1;
+    for (int i = 0; i < n; i++)
+        if (z[i] == z[i] && (im < 0 || z[i] > z[im])) im = i;
+    if (im < 0) return f0;
     float f = f0 + im * df;
     if (im == 0 || im == n - 1) return f;
     if (!(z[im - 1] > 0.0f && z[im] > 0.0f && z[im + 1] > 0.0f)) return f;

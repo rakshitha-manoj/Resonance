@@ -206,8 +206,47 @@ void test_spec_peak_sines(void) {
     }
 }
 
+/* Edge cases: the +1 floor of spec_bands (a constant / dead sensor gives exactly 0, never -inf), spec_peak ties
+   (first maximum wins), NaN entries (skipped), all-NaN (f0), and feat_domfreq on a tied flat spectrum (first bin). */
+void test_spec_edges(void) {
+    float p[64];
+    for (int i = 0; i < 64; i++) p[i] = 0.0f;
+    float b[SPEC_BANDS];
+    spec_bands(p, b);
+    for (int i = 0; i < SPEC_BANDS; i++) TEST_ASSERT_EQUAL_FLOAT(0.0f, b[i]);
+    int16_t c[128];
+    for (int i = 0; i < 128; i++) c[i] = 1234;
+    float pc[64];
+    spec_power(c, pc);
+    spec_bands(pc, b);
+    for (int i = 0; i < SPEC_BANDS; i++) TEST_ASSERT_TRUE(b[i] == 0.0f);
+
+    float z[SPEC_ZOOM_N];
+    for (int i = 0; i < SPEC_ZOOM_N; i++) z[i] = 1.0f;
+    z[40] = 5.0f;
+    z[120] = 5.0f;  /* tie: first maximum wins; flat neighbours -> non-concave -> grid frequency */
+    TEST_ASSERT_EQUAL_FLOAT(SPEC_ZOOM_F0 + 40 * SPEC_ZOOM_DF, spec_peak(z, SPEC_ZOOM_N, SPEC_ZOOM_F0, SPEC_ZOOM_DF));
+    z[120] = 1.0f;
+    z[0] = NAN;
+    z[7] = NAN;
+    TEST_ASSERT_EQUAL_FLOAT(SPEC_ZOOM_F0 + 40 * SPEC_ZOOM_DF, spec_peak(z, SPEC_ZOOM_N, SPEC_ZOOM_F0, SPEC_ZOOM_DF));
+    for (int i = 0; i < SPEC_ZOOM_N; i++) z[i] = NAN;
+    TEST_ASSERT_EQUAL_FLOAT(SPEC_ZOOM_F0, spec_peak(z, SPEC_ZOOM_N, SPEC_ZOOM_F0, SPEC_ZOOM_DF));
+
+    /* a single impulse has a flat |DFT|: every bin ties, the tree's domfreq must be bin 1 (first maximum) */
+    int16_t imp[128];
+    for (int i = 0; i < 128; i++) imp[i] = 0;
+    imp[0] = 1280;
+    float pi[64];
+    spec_power(imp, pi);
+    int k = 0;
+    for (int i = 1; i < 64; i++) if (pi[i] > pi[k]) k = i;
+    TEST_ASSERT_EQUAL_FLOAT((k + 1) * BIN_HZ, feat_domfreq(imp));
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
+    RUN_TEST(test_spec_edges);
     RUN_TEST(test_all_windows);
     RUN_TEST(test_smooth);
     RUN_TEST(test_spec_power_domfreq);

@@ -6,9 +6,12 @@ and rebuilt when any source or header is newer than it.
   bands(az) -> (n, 16)   zoom(az) -> (n, 181)   peak(z) -> (n,) Hz   ZOOM_F (181,) frequency grid
 """
 import ctypes
+import hashlib
+import os
 import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -26,21 +29,35 @@ _lib = None
 
 
 def _build():
+    """The DLL name carries a hash of every source, this file and the compiler command, so an edit (or a git
+    checkout) builds a NEW file instead of overwriting one that another process may have loaded, and a change of
+    flags rebuilds too. Built to a unique temporary name, then renamed (parallel first builds cannot collide)."""
     d = cachedir.script_dir("frontend")
     d.mkdir(parents=True, exist_ok=True)
-    dll = d / ("frontend.dll" if sys.platform == "win32" else "frontend.so")
-    if dll.exists() and all(dll.stat().st_mtime >= s.stat().st_mtime for s in SOURCES):
-        return dll
     gcc = shutil.which("gcc")
     if gcc is None:
         raise RuntimeError("gcc not found on PATH: needed to build the firmware front-end for Python "
                            "(install WinLibs / build-essential and retry)")
-    cmd = [gcc, "-O2", "-ffp-contract=off", "-shared", "-I", str(FW / "include"), str(SOURCES[0]), "-o", str(dll), "-lm"]
-    if sys.platform != "win32":
-        cmd.insert(4, "-fPIC")
+    flags = ["-O2", "-ffp-contract=off", "-shared"] + ([] if sys.platform == "win32" else ["-fPIC"])
+    h = hashlib.sha256()
+    for f in SOURCES + [Path(__file__).resolve()]:
+        h.update(f.read_bytes())
+    h.update(" ".join(flags).encode())
+    ext = ".dll" if sys.platform == "win32" else ".so"
+    dll = d / f"frontend_{h.hexdigest()[:16]}{ext}"
+    if dll.exists():
+        return dll
+    tmp = d / f"frontend_{h.hexdigest()[:16]}_{os.getpid()}_{uuid.uuid4().hex[:8]}{ext}"
+    cmd = [gcc, *flags, "-I", str(FW / "include"), str(SOURCES[0]), "-o", str(tmp), "-lm"]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError("front-end build failed:\n" + r.stderr)
+    try:
+        os.replace(tmp, dll)
+    except OSError:  # another process won the race and has the identical file loaded: use theirs
+        if not dll.exists():
+            raise
+        tmp.unlink(missing_ok=True)
     return dll
 
 
@@ -54,11 +71,22 @@ def _load():
         lib.front_peak.argtypes = [ctypes.c_int, vp, vp]
         lib.front_peak.restype = None
         assert lib.front_zoom_n() == ZOOM_N
+        assert lib.front_zoom_f0_mhz() == round(ZOOM_F0 * 1000) and lib.front_zoom_df_mhz() == round(ZOOM_DF * 1000), \
+            "frontend.py zoom grid does not match spectrum.h"
         _lib = lib
     return _lib
 
 
 def _i16(a):
+    """int16 windows, strictly: integer-valued input within the int16 range (no silent truncation or wrap)."""
+    a = np.asarray(a)
+    if a.dtype != np.int16:
+        if not (np.issubdtype(a.dtype, np.integer) or np.issubdtype(a.dtype, np.floating)):
+            raise TypeError(f"windows must be numeric, got {a.dtype}")
+        if np.issubdtype(a.dtype, np.floating) and not np.array_equal(a, np.round(a)):
+            raise ValueError("windows must be integer-valued (raw int16 counts)")
+        if a.size and (a.min() < -32768 or a.max() > 32767):
+            raise ValueError("window values outside the int16 range")
     a = np.ascontiguousarray(a, dtype=np.int16)
     if a.ndim == 1:
         a = a[None]
@@ -75,6 +103,8 @@ def _run(az, gx, f5, bands, zoom):
     az = _i16(az)
     n = az.shape[0]
     gx = _i16(gx) if gx is not None else None
+    if f5 and gx is None:
+        raise ValueError("features5 needs gx")
     if gx is not None and gx.shape[0] != n:
         raise ValueError("az and gx must have the same number of windows")
     out = {}

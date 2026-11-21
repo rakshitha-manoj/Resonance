@@ -31,3 +31,5 @@ FRONT_API void front_peak(int n, const float *zoom181, float *hz) {
 }
 
 FRONT_API int front_zoom_n(void) { return SPEC_ZOOM_N; }
+FRONT_API int front_zoom_f0_mhz(void) { return SPEC_ZOOM_F0_MHZ; }
+FRONT_API int front_zoom_df_mhz(void) { return SPEC_ZOOM_DF_MHZ; }

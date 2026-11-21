@@ -37,6 +37,59 @@ def test_zoom_sine():
         assert abs(hz - f0) < 0.02, (f0, hz)
 
 
+def _windows(seed=7, n=200):
+    """Mixed test windows: wideband noise of several levels, sines, a constant and an impulse."""
+    r = np.random.default_rng(seed)
+    t = np.arange(128)
+    w = [np.rint(r.normal(0, s, 128)) + r.integers(-500, 500) for s in r.uniform(2, 3000, n - 4)]
+    w += [np.rint(800 * np.sin(2 * np.pi * 6.3 * t / 100)), np.rint(300 * np.sin(2 * np.pi * 11.1 * t / 100)) - 40,
+          np.full(128, 1234.0), np.where(t == 0, 1280.0, 0.0)]
+    return np.clip(np.array(w), -32768, 32767).astype(np.int16)
+
+
+def test_bands_reference():
+    """bands() against an independent float64 numpy computation (mean-removed rfft bins 1..64, 4 per band, log(+1))."""
+    x = _windows()
+    got = frontend.bands(x).astype(np.float64)
+    d = x.astype(np.float64) - x.astype(np.float64).mean(axis=1, keepdims=True)
+    p = np.abs(np.fft.rfft(d, axis=1))[:, 1:65] ** 2
+    want = np.log(p.reshape(-1, 16, 4).sum(axis=2) + 1.0)
+    assert got.shape == want.shape == (len(x), 16)
+    err = np.abs(got - want).max()
+    assert err < 1e-3, err  # log domain: absolute error
+    assert np.all(got[-2] == 0.0), "constant window must give exactly 0 (the +1 floor)"
+    print("bands vs numpy: max abs err %.2g (log units)" % err)
+
+
+def test_zoom_reference():
+    """zoom() against an independent float64 Hann DFT at the same grid (relative to each window's maximum)."""
+    x = _windows(seed=8, n=60)[:-2]  # constant/impulse excluded (max 0 / flat)
+    got = frontend.zoom(x).astype(np.float64)
+    n = np.arange(128)
+    hann = 0.5 - 0.5 * np.cos(2 * np.pi * n / 127)
+    d = (x - x.mean(axis=1, keepdims=True)) * hann
+    E = np.exp(-2j * np.pi * np.outer(frontend.ZOOM_F, n) / 100.0)
+    want = np.abs(d @ E.T) ** 2
+    err = (np.abs(got - want).max(axis=1) / want.max(axis=1)).max()
+    assert err < 1e-4, err
+    print("zoom vs numpy Hann DFT: max err %.2g of window max" % err)
+
+
+def test_input_checks():
+    x = _windows(n=6)
+    for bad, exc in ((lambda: frontend.features5(x, None), ValueError),
+                     (lambda: frontend.bands(x.astype(np.float64) + 0.5), ValueError),
+                     (lambda: frontend.bands(np.full((1, 128), 40000)), ValueError),
+                     (lambda: frontend.bands(x[:, :100]), ValueError)):
+        try:
+            bad()
+        except exc:
+            pass
+        else:
+            raise AssertionError("expected %s" % exc.__name__)
+    assert np.array_equal(frontend.bands(x.astype(np.float64)), frontend.bands(x)), "integer-valued floats accepted"
+
+
 def test_zoom_building():
     import building_sim as bs
     errs = []
