@@ -241,5 +241,60 @@ static inline NoiseStats noise_stats(const float *x, int n) {
     return s;
 }
 
+// ---------------------------------------------------------------- channel scan (slaves)
+// The master's ESP-NOW channel follows its Wi-Fi router (the radio has one channel), so a slave that is not synced
+// (power-on or LOST) cycles through the channels 1..13 until it hears a valid master beacon, then stays there.
+// The dwell per channel must exceed the beacon period so every dwell is guaranteed to contain a beacon.
+constexpr uint8_t SCAN_CH_MIN = 1;
+constexpr uint8_t SCAN_CH_MAX = 13;
+constexpr uint64_t SCAN_DWELL_US = 1500000;
+static_assert(SCAN_DWELL_US > SUPERFRAME_US, "scan dwell must outlast the beacon period (1.4 s)");
+
+static inline uint8_t scan_clamp(uint8_t ch) { return (ch < SCAN_CH_MIN || ch > SCAN_CH_MAX) ? SCAN_CH_MIN : ch; }
+static inline uint8_t scan_next(uint8_t ch) { return ch >= SCAN_CH_MAX ? SCAN_CH_MIN : (uint8_t)(ch + 1); }
+
+// Pure decision logic; the host sets the radio channel when update() returns true.
+//   * synced: stay on the current channel, scanning stops (= "lock on the first valid beacon": a node that is
+//     not synced accepts any CRC-valid beacon, so becoming synced IS the lock);
+//   * not synced: the first call starts a scan on the CURRENT channel (a master that restarted on the same
+//     channel is found at once), after SCAN_DWELL_US without a lock the next channel is tried, 13 -> 1.
+class ChannelScan {
+public:
+    explicit ChannelScan(uint8_t start_channel = SCAN_CH_MIN)
+        : ch_(scan_clamp(start_channel)), scanning_(false), dwell_start_(0), hops_(0), locks_(0) {}
+    uint8_t channel() const { return ch_; }
+    bool scanning() const { return scanning_; }
+    uint32_t hops() const { return hops_; }    // channel changes made so far
+    uint32_t locks() const { return locks_; }  // scans that ended with a sync
+
+    // Returns true when the radio must be switched to channel() now.
+    bool update(uint64_t now, bool synced) {
+        if (synced) {
+            if (scanning_) { scanning_ = false; locks_++; }
+            return false;
+        }
+        if (!scanning_) {
+            scanning_ = true;
+            dwell_start_ = now;
+            return false;
+        }
+        if (now - dwell_start_ >= SCAN_DWELL_US) {
+            ch_ = scan_next(ch_);
+            dwell_start_ = now;
+            hops_++;
+            return true;
+        }
+        return false;
+    }
+    // Next time update() needs to run to change the channel (UINT64_MAX = never).
+    uint64_t next_hop_us() const { return scanning_ ? dwell_start_ + SCAN_DWELL_US : ~(uint64_t)0; }
+
+private:
+    uint8_t ch_;
+    bool scanning_;
+    uint64_t dwell_start_;
+    uint32_t hops_, locks_;
+};
+
 }  // namespace host
 }  // namespace net

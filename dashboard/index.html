@@ -124,6 +124,22 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
     <button id="dlBtn" type="button" hidden>Save captured log</button>
     <span class="badge">or drop a file anywhere on this page</span>
   </div>
+  <div class="row" id="mqttRow" style="margin-top:8px" role="group" aria-label="MQTT live source">
+    <label>MQTT broker <input id="mqUrl" type="text" size="32" value="wss://broker.hivemq.com:8884/mqtt" spellcheck="false" autocomplete="off" aria-label="Broker WebSocket URL"></label>
+    <label>Site <input id="mqSite" type="text" size="13" value="rsn-822298ab" spellcheck="false" autocomplete="off" aria-label="Site id"></label>
+    <button id="mqBtn" type="button" title="Subscribes to resonance/&lt;site&gt;/ on the broker over MQTT-over-WebSocket">MQTT live: connect</button>
+    <span class="pill unk" id="mqState">MQTT idle</span>
+    <span class="na" id="mqCounts"></span>
+    <button id="notifBtn" type="button" title="Browser notification when an event begins or a sensor goes offline (live sources only)">Enable notifications</button>
+  </div>
+  <details id="mqAdv" style="margin-top:4px">
+    <summary>MQTT options (private broker, credentials)</summary>
+    <div class="row" style="margin-top:6px">
+      <label>User <input id="mqUser" type="text" size="14" autocomplete="off" aria-label="MQTT user name"></label>
+      <label>Password <input id="mqPass" type="password" size="14" autocomplete="off" aria-label="MQTT password"></label>
+      <span class="na">Not stored. Public HiveMQ needs none: <code>wss://broker.hivemq.com:8884/mqtt</code> (or <code>ws://broker.hivemq.com:8000/mqtt</code> on plain http / file pages); a private HiveMQ Cloud cluster is <code>wss://&lt;cluster&gt;.s1.eu.hivemq.cloud:8884/mqtt</code> with user and password.</span>
+    </div>
+  </details>
   <div class="transport row" id="transport">
     <button id="bPrev" type="button" aria-label="Step back one event">&#9198; Back</button>
     <button id="bPlay" type="button" class="primary" aria-label="Play or pause">&#9654; Play</button>
@@ -144,9 +160,10 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
       <li><b>Replay.</b> Open a JSON-lines log (first line <code>meta</code>; then <code>begin</code>/<code>change</code>/<code>status</code> events, schema 2 also one <code>sample</code> line per superframe, <code>restart</code> lines, and <code>node</code> lines for an immediate sensor DEAD/ALIVE change). Schema 1 logs (events only) still work. Playback runs on the <code>t_us</code> clock in the file: 1x is real time, 10x and 60x are faster. Events are logged only when the class changes (and as a periodic status); schema 2 samples fill the gaps, so the chart, the sensor "last report" and the calibration progress are continuous.</li>
       <li><b>Simulated log.</b> "Load simulated log" reads <code>demo_events_sim.jsonl</code> from the same folder, made by the PC network simulator (netsim) from the project's firmware code. A page opened from disk (<code>file://</code>) usually cannot read other files; then the page says so and opens the file picker: choose that file.</li>
       <li><b>Live over USB.</b> Chrome or Edge on a desktop only (Web Serial API), 115200 baud. Close any other program using the port first (PlatformIO or Arduino serial monitor). The master firmware prints the same JSON lines as the simulator; the page keeps lines that are JSON objects of the schema and ignores everything else, including the <code>R,</code> and <code>S,</code> CSV lines and <code>#</code> comments. If the master reboots, its clock starts again at 0; a <code>restart</code> line marks it and the page continues the timeline after the last line.</li>
+      <li><b>MQTT live (cloud).</b> The master (or <code>tools/sim_publisher.py</code>, or the Wokwi cloud demo) publishes the same JSON lines to an MQTT broker under <code>resonance/&lt;site&gt;/&lt;type&gt;</code>; this page subscribes over MQTT-over-WebSocket (default: the free public HiveMQ broker, site id from the firmware config) and feeds each message through the same parser as the other sources. Anybody who knows the site id can read a public broker's topics, so use it for simulator or demo data only; a private broker with TLS and a password works by changing the URL and the options. The retained <code>meta</code> arrives at once, so a page that joins late still knows the floors. The counters show messages received and lines dropped (malformed or buffer full); lines the master or the broker dropped are only visible in the master's <code>S,mqtt</code> statistics. Cross-topic arrival order is not guaranteed by MQTT: the page re-sorts by time. Browser notifications (permission asked when you click "Enable notifications") fire for new <code>begin</code> events and sensors going offline. Needs <code>vendor/mqtt.min.js</code> (MQTT.js, MIT); without it the rest of the page works as before.</li>
       <li><b>Demo.</b> A short scripted scenario written to follow schema 2 exactly. It is not hardware data and not simulator output.</li>
       <li><b>Not available:</b> r values between logged lines in schema 1 logs, and the age of a sensor's last report in schema 1 logs. These show as "not available".</li>
-      <li><b>Limits.</b> No cloud or broker connection. The page runs entirely offline; nothing leaves your computer.</li>
+      <li><b>Limits.</b> Replay, demo and USB run entirely offline; nothing leaves your computer. Only the "MQTT live" source connects to a broker (and only when you click connect).</li>
     </ul>
   </details>
 </section>
@@ -342,6 +359,7 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
 {"type":"sample","t_us":157358000,"sf":11,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.9351,"r2":0.9439,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":112}
 {"type":"sample","t_us":158758000,"sf":12,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.8709,"r2":1.0658,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":113}
 {"type":"sample","t_us":160158000,"sf":13,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":1.1123,"r2":0.9161,"alive":[true,true],"age":[0,0],"commission_n":[20,20],"closed":114}</script>
+<script src="vendor/mqtt.min.js"></script>
 <script>
 "use strict";
 (function(){
@@ -360,7 +378,8 @@ function fresh(){
     prevKey:-1,monStart:null,rmax:0,
     stats:{ok:0,bad:0,ignored:0,other:0,outOfOrder:0,capped:0,samples:0,restarts:0,nodes:0},warns:{},
     eLines:[],t0:0,tEnd:0,playhead:0,k:0,ks:0,playing:false,speed:10,
-    lastArrival:0,raw:[],port:null,reader:null};
+    lastArrival:0,raw:[],port:null,reader:null,
+    kind:"",mq:null,mqRecv:0,mqDup:0,mqSeen:null,mqSeenQ:[],mqBuf:[],mqSeq:0,mqMax:null,mqTimer:null,mqMaster:"",mqSite:""};
 }
 S=fresh();
 var dirty=true, rafOn=false, lastFrame=0, lastTableK=-1, lastTableN=-1, lastTableT=0;
@@ -522,7 +541,7 @@ function showMsgs(){
   Object.keys(S.warns).forEach(function(k){h+='<div class="warn">'+esc(S.warns[k])+'</div>'});
   var s=S.stats;
   if(S.mode!=="none"){
-    h+='<div class="na" style="font-size:.85rem;margin-top:4px">Lines read: '+s.ok+' valid ('+S.ev.length+' events, '+s.samples+' samples, '+s.restarts+' restarts, '+s.nodes+' sensor health changes), '+s.bad+' malformed (skipped), '+s.ignored+' ignored (other types, R/S/E/# lines)'+(S.mode==="live"?', '+s.other+' other serial lines':'')+(s.outOfOrder?'; '+s.outOfOrder+' out of time order (re-sorted)':'')+(s.capped?'; '+s.capped+' dropped (buffer full)':'')+'.</div>';
+    h+='<div class="na" style="font-size:.85rem;margin-top:4px">Lines read: '+s.ok+' valid ('+S.ev.length+' events, '+s.samples+' samples, '+s.restarts+' restarts, '+s.nodes+' sensor health changes), '+s.bad+' malformed (skipped), '+s.ignored+' ignored (other types, R/S/E/# lines)'+(S.mode==="live"?', '+s.other+(S.kind==="mqtt"?' other messages':' other serial lines'):'')+(s.outOfOrder?'; '+s.outOfOrder+' out of time order (re-sorted)':'')+(s.capped?'; '+s.capped+' dropped (buffer full)':'')+'.</div>';
   }
   box.innerHTML=h;
 }
@@ -563,9 +582,9 @@ function updateRange(){
 }
 
 /* ---------- loading ---------- */
-function startSource(mode,name,demo){
+function startSource(mode,name,demo,kind){
   stopLive(true);
-  S=fresh(); S.mode=mode; S.source=name; S.demo=demo;
+  S=fresh(); S.mode=mode; S.source=name; S.demo=demo; S.kind=kind||"";
   S.speed=+$("speed").value;
   lastTableK=-1;
   $("srcBadge").textContent=name;
@@ -574,7 +593,10 @@ function startSource(mode,name,demo){
   $("transport").hidden=(mode==="live");
   $("liveBar").hidden=(mode!=="live");
   $("dlBtn").hidden=(mode!=="live");
-  $("serBtn").textContent=(mode==="live")?"Disconnect":"Connect to master (USB)";
+  $("serBtn").textContent=(mode==="live"&&S.kind==="serial")?"Disconnect":"Connect to master (USB)";
+  $("mqBtn").textContent=(mode==="live"&&S.kind==="mqtt")?"MQTT live: disconnect":"MQTT live: connect";
+  if(!(mode==="live"&&S.kind==="mqtt")) setMq("unk","MQTT idle");
+  $("mqCounts").textContent="";
   setPlayBtn();
 }
 function yieldUI(){return new Promise(function(r){setTimeout(r,0)})}
@@ -619,7 +641,7 @@ async function connectSerial(){
   var port;
   try{ port=await navigator.serial.requestPort(); await port.open({baudRate:115200}); }
   catch(e){ if(e&&e.name==="NotFoundError") return; warn("serial","Could not open the serial port: "+(e&&e.message||e)+" (is another program using it?)"); return; }
-  startSource("live","Live: USB serial",false);
+  startSource("live","Live: USB serial",false,"serial");
   S.port=port; S.lastArrival=performance.now();
   $("liveInfo").textContent="Waiting for JSON event lines from the master...";
   showMsgs();
@@ -650,6 +672,119 @@ function stopLive(){
   var r=S.reader;
   S.port=null;
   if(r){try{r.cancel()}catch(e){}}
+  if(S.mq){ var c=S.mq; S.mq=null; if(S.mqTimer){clearInterval(S.mqTimer);S.mqTimer=null} try{c.end(true)}catch(e){} setMq("unk","MQTT idle") }
+}
+
+/* ---------- live (MQTT over WebSocket) ----------
+   Same schema-2 JSON lines as the serial source, one per message on resonance/<site>/<type> (see tools/resonance_mqtt.py and
+   firmware/esp32/include/mqtt_logic.h). Every line goes through parseLine() like in the other sources. MQTT only orders messages
+   per topic, so lines are held briefly and released sorted by t_us (restart/node/sample/event tie-break) before parsing. */
+var MQ={holdMs:2500,waterUs:3e6,resetUs:30e6,tickMs:250,seenMax:800,retainedStateMs:700};
+var SITE_RE=/^[a-z0-9_-]{1,32}$/;
+function setMq(cls,text){ var e=$("mqState"); e.className="pill "+cls; e.textContent=text }
+function mqCountsText(){
+  var s=S.stats, drop=s.bad+s.other+s.capped;
+  return "received "+S.mqRecv+" · dropped "+drop+(S.mqDup?" · duplicates skipped "+S.mqDup:"")+(S.mqMaster?" · master "+S.mqMaster:"");
+}
+function mqRank(o){ switch(o.type){case "meta":return -1;case "restart":return 0;case "node":return 1;case "sample":return 2;default:return 3} }
+function mqFeed(my,text){
+  if(S!==my) return;
+  var res=parseLine(text,true); count(res);
+  showMsgs(); dirty=true; schedule();
+}
+function mqRelease(my,all){
+  if(S!==my||!my.mqBuf.length) return;
+  var now=performance.now(), b=my.mqBuf;
+  b.sort(function(a,c){return a.t-c.t||a.r-c.r||a.seq-c.seq});
+  var n=0;
+  while(n<b.length&&(all||now-b[n].at>=MQ.holdMs||b[n].t<=my.mqMax-MQ.waterUs)) n++;   // a prefix only: nothing released ahead of an earlier line
+  var out=b.splice(0,n);
+  for(var i=0;i<out.length;i++) mqFeed(my,out[i].text);
+}
+function mqPush(my,text){
+  var o=null; try{o=JSON.parse(text)}catch(e){}
+  if(!o||typeof o!=="object"||!isNum(o.t_us)){ mqFeed(my,text); return }   // meta and anything without a time: no ordering needed
+  var t=o.t_us;
+  if(my.mqMax!==null&&t<my.mqMax-MQ.resetUs){ mqRelease(my,true); my.mqMax=null }   // the master's clock restarted: flush the old run first
+  if(my.mqMax===null||t>my.mqMax) my.mqMax=t;
+  my.mqBuf.push({t:t,r:mqRank(o),seq:my.mqSeq++,at:performance.now(),text:text});
+}
+function notifySupported(){ return typeof Notification!=="undefined" }
+function notifyLine(text){
+  if(!notifySupported()||Notification.permission!=="granted") return;
+  var o; try{o=JSON.parse(text)}catch(e){return}
+  if(!o||typeof o!=="object") return;
+  var title=null, body="";
+  if(o.type==="begin"&&(o.class==="LOCAL"||o.class==="BUILDING")){
+    title=o.class==="BUILDING"?"Building-wide vibration event":"Local vibration event at "+(o.slave===1||o.slave===2?lab(o.slave):"a sensor");
+    body="Superframe "+o.sf+(isNum(o.r1)?", r1 "+o.r1.toFixed(1):"")+(isNum(o.r2)?", r2 "+o.r2.toFixed(1):"");
+  } else if(o.type==="node"&&o.state==="DEAD"&&(o.slave===1||o.slave===2)){
+    title="Sensor "+o.slave+" offline ("+lab(o.slave)+")"; body="No valid report for 3 superframes";
+  } else if(o.type==="damage"){
+    title="Damage indication"; body=text.slice(0,140);
+  }
+  if(title){ try{ new Notification(title,{body:body,tag:"resonance-"+o.type+"-"+(o.sf===undefined?"":o.sf)+"-"+(o.slave||0)}) }catch(e){} }
+}
+function updNotifBtn(){
+  var b=$("notifBtn");
+  if(!notifySupported()){b.disabled=true;b.textContent="Notifications not supported";return}
+  var p=Notification.permission;
+  b.disabled=(p!=="default");
+  b.textContent=p==="granted"?"Notifications on":(p==="denied"?"Notifications blocked":"Enable notifications");
+}
+function onMqMessage(my,base,topic,payload,packet){
+  if(S!==my) return;
+  var leaf=topic.indexOf(base)===0?topic.slice(base.length):topic, text;
+  try{ text=new TextDecoder().decode(payload) }catch(e){ text=String(payload) }
+  text=text.replace(/[\r\n]+$/,"");
+  my.mqRecv++;
+  var retained=!!(packet&&packet.retain);
+  if(leaf==="status"){ my.mqMaster=text.slice(0,16); dirty=true; schedule(); return }   // retained online/offline of the master (last will)
+  if(leaf==="state"){
+    // the retained latest decision: only useful for a page that joined late, has nothing yet and whose master is online; live updates repeat the sample/event lines
+    if(retained) setTimeout(function(){ if(S===my&&!my.sm.length&&!my.ev.length&&my.mqMaster!=="offline") mqPush(my,text) },MQ.retainedStateMs);   // not when the master is known to be offline: that decision is stale and its clock would collide with the next run
+    return;
+  }
+  if(!retained||leaf!=="meta"){   // a retained meta of an older run is still wanted (floors); everything else retained is stale
+    if(my.mqSeen.has(text)){ my.mqDup++; return }
+    my.mqSeen.add(text); my.mqSeenQ.push(text);
+    if(my.mqSeenQ.length>MQ.seenMax) my.mqSeen.delete(my.mqSeenQ.shift());
+  }
+  if(!retained) notifyLine(text);
+  mqPush(my,text);
+}
+function connectMqtt(){
+  if(typeof mqtt==="undefined"||!mqtt.connect){
+    warn("mqtt","The MQTT library (vendor/mqtt.min.js, next to this page) is not available, so MQTT live cannot be used. The page keeps working offline.");
+    setMq("bad","MQTT library missing"); return;
+  }
+  var url=$("mqUrl").value.trim(), site=$("mqSite").value.trim().toLowerCase();
+  if(!/^wss?:\/\/[^\s]+$/.test(url)){ warn("mqtt","The broker URL must start with wss:// (or ws://) and be an MQTT-over-WebSocket endpoint, for example wss://broker.hivemq.com:8884/mqtt."); return }
+  if(!SITE_RE.test(site)){ warn("mqtt","The site id must be 1 to 32 characters of a-z, 0-9, - or _ (it is the topic prefix resonance/<site>/)."); return }
+  try{ localStorage.setItem("resonance.mqtt.url",url); localStorage.setItem("resonance.mqtt.site",site) }catch(e){}
+  startSource("live","Live: MQTT "+site,false,"mqtt");
+  var my=S; my.mqSeen=new Set(); my.mqSite=site; my.lastArrival=performance.now();
+  var base="resonance/"+site+"/";
+  var opts={clientId:"resonance-dash-"+Math.random().toString(16).slice(2,10),clean:true,reconnectPeriod:3000,connectTimeout:10000,keepalive:30,protocolVersion:4};
+  if(window.__MQTT_TIMER==="native"||window.__MQTT_TIMER==="worker") opts.timerVariant=window.__MQTT_TIMER;   // default "auto" (worker timers keep pings alive in background tabs); "native" only for headless tests
+  var u=$("mqUser").value; if(u){opts.username=u;opts.password=$("mqPass").value}
+  var c;
+  try{ c=mqtt.connect(url,opts) }catch(e){ warn("mqtt","Could not start the MQTT connection: "+(e&&e.message||e)); setMq("bad","MQTT error"); return }
+  my.mq=c;
+  $("liveInfo").textContent="Waiting for messages on "+base+"+ ...";
+  setMq("unk","MQTT connecting...");
+  c.on("connect",function(){
+    if(S!==my) return;
+    setMq("ok","MQTT connected");
+    c.subscribe(base+"+",{qos:1},function(err){ if(err&&S===my) warn("mqtt","Subscribe failed: "+(err.message||err)) });
+  });
+  c.on("reconnect",function(){ if(S===my) setMq("unk","MQTT reconnecting...") });
+  c.on("offline",function(){ if(S===my) setMq("bad","MQTT offline") });
+  c.on("close",function(){ if(S===my&&my.mq) setMq("bad","MQTT disconnected, retrying") });
+  c.on("error",function(e){ if(S===my) warn("mqtt","MQTT error: "+(e&&e.message||e)+" (wrong URL or port, a blocked network, or bad credentials)") });
+  c.on("message",function(topic,payload,packet){ onMqMessage(my,base,topic,payload,packet) });
+  my.mqTimer=setInterval(function(){ if(S!==my){clearInterval(my.mqTimer);return} mqRelease(my,false); $("mqCounts").textContent=mqCountsText() },MQ.tickMs);
+  showMsgs(); dirty=true; schedule();
 }
 function downloadRaw(){
   // every meta / restart / sample / event line as received (restart lines keep the master's own clock)
@@ -1061,6 +1196,7 @@ function render(now){
     $("timeLbl").textContent=fmtDur((S.playhead-S.t0)/1e6)+" / "+fmtDur(span/1e6);
     $("seek").disabled=!(S.ev.length||S.sm.length);
   }
+  if(live&&S.kind==="mqtt") $("mqCounts").textContent=mqCountsText();
   if(live){
     var any=S.ev.length||S.sm.length;
     $("liveInfo").textContent=any?(S.ev.length+" events, "+S.sm.length+" samples received; log time "+fmtRel(curTime())):(S.eLines.length?"No JSON lines yet (is the master firmware new enough to print them?). E lines received: "+S.eLines.length:"Waiting for JSON event lines from the master...");
@@ -1104,6 +1240,24 @@ $("serBtn").onclick=function(){
   if(S.mode==="live"&&S.port){stopLive();return}
   connectSerial();
 };
+$("mqBtn").onclick=function(){
+  if(S.mode==="live"&&S.kind==="mqtt"&&S.mq){ stopLive(); $("mqBtn").textContent="MQTT live: connect"; $("liveBadge").textContent="○ DISCONNECTED"; $("liveBadge").className="pill bad"; return }
+  connectMqtt();
+};
+$("notifBtn").onclick=function(){
+  if(!notifySupported()) return;
+  try{ var p=Notification.requestPermission(function(){updNotifBtn()}); if(p&&p.then) p.then(updNotifBtn) }catch(e){ updNotifBtn() }
+};
+updNotifBtn();
+(function(){   // remembered / linked settings: ?site=rsn-xxxxxxxx&broker=wss://...&autoconnect=1 (no secrets are stored)
+  try{ var u=localStorage.getItem("resonance.mqtt.url"), s=localStorage.getItem("resonance.mqtt.site"); if(u)$("mqUrl").value=u; if(s)$("mqSite").value=s }catch(e){}
+  try{
+    var q=new URLSearchParams(location.search);
+    if(q.get("broker")) $("mqUrl").value=q.get("broker");
+    if(q.get("site")) $("mqSite").value=q.get("site");
+    if(q.get("autoconnect")==="1") setTimeout(connectMqtt,0);
+  }catch(e){}
+})();
 if(!("serial" in navigator)){
   $("serBtn").disabled=true;
   $("serBtn").title="Web Serial is not available in this browser";
@@ -1119,7 +1273,7 @@ window.addEventListener("drop",function(e){e.preventDefault();dc=0;$("drop").cla
 renderLegend();
 readColors();
 dirty=true; schedule();
-window.__resonance={parseLine:parseLine,normalise:normalise,normaliseSample:normaliseSample,loadText:loadText,seek:setPlayhead,state:function(){return S},render:function(){render(0)}};
+window.__resonance={MQ:MQ,connectMqtt:connectMqtt,parseLine:parseLine,normalise:normalise,normaliseSample:normaliseSample,loadText:loadText,seek:setPlayhead,state:function(){return S},render:function(){render(0)}};
 })();
 </script>
 </body>
