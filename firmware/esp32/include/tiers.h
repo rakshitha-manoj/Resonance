@@ -11,6 +11,7 @@
 #include "transport.h"
 #include "features.h"
 #include "smooth.h"
+#include "slave_pipe.h"
 
 namespace net {
 
@@ -42,13 +43,37 @@ static inline bool finite_f(float x) {
     return (u & 0x7F800000u) != 0x7F800000u;  // exponent all ones => inf or NaN
 }
 
-// Master-side sanity check of a decoded report (CRC already verified).
+// Master-side sanity check of a decoded report (CRC already verified). CORE fields: class/state range, reserved flag bits, the
+// 5 features finite. A failure rejects the whole report (Master::rx_bad_field): rule b and the tree must never be fed garbage.
 static inline bool report_fields_ok(const ReportPkt &r) {
     if (r.raw >= NUM_CLASSES || r.state >= NUM_CLASSES) return false;
     if (r.flags & ~FLAGS_VALID) return false;
     for (int i = 0; i < 5; i++)
         if (!finite_f(r.f[i])) return false;
     return true;
+}
+
+// Plausible ranges of the optional (version 3) fields, enforced only when their flag is set. They also bound the width of the
+// JSON lines (a bad slave must not be able to overflow JSON_LINE_MAX).
+constexpr float F1_PLAUSIBLE_MAX_HZ = 100.0f;  // the sensor's Nyquist is 50 Hz; the tracker only ever reports 3..12 Hz
+
+// OPTIONAL fields: a non-finite or implausible ae_ratio / f1_est / f1_drop whose flag is set makes THAT field unavailable (its
+// flag is cleared) but the report is KEPT: rule b must not lose a window because the AE or the tracker misbehaved.
+// ae: AE_READY needs a finite ratio >= 0. f1: F1_VALID needs a finite f1_est in [0, F1_PLAUSIBLE_MAX_HZ]; F1_COMMISSIONED (the
+// drop is valid) additionally needs a finite f1_drop in [-1, 1] when F1_VALID is set. Each cleared field adds 1 to *ae_bad / *f1_bad.
+static inline void report_sanitize(ReportPkt *r, uint32_t *ae_bad, uint32_t *f1_bad) {
+    if ((r->flags & FLAG_AE_READY) && !(finite_f(r->ae_ratio) && r->ae_ratio >= 0.0f)) {
+        r->flags = (uint8_t)(r->flags & ~FLAG_AE_READY);
+        if (ae_bad) ++*ae_bad;
+    }
+    if ((r->flags & FLAG_F1_VALID) && !(finite_f(r->f1_est) && r->f1_est >= 0.0f && r->f1_est <= F1_PLAUSIBLE_MAX_HZ)) {
+        r->flags = (uint8_t)(r->flags & ~FLAG_F1_VALID);
+        if (f1_bad) ++*f1_bad;
+    }
+    if ((r->flags & FLAG_F1_VALID) && (r->flags & FLAG_F1_COMMISSIONED) && !(finite_f(r->f1_drop) && r->f1_drop >= -1.0f && r->f1_drop <= 1.0f)) {
+        r->flags = (uint8_t)(r->flags & ~FLAG_F1_COMMISSIONED);
+        if (f1_bad) ++*f1_bad;
+    }
 }
 
 // ---------------------------------------------------------------- slave
@@ -71,7 +96,16 @@ struct SlaveStats {
 //     a free-run is the "late beacon" and only re-aligns the timing; anything else is rejected.
 class SlaveNode {
 public:
-    SlaveNode(uint8_t id, Transport *tx) : id_(id), tx_(tx), token_ctr_(0) { reset(); }
+    SlaveNode(uint8_t id, Transport *tx) : id_(id), tx_(tx), pipe_(nullptr), token_ctr_(0) { reset(); }
+
+    // Attach the analytics context (slave_pipe.h: AE + f1 tracker, ~25 KB, owned by the caller). Without one the slave reports
+    // the 5 tree features only (ae_ratio 0, f1 NAN, no AE/F1 flags). reset() resets the context too: a power-on slave
+    // recommissions both. Attach before the first window.
+    void attach(SlaveAnalytics *pipe) {
+        pipe_ = pipe;
+        if (pipe_) pipe_->reset();
+    }
+    SlaveAnalytics *analytics() const { return pipe_; }
 
     // Power-on state. The window token counter is deliberately NOT reset: a delivery that was
     // scheduled before a reset can then never match a window started after it.
@@ -95,7 +129,9 @@ public:
         hist_[0] = hist_[1] = hist_[2] = -1;
         state_ = 0;
         memset(&rep_, 0, sizeof(rep_));
+        rep_.f1_est = rep_.f1_drop = NAN;
         memset(&stats_, 0, sizeof(stats_));
+        if (pipe_) pipe_->reset();
     }
 
     // Host asks: has the slave decided a sampling window must start now?
@@ -121,8 +157,17 @@ public:
             return false;
         }
         float f[5];
-        features(az, gx, f);
-        uint8_t flags = win_flags_;
+        SlaveOut o;
+        if (pipe_) {
+            pipe_->process(az, gx, &o);   // features_ex + AE + f1 tracker; f == features()
+            for (int i = 0; i < 5; i++) f[i] = o.f[i];
+        } else {
+            features(az, gx, f);
+            o.ae_ratio = 0.0f;
+            o.f1_est = o.f1_drop = NAN;
+            o.xflags = 0;
+        }
+        uint8_t flags = (uint8_t)(win_flags_ | o.xflags);
         int raw = apply_noise_gate(f, classify(f), &flags);  // gate BEFORE smoothing
         state_ = smooth_update(hist_, raw, state_);
         rep_.sf = win_sf_;
@@ -132,6 +177,9 @@ public:
         rep_.state = (uint8_t)state_;
         rep_.flags = flags;
         for (int i = 0; i < 5; i++) rep_.f[i] = f[i];
+        rep_.ae_ratio = o.ae_ratio;
+        rep_.f1_est = o.f1_est;
+        rep_.f1_drop = o.f1_drop;
         have_report_ = true;
         busy_ = false;
         return true;
@@ -255,6 +303,7 @@ private:
 
     uint8_t id_;
     Transport *tx_;
+    SlaveAnalytics *pipe_;
     bool have_sync_, lost_, free_run_pending_, busy_, req_pending_, have_report_;
     uint32_t last_sf_, epoch_, missed_, win_sf_, window_ctr_, token_ctr_, win_token_;
     uint64_t next_expected_, win_start_;
@@ -289,6 +338,8 @@ struct MasterStats {
     uint32_t rx_invalid, rx_ignored, rx_duplicate, rx_stale, rx_future;
     uint32_t rx_epoch;         // report from another master epoch
     uint32_t rx_bad_field;     // class/state out of range, reserved flag bits, non-finite feature
+    uint32_t rx_ae_bad;        // reports kept but their AE field dropped (AE_READY with a non-finite / negative ae_ratio)
+    uint32_t rx_f1_bad;        // reports kept but their f1 field(s) dropped (F1_VALID / F1_COMMISSIONED with an unusable value)
     uint32_t rx_unpolled;      // report from a slave not polled in this superframe
     uint32_t tx_failed;        // Transport::broadcast returned false
     uint32_t beacons_skipped;  // grid points skipped because the master fell >= 1 superframe behind
@@ -359,6 +410,7 @@ public:
         int idx = r.h.src - 1;
         if (r.epoch != epoch_) { stats_.rx_epoch++; return; }
         if (!report_fields_ok(r)) { stats_.rx_bad_field++; return; }
+        report_sanitize(&r, &stats_.rx_ae_bad, &stats_.rx_f1_bad);  // optional fields: unavailable, report kept
         if (r.sf < cur_sf_) { stats_.rx_stale++; return; }
         if (r.sf > cur_sf_) { stats_.rx_future++; return; }
         if (got_[idx]) { stats_.rx_duplicate++; return; }

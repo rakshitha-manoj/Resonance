@@ -96,7 +96,8 @@ public:
     }
 };
 static DemoWindows g_demo_src;
-static VirtualNet g_vnet(&g_demo_src);
+static SlaveAnalytics g_vpipes[NUM_SLAVES];   // 2 x 25 KB (AE + f1 tracker of the two virtual slaves), static: never on the loop stack
+static VirtualNet g_vnet(&g_demo_src, g_vpipes);
 static TimedTx g_tx(&g_vnet);
 #  define META_SOURCE "wokwi_demo"   // honest label: simulated traces, not a measurement
 #  define META_FLOOR_1 DEMO_FLOOR_1
@@ -113,7 +114,7 @@ static MqttUplink g_mqtt;
 #endif
 
 // ---- FUSION (R2) ------------------------------------------------------------------------------------
-// JSON-lines event log (schema 2, include/fusion_json.h, the same formatter as netsim --events-jsonl) on the
+// JSON-lines event log (schema 3, include/fusion_json.h, the same formatter as netsim --events-jsonl) on the
 // same serial port as the CSV lines. Printing must never stall polling: a line is written only if the UART TX
 // buffer has room for all of it (Serial.availableForWrite(), the same discipline as print_stats), otherwise it is
 // counted as dropped. Samples (one per superframe) additionally leave JSON_SAMPLE_RESERVE bytes free so they
@@ -151,9 +152,10 @@ class SerialListener : public MasterListener {
 public:
     void on_report(uint8_t slave, const ReportPkt &r, uint64_t now) override {
         g_rtt.on_report(slave, now_us());  // timed from the FIRST poll (attempt 0) of this superframe
-        Serial.printf("R,%u,%u,%u,%u,%u,%u,%u,%.3f,%.3f,%.3f,%.3f,%.3f\r\n", (unsigned)(now / 1000), (unsigned)slave,
+        Serial.printf("R,%u,%u,%u,%u,%u,%u,%u,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.4f\r\n", (unsigned)(now / 1000), (unsigned)slave,
                       (unsigned)r.sf, (unsigned)r.window, (unsigned)r.raw, (unsigned)r.state, (unsigned)r.flags,
-                      (double)r.f[0], (double)r.f[1], (double)r.f[2], (double)r.f[3], (double)r.f[4]);
+                      (double)r.f[0], (double)r.f[1], (double)r.f[2], (double)r.f[3], (double)r.f[4],
+                      (double)r.ae_ratio, (double)r.f1_est, (double)r.f1_drop);
         g_fusion.on_report(slave, r, fus_clock(now));
     }
     void on_status(uint8_t slave, bool alive, uint64_t now) override {
@@ -185,6 +187,8 @@ static void print_stats() {
     Serial.printf("S,rx_proto,invalid=%u,ignored=%u,duplicate=%u,stale=%u,future=%u,epoch=%u,bad_field=%u,unpolled=%u\r\n",
                   (unsigned)s.rx_invalid, (unsigned)s.rx_ignored, (unsigned)s.rx_duplicate, (unsigned)s.rx_stale,
                   (unsigned)s.rx_future, (unsigned)s.rx_epoch, (unsigned)s.rx_bad_field, (unsigned)s.rx_unpolled);
+    Serial.printf("S,rx_optional,ae_dropped=%u,f1_dropped=%u,damage=%d,dmg_begins=%u,dmg_ends=%u\r\n", (unsigned)s.rx_ae_bad, (unsigned)s.rx_f1_bad,
+                  (int)g_fusion.damage_active(), (unsigned)g_fusion.stats().dmg_begins, (unsigned)g_fusion.stats().dmg_ends);
 #ifdef HAVE_RADIO
     print_reject_counts();
     Serial.printf("S,tx_failed=%u,esp_now_send_fail=%u,send_cb_fail=%u,queue_overflow=%u,prefiltered=%u\r\n",
@@ -258,7 +262,7 @@ void setup() {
 #endif
     g_master.reset(now_us() + 1000000, epoch);        // first beacon 1 s from now
     Serial.printf("master epoch=%08x\r\n", (unsigned)epoch);
-    // JSON log, schema 2: the meta line, then a restart line (the host cannot tell a first boot from a reboot, so
+    // JSON log, schema 3: the meta line, then a restart line (the host cannot tell a first boot from a reboot, so
     // prev_epoch is null; a restart line in the middle of a log means the master rebooted and t_us starts again at 0).
     g_json.samples = JSON_SAMPLES != 0;
     {
@@ -273,9 +277,9 @@ void setup() {
         g_json.emit(b, fusion::json::meta_line(b, sizeof b, m), false);
         g_json.emit(b, fusion::json::restart_line(b, sizeof b, fus_clock(now_us()), epoch, 0), false);
     }
-    Serial.println("# R,t_ms,slave,sf,window,raw,state,flags,std_az,kurt_az,dom_az,std_gx,dom_gx");
+    Serial.println("# R,t_ms,slave,sf,window,raw,state,flags,std_az,kurt_az,dom_az,std_gx,dom_gx,ae_ratio,f1_est,f1_drop (flags: 1 low_signal 2 unsynced 4 ae_ready 8 f1_valid 16 f1_commissioned 32 f1_not_commissioned)");
     Serial.println("# E,t_ms,slave,ALIVE|DEAD");
-    Serial.println("# JSON lines (schema 2): {\"type\":\"meta|restart|sample|begin|change|status|node\",...}");
+    Serial.println("# JSON lines (schema 3): {\"type\":\"meta|restart|sample|begin|change|status|node|damage\",...}");
 }
 
 void loop() {
@@ -347,6 +351,7 @@ static NullTx g_tx;  // no radio in the simulator: the slave is fed synthetic be
 static Transport &g_tx = g_radio;
 #endif
 static SlaveNode g_slave(NODE_ID, &g_tx);
+static SlaveAnalytics g_pipe;   // AE + f1 tracker, ~25 KB: STATIC (the loop stack is 8 KB); attached in setup()
 
 enum Mode { M_NET, M_RECORD, M_NOISE };
 static Mode g_mode = M_NET;
@@ -411,9 +416,9 @@ static void run_net_window(uint32_t token) {
     if (q > g_peak_q) g_peak_q = q;
 #endif
     // W,node,sf,window,raw,state,flags,span_us,compute_us,bo_us,max_miss_us,delivered,queued
-    Serial.printf("W,%d,%u,%u,%s,%s,%u,%d,%d,%d,%d,%d,%u\r\n", NODE_ID, (unsigned)g_slave.window_sf(), (unsigned)r.window,
+    Serial.printf("W,%d,%u,%u,%s,%s,%u,%d,%d,%d,%d,%d,%u,%.3f,%.3f,%.4f\r\n", NODE_ID, (unsigned)g_slave.window_sf(), (unsigned)r.window,
                   class_names[r.raw], class_names[r.state], (unsigned)r.flags, (int)wt.span(), (int)(c1 - c0),
-                  (int)(int64_t)(t0 - start), (int)wt.max_miss, (int)ok, (unsigned)q);
+                  (int)(int64_t)(t0 - start), (int)wt.max_miss, (int)ok, (unsigned)q, (double)r.ae_ratio, (double)r.f1_est, (double)r.f1_drop);
     g_win_count++;
 }
 
@@ -501,6 +506,7 @@ void setup() {
     Serial.begin(115200);
     delay(500);
     common_banner("slave");
+    g_slave.attach(&g_pipe);
     Wire.begin(21, 22);
     mpu.initialize();
     if (!mpu.testConnection()) {
@@ -529,7 +535,7 @@ void setup() {
 #else
     Serial.println("WOKWI_STANDALONE: no radio, synthetic beacons every superframe");
 #endif
-    Serial.println("# W,node,sf,window,raw,state,flags,span_us,compute_us,bo_us,max_miss_us,delivered,queued");
+    Serial.println("# W,node,sf,window,raw,state,flags,span_us,compute_us (FULL pipeline: features+AE+zoom+f1 tracker),bo_us,max_miss_us,delivered,queued,ae_ratio,f1_est,f1_drop");
     Serial.println("commands: r = record mode on/off, 0/1/2 = label, n = noise estimate");
 }
 

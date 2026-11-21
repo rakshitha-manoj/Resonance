@@ -5,7 +5,8 @@
 //     SlaveNode state machines after `delay_us`, a slave's reply travels back after another `delay_us`.
 //   * Each slave "samples" for SAMPLE_SPAN_US + compute_us after its beacon, then deliver_window() gets the window
 //     from a VWindowSource (the demo traces); the slave classifies it exactly as on a board (features, noise gate,
-//     smoothing), so reports, fusion decisions and the JSON lines are those of the real code path.
+//     smoothing, and with `pipes` the AE and the f1 tracker), so reports, fusion decisions and the JSON lines are those of the
+//     real code path.
 //   * Lossless and without jitter: this is a demo of the cloud path, not a network test (netsim does that).
 // The host calls service() often (every loop) and sleeps until next_event_us() / Master::next_wakeup().
 #include <stdint.h>
@@ -26,8 +27,14 @@ class VirtualNet : public Transport {
 public:
     static constexpr size_t QUEUE = 8;
 
-    VirtualNet(VWindowSource *src, uint32_t delay_us = 2000, uint32_t compute_us = 30000)
+    // pipes: NUM_SLAVES analytics contexts (slave_pipe.h, ~25 KB each) owned by the CALLER (static on the ESP32, never on the
+    // loop stack), attached to the two slaves; nullptr = tree features only.
+    VirtualNet(VWindowSource *src, SlaveAnalytics *pipes = nullptr, uint32_t delay_us = 2000, uint32_t compute_us = 30000)
         : src_(src), delay_(delay_us), compute_(compute_us), dropped_(0), s1_(1, &tx_[0]), s2_(2, &tx_[1]) {
+        if (pipes) {
+            s1_.attach(&pipes[0]);
+            s2_.attach(&pipes[1]);
+        }
         static_assert(NUM_SLAVES == 2, "VirtualNet hosts exactly two slaves");
         for (uint8_t i = 0; i < NUM_SLAVES; i++) {
             tx_[i].net = this;

@@ -106,11 +106,19 @@ class RefFusion:
     """Event-driven reference: on_report / on_status / advance / flush, closing superframes exactly like Fusion in fusion.h.
 
     Records (tuples): decisions (sf, cls, slave, degraded, r1, r2) and records (kind, cls, slave, degraded, sf, t_ms, r1, r2,
-    base1, base2, alive_mask, closed, n_events); r = -1.0 when unknown, base = 0.0 when not yet known."""
+    base1, base2, alive_mask, closed, n_events); r = -1.0 when unknown, base = 0.0 when not yet known.
+
+    Rule f (Phase C2a, the deployed rule; fusion_eval_r3.py flags_for(): "b OR e"): per slave the std-ratio flag (r >= T_b) and the
+    AE flag (ae_ready and not az_std < gate and ae >= T, T = the AE threshold) are each smoothed 2-of-3 with their OWN history,
+    e_i = b_i or a_i, then decided as rule b (degraded: LOCAL(alive) iff e). Both histories are held while a slave has no report and
+    cleared on ALIVE after DEAD and on a stream restart. on_report takes ae (float32) and ae_ready for it; the other rules ignore them."""
     BASE_MIN = np.float32(1.0)
 
-    def __init__(self, rule, T, use_raw, comm_n=20, status_every=64, max_catchup=32, debounce=1):
+    def __init__(self, rule, T, use_raw, comm_n=20, status_every=64, max_catchup=32, debounce=1, T_b=3.0, gate=GATE32):
         self.rule, self.T, self.use_raw = rule, np.float32(T), bool(use_raw)
+        self.T_b, self.gate = np.float32(T_b), np.float32(gate)
+        self.hist_a = [[-1, -1, -1], [-1, -1, -1]]
+        self.astate = [0, 0]
         self.debounce = int(debounce)
         self.out_key, self.cand, self.cand_n = None, None, 0
         self.comm_n, self.status_every, self.max_catchup = comm_n, status_every, max_catchup
@@ -135,7 +143,7 @@ class RefFusion:
         self.decisions, self.records = [], []
 
     # ---- inputs
-    def on_report(self, slave, sf, raw, state, f0, now_ms):
+    def on_report(self, slave, sf, raw, state, f0, now_ms, ae=0.0, ae_ready=False):
         f0 = np.float32(f0)
         if not np.isfinite(f0) or f0 < 0:
             self.rejected += 1
@@ -153,7 +161,7 @@ class RefFusion:
         elif self.slot_sf != sf:
             self.slots = [None, None]
             self.slot_sf = sf
-        self.slots[i] = (raw, state, f0)
+        self.slots[i] = (raw, state, f0, np.float32(ae), bool(ae_ready))
         if self.slots[0] is not None and self.slots[1] is not None:
             self._close_upto(sf + 1, now_ms)
 
@@ -162,6 +170,8 @@ class RefFusion:
         if alive and not self.alive[i]:
             self.hist[i] = [-1, -1, -1]
             self.estate[i] = 0
+            self.hist_a[i] = [-1, -1, -1]
+            self.astate[i] = 0
         self.alive[i] = bool(alive)
 
     def advance(self, master_sf, polling_active, now_ms):
@@ -188,6 +198,8 @@ class RefFusion:
         self.next_sf = new_sf
         self.hist = [[-1, -1, -1], [-1, -1, -1]]
         self.estate = [0, 0]
+        self.hist_a = [[-1, -1, -1], [-1, -1, -1]]
+        self.astate = [0, 0]
         self.key = None
         self.out_key, self.cand, self.cand_n = None, None, 0
         self.armed = False
@@ -281,17 +293,22 @@ class RefFusion:
         for i in range(2):
             if sl[i] is None:
                 continue
-            raw, state, f0 = sl[i]
+            raw, state, f0, ae, ae_ready = sl[i]
             r[i] = self._ratio(i, f0)
-            self.estate[i] = smooth_update(self.hist[i], 1 if r[i] >= self.T else 0, self.estate[i])
+            tb = self.T_b if self.rule == "f" else self.T
+            self.estate[i] = smooth_update(self.hist[i], 1 if r[i] >= tb else 0, self.estate[i])
             e[i] = self.estate[i] == 1
+            if self.rule == "f":
+                x = ae_ready and not (f0 < self.gate) and ae >= self.T
+                self.astate[i] = smooth_update(self.hist_a[i], 1 if x else 0, self.astate[i])
+                e[i] = e[i] or self.astate[i] == 1
             F[i] = (state == 2) or (self.use_raw and raw == 2)
         n = (sl[0] is not None) + (sl[1] is not None)
         if n == 0:
             return (C_NO_DATA, 0, 0, neg, neg)
         if n == 1:
             i = 0 if sl[0] is not None else 1
-            if self.rule == "b":
+            if self.rule in ("b", "f"):
                 loc = e[i]
             elif self.rule == "c":
                 loc = F[i] and e[i]
@@ -303,7 +320,7 @@ class RefFusion:
                 return (C_BUILDING, 0, 0, r[0], r[1])
             if F[0] or F[1]:
                 return (C_LOCAL, 1 if F[0] else 2, 0, r[0], r[1])
-        elif self.rule == "b":
+        elif self.rule in ("b", "f"):
             if e[0] and e[1]:
                 return (C_BUILDING, 0, 0, r[0], r[1])
             if e[0] or e[1]:

@@ -1,5 +1,5 @@
 #pragma once
-// JSON-lines event log, schema 2 (see .claude/STRUCTURE.md "JSON-lines event log"; line types meta, restart, sample, begin/change/status, node). ONE formatter shared by the PC simulator
+// JSON-lines event log, schema 3 (see .claude/STRUCTURE.md "JSON-lines event log"; line types meta, restart, sample, begin/change/status, node, damage). ONE formatter shared by the PC simulator
 // (netsim --events-jsonl) and the ESP32 master (net_main.cpp), so both write byte-identical lines.
 // Plain C++11, no Arduino, no heap, no stdio, no locale: every number is formatted by hand so the output does not depend on
 // the platform's printf (exponent digits, locale decimal point, %g rules).
@@ -17,7 +17,7 @@
 namespace fusion {
 namespace json {
 
-constexpr int SCHEMA = 2;
+constexpr int SCHEMA = 3;
 constexpr size_t JSON_LINE_MAX = 448;   // a buffer of this size always fits any line below
 
 class Writer {
@@ -69,6 +69,13 @@ public:
     }
     // Ratio: r < 0 (or NaN) = unknown -> null.
     Writer &ratio(float r) { return (r >= 0.0f) ? num((double)r) : null(); }
+    // AE ratio: like ratio() but shown at most AE_SHOW_MAX (a ratio that large is an alarm anyway; it keeps every line short).
+    Writer &ae(float r) { return (r >= 0.0f) ? num((double)(r > 1e9f ? 1e9f : r)) : null(); }
+    // Optional float (f1 in Hz, drop): NaN / inf = unknown -> null (num() does that).
+    Writer &opt(float v) { return num((double)v); }
+    // [a,b] of the above
+    Writer &ae2(const float *v) { ch('['); ae(v[0]); ch(','); ae(v[1]); return ch(']'); }
+    Writer &opt2(const float *v) { ch('['); opt(v[0]); ch(','); opt(v[1]); return ch(']'); }
     // JSON string with escaping: " \ and control characters (< 0x20) as \" \\ \n \r \t \b \f or \u00XX. Bytes >= 0x80 pass through.
     Writer &str(const char *s) {
         put('"');
@@ -123,10 +130,12 @@ static inline size_t meta_line(char *buf, size_t cap, const Meta &m) {
     w.lit(",\"source\":").str(m.source ? m.source : "");
     w.lit(",\"rule\":").str(rs);
     w.lit(",\"T\":").num((double)m.cfg.T);
+    if (m.cfg.rule == 'f') w.lit(",\"T_b\":").num((double)m.cfg.T_b).lit(",\"gate\":").num((double)m.cfg.gate);   // T = the AE threshold
     w.lit(",\"use_raw\":").boolean(m.cfg.use_raw);
     w.lit(",\"debounce\":").u64(m.cfg.debounce);
     w.lit(",\"commission_windows\":").u64(m.cfg.comm_n);
     w.lit(",\"status_every_sf\":").u64(m.cfg.status_every);
+    w.lit(",\"dmg_delta\":").num((double)DMG_DELTA).lit(",\"dmg_p\":").u64((uint64_t)DMG_P);
     w.lit(",\"superframe_s\":").num((double)net::SUPERFRAME_US / 1e6);
     w.lit(",\"floors\":[").i64(m.floor1).ch(',').i64(m.floor2).ch(']');
     w.lit(",\"epoch\":");
@@ -151,6 +160,7 @@ static inline size_t event_line(char *buf, size_t cap, const Event &e) {
     w.lit(",\"degraded_alive\":").u64(e.degraded);
     w.lit(",\"r1\":").ratio(e.r[0]);
     w.lit(",\"r2\":").ratio(e.r[1]);
+    w.lit(",\"ae\":").ae2(e.ae).lit(",\"f1\":").opt2(e.f1).lit(",\"drop\":").opt2(e.drop).lit(",\"dmg\":").u64(e.dmg ? 1 : 0);
     w.lit(",\"base1\":").num((double)e.base[0]);
     w.lit(",\"base2\":").num((double)e.base[1]);
     w.ch(','); alive_pair(w, e.alive_mask);
@@ -170,6 +180,7 @@ static inline size_t sample_line(char *buf, size_t cap, const Sample &s) {
     w.lit(",\"degraded_alive\":").u64(s.degraded);
     w.lit(",\"r1\":").ratio(s.r[0]);
     w.lit(",\"r2\":").ratio(s.r[1]);
+    w.lit(",\"ae\":").ae2(s.ae).lit(",\"f1\":").opt2(s.f1).lit(",\"drop\":").opt2(s.drop).lit(",\"dmg\":").u64(s.dmg ? 1 : 0);
     w.ch(','); alive_pair(w, s.alive_mask);
     w.lit(",\"age\":[");
     for (int i = 0; i < 2; i++) {
@@ -207,6 +218,19 @@ static inline size_t node_line(char *buf, size_t cap, uint64_t t_us, uint32_t sf
     return w.finish();
 }
 
+// DAMAGE begin / end (schema 3). drop = pooled f1 drop of the triggering superframe, f1 = each slave's estimate in it (null = not
+// usable), f1_0 = each slave's commissioned f1 (derived on the master from its last usable report, null = never).
+static inline size_t damage_line(char *buf, size_t cap, const DamageEvent &d) {
+    Writer w(buf, cap);
+    w.lit("{\"type\":\"damage\",\"t_us\":").u64(d.t_us);
+    w.lit(",\"sf\":").u64(d.sf);
+    w.lit(",\"state\":").lit(d.begin ? "\"BEGIN\"" : "\"END\"");
+    w.lit(",\"drop\":").opt(d.drop);
+    w.lit(",\"f1\":").opt2(d.f1).lit(",\"f1_0\":").opt2(d.f1_0);
+    w.ch('}');
+    return w.finish();
+}
+
 // Sink that formats every event and (optionally) every sample as a JSON line and hands it to write_line().
 // write_line returns false if the line could not be written without blocking: it is then counted as dropped, never retried.
 class JsonLineSink : public Sink {
@@ -225,6 +249,11 @@ public:
         char b[JSON_LINE_MAX];
         size_t n = sample_line(b, sizeof b, s);
         emit(b, n, true);
+    }
+    void on_damage(const DamageEvent &d) override {
+        char b[JSON_LINE_MAX];
+        size_t n = damage_line(b, sizeof b, d);
+        emit(b, n, false);
     }
     // Writes one "node" line (slave DEAD / ALIVE); goes through the same counters as events.
     void node(uint64_t t_us, uint32_t sf, uint8_t slave, bool alive) {

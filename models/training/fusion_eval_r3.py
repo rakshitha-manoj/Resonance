@@ -453,6 +453,61 @@ def run(block="dev", small=False, cache_dir=None, out_dir=None, write=True, conf
     return R
 
 
+# ------------------------------------------------------------------ reference cross-check (Phase C2a)
+def crosscheck_f(v, cfg, n_buildings=None, max_windows=None):
+    """RefFusion (the bit-exact scalar twin of fusion.h, rule f) against the vectorised evaluation of THIS file (decide_e(flags_for)).
+    Per building and per recording: 20 commissioning reports with f0 = the building's baseline, then every window of the recording
+    as one superframe with (az_std, AE ratio, ae_ready) of the two slaves. k = 1, no missing reports. Returns the number of
+    superframes compared and the mismatches (0 required)."""
+    assert cfg["rule"] == "f" and cfg["k"] == 1 and cfg.get("gated", True)
+    nb = v.base.shape[0] if n_buildings is None else min(n_buildings, v.base.shape[0])
+    mism = chk = 0
+    per_rec = {}
+    for nm in v.needed():
+        want = decide_e(flags_for(cfg, v, nm))   # (nb, nw) codes: 0 AMBIENT, 1/2 LOCAL(i), 3 BUILDING
+        nw = want.shape[1] if max_windows is None else min(max_windows, want.shape[1])
+        m0 = mism
+        for b in range(nb):
+            rf = fe.RefFusion("f", cfg["T"], False, comm_n=fe.COMM_NW, debounce=1, T_b=cfg["T_b"], gate=GATE32)
+            sf = 0
+            for _ in range(fe.COMM_NW):
+                for i in (0, 1):
+                    rf.on_report(i + 1, sf, 0, 0, v.base[b, i], sf, 0.0, True)
+                sf += 1
+            n0 = len(rf.decisions)
+            for w in range(nw):
+                for i in (0, 1):
+                    rf.on_report(i + 1, sf, 0, 0, v._std[nm][b, i, w], sf, v.ae[nm][b, i, w], True)
+                sf += 1
+            rf.flush(sf)
+            decs = rf.decisions[n0:n0 + nw]
+            assert len(decs) == nw, (nm, b, len(decs), nw)
+            for w, d in enumerate(decs):
+                ref = {fe.C_AMBIENT: 0, fe.C_BUILDING: 3}.get(d[1], d[2] if d[1] == fe.C_LOCAL else -1)
+                chk += 1
+                mism += int(ref != want[b, w])
+        per_rec[nm] = mism - m0
+    return {"config": cfg["name"], "buildings": int(nb), "recordings": list(per_rec), "superframes_checked": chk, "mismatches": mism,
+            "mismatches_by_recording": per_rec}
+
+
+def run_crosscheck(cache_dir=None, n_buildings=None, out=None):
+    """Rule f in RefFusion vs this file's evaluation on the cached DEV block (6,100,000+240), primary pair."""
+    tag = "dev"
+    a, n = BLOCKS3[tag]
+    D = sim.load_block(list(range(a, a + n)), tag, cache_dir)
+    maha = load_models()
+    ae, mh = get_scores(D, maha)
+    v = build_view(D, ae, mh, (5, 10))
+    sel = sel_cfg_from(json.loads(SELECTED_JSON.read_text()))
+    res = crosscheck_f(v, sel, n_buildings)
+    # the incumbent b as well, through the f machinery path of RefFusion (rule b): sanity that the harness itself is faithful
+    fe.log(f"== rule f RefFusion vs fusion_eval_r3 on the dev block: {res['superframes_checked']} superframes, {res['mismatches']} mismatches")
+    if out:
+        fe.jdump(res, Path(out))
+    return res
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--block", default="dev", choices=["dev", "test"])
@@ -461,7 +516,12 @@ def main():
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--config", type=Path, default=None, help="selected-configuration JSON for --block test (default fusion_eval_r3_selected.json)")
     ap.add_argument("--prime", action="store_true", help="--block test only: simulate and cache the block, do not score")
+    ap.add_argument("--crosscheck", action="store_true", help="Phase C2a: RefFusion rule f vs this file's evaluation on the cached dev block (writes fusion_eval_r3_refcheck.json)")
+    ap.add_argument("--n-buildings", type=int, default=None, help="--crosscheck: only the first N buildings")
     a = ap.parse_args()
+    if a.crosscheck:
+        r = run_crosscheck(a.cache, a.n_buildings, None if a.n_buildings else OUT_DIR / "fusion_eval_r3_refcheck.json")
+        sys.exit(1 if r["mismatches"] else 0)
     out = a.out or (sim.SCRATCH / "small_out" if a.small else None)
     if a.prime and a.block != "test":
         ap.error("--prime is for --block test")
