@@ -1,11 +1,13 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#define _USE_MATH_DEFINES
 #include <math.h>
 #include <vector>
 #include <unity.h>
 #include "features.h"
 #include "smooth.h"
+#include "spectrum.h"
 
 struct Rec {
     int16_t az[128];
@@ -80,9 +82,137 @@ void test_smooth(void) {
     TEST_ASSERT_EQUAL_INT(0, bad);
 }
 
+static bool next_rec(FILE *fp, Rec &r) {
+    unsigned char buf[556];
+    if (fread(buf, 1, 556, fp) != 556) return false;
+    memcpy(r.az, buf, 256);
+    memcpy(r.gx, buf + 256, 256);
+    memcpy(&r.cls, buf + 512, 4);
+    memcpy(r.feat, buf + 516, 40);
+    return true;
+}
+
+void test_spec_power_domfreq(void) {
+    FILE *fp = fopen(WINDOWS_BIN, "rb");
+    TEST_ASSERT_NOT_NULL(fp);
+    Rec r;
+    int n = 0, bad = 0, bad_ex = 0;
+    while (next_rec(fp, r)) {
+        float p[64];
+        spec_power(r.az, p);
+        int bk = 0;
+        for (int k = 1; k < 64; k++)
+            if (p[k] > p[bk]) bk = k;
+        float f[5], f2[5], p2[64];
+        features(r.az, r.gx, f);
+        features_ex(r.az, r.gx, f2, p2);
+        if ((bk + 1) * BIN_HZ != f[2] || f[2] != feat_domfreq(r.az)) bad++;
+        for (int j = 0; j < 5; j++) if (f[j] != f2[j]) bad_ex++;
+        for (int k = 0; k < 64; k++) if (p[k] != p2[k]) bad_ex++;
+        n++;
+    }
+    fclose(fp);
+    printf("spec_power argmax vs feat_domfreq: windows=%d mismatches=%d, features_ex diffs=%d\n", n, bad, bad_ex);
+    TEST_ASSERT_EQUAL_INT(6000, n);
+    TEST_ASSERT_EQUAL_INT(0, bad);
+    TEST_ASSERT_EQUAL_INT(0, bad_ex);
+}
+
+void test_spec_bands(void) {
+    FILE *fp = fopen(WINDOWS_BIN, "rb");
+    TEST_ASSERT_NOT_NULL(fp);
+    Rec r;
+    int n = 0;
+    double worst = 0;
+    while (next_rec(fp, r) && n < 600) {
+        float p[64], b[16];
+        spec_power(r.az, p);
+        spec_bands(p, b);
+        double mean = 0;
+        for (int i = 0; i < 128; i++) mean += r.az[i];
+        mean /= 128;
+        for (int bb = 0; bb < 16; bb++) {
+            double s = 0;
+            for (int k = 4 * bb + 1; k <= 4 * bb + 4; k++) {
+                double re = 0, im = 0;
+                for (int i = 0; i < 128; i++) {
+                    double ph = 2 * M_PI * (double)((k * i) & 127) / 128.0;
+                    re += (r.az[i] - mean) * cos(ph);
+                    im += (r.az[i] - mean) * sin(ph);
+                }
+                s += re * re + im * im;
+            }
+            double want = log(s + 1.0);
+            double rel = fabs(b[bb] - want) / fabs(want);
+            if (rel > worst) worst = rel;
+        }
+        n++;
+    }
+    fclose(fp);
+    printf("spec_bands max rel err vs double reference (%d windows) = %.3g\n", n, worst);
+    TEST_ASSERT_TRUE(worst < 1e-5);
+}
+
+static double ref_zoom(const int16_t *x, double f, double *mean_out) {
+    double mean = 0;
+    for (int i = 0; i < 128; i++) mean += x[i];
+    mean /= 128;
+    (void)mean_out;
+    double re = 0, im = 0;
+    for (int i = 0; i < 128; i++) {
+        double w = 0.5 - 0.5 * cos(2 * M_PI * i / 127.0);
+        double ph = 2 * M_PI * f * i / 100.0;
+        re += (x[i] - mean) * w * cos(ph);
+        im += (x[i] - mean) * w * sin(ph);
+    }
+    return re * re + im * im;
+}
+
+void test_spec_zoom(void) {
+    FILE *fp = fopen(WINDOWS_BIN, "rb");
+    TEST_ASSERT_NOT_NULL(fp);
+    Rec r;
+    int n = 0;
+    double worst = 0;
+    while (next_rec(fp, r)) {
+        if (n++ % 60) continue;  /* 100 windows */
+        float z[SPEC_ZOOM_N];
+        spec_zoom(r.az, z);
+        double ref[SPEC_ZOOM_N], mx = 0;
+        for (int j = 0; j < SPEC_ZOOM_N; j++) {
+            ref[j] = ref_zoom(r.az, 3.0 + 0.05 * j, NULL);
+            if (ref[j] > mx) mx = ref[j];
+        }
+        for (int j = 0; j < SPEC_ZOOM_N; j++) {
+            double e = fabs(z[j] - ref[j]) / mx;
+            if (e > worst) worst = e;
+        }
+    }
+    fclose(fp);
+    printf("spec_zoom max err relative to spectrum max = %.3g\n", worst);
+    TEST_ASSERT_TRUE(worst < 1e-4);
+}
+
+void test_spec_peak_sines(void) {
+    const double fs[3] = {4.37, 7.0, 9.91};
+    for (int t = 0; t < 3; t++) {
+        int16_t x[128];
+        for (int i = 0; i < 128; i++) x[i] = (int16_t)lrint(500.0 * sin(2 * M_PI * fs[t] * i / 100.0 + 0.3));
+        float z[SPEC_ZOOM_N];
+        spec_zoom(x, z);
+        float hz = spec_peak(z, SPEC_ZOOM_N, SPEC_ZOOM_F0, SPEC_ZOOM_DF);
+        printf("spec_peak sine %.2f Hz -> %.4f\n", fs[t], hz);
+        TEST_ASSERT_TRUE(fabs(hz - fs[t]) < 0.02);
+    }
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_all_windows);
     RUN_TEST(test_smooth);
+    RUN_TEST(test_spec_power_domfreq);
+    RUN_TEST(test_spec_bands);
+    RUN_TEST(test_spec_zoom);
+    RUN_TEST(test_spec_peak_sines);
     return UNITY_END();
 }
