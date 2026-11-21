@@ -410,12 +410,12 @@ public:
         int idx = r.h.src - 1;
         if (r.epoch != epoch_) { stats_.rx_epoch++; return; }
         if (!report_fields_ok(r)) { stats_.rx_bad_field++; return; }
-        report_sanitize(&r, &stats_.rx_ae_bad, &stats_.rx_f1_bad);  // optional fields: unavailable, report kept
         if (r.sf < cur_sf_) { stats_.rx_stale++; return; }
         if (r.sf > cur_sf_) { stats_.rx_future++; return; }
         if (got_[idx]) { stats_.rx_duplicate++; return; }
         if (phase_ != POLLING) { stats_.rx_stale++; return; }  // after polling closed: too late
         if (!polled_[idx]) { stats_.rx_unpolled++; return; }   // never asked in this superframe
+        report_sanitize(&r, &stats_.rx_ae_bad, &stats_.rx_f1_bad);  // ACCEPTED report only: optional fields unavailable, report kept
         got_[idx] = true;
         have_[idx] = true;
         latest_[idx] = r;

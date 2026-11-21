@@ -149,6 +149,9 @@ class RefFusion:
             self.rejected += 1
             return
         i = slave - 1
+        ae = np.float32(ae)
+        if ae_ready and not (np.isfinite(ae) and ae >= 0):
+            ae_ready = False   # same sanitising as fusion.h / net::report_sanitize: an unusable ratio is "not ready", never an alarm
         if not self.started:
             self.started = True
             self.next_sf = sf

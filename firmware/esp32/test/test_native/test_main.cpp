@@ -168,6 +168,60 @@ static double ref_zoom(const int16_t *x, double f, double *mean_out) {
     return re * re + im * im;
 }
 
+// Reference one-frequency Goertzel loop (the pre-interleave spec_zoom): spec_zoom now runs four frequencies per pass and must be
+// BIT-identical to it.
+static void spec_zoom_ref(const int16_t *az, float *z) {
+    int32_t sum = 0;
+    for (int i = 0; i < WIN_N; i++) sum += az[i];
+    float mean = (float)sum / WIN_N;
+    float d[WIN_N];
+    for (int i = 0; i < WIN_N; i++) d[i] = ((float)az[i] - mean) * spec_hann[i];
+    for (int j = 0; j < SPEC_ZOOM_N; j++) {
+        float c = spec_zoom_coeff[j];
+        float s1 = 0.0f, s2 = 0.0f;
+        for (int n = 0; n < WIN_N; n++) {
+            float s0 = d[n] + c * s1 - s2;
+            s2 = s1;
+            s1 = s0;
+        }
+        z[j] = s1 * s1 + s2 * s2 - c * s1 * s2;
+    }
+}
+
+void test_spec_zoom_interleaved_bit_identical(void) {
+    FILE *fp = fopen(WINDOWS_BIN, "rb");
+    TEST_ASSERT_NOT_NULL(fp);
+    std::vector<unsigned char> buf(556);
+    int n = 0, bad = 0;
+    float za[SPEC_ZOOM_N], zb[SPEC_ZOOM_N];
+    while (fread(buf.data(), 1, 556, fp) == 556) {
+        int16_t az[128];
+        memcpy(az, buf.data(), 256);
+        spec_zoom(az, za);
+        spec_zoom_ref(az, zb);
+        if (memcmp(za, zb, sizeof za) != 0) bad++;
+        n++;
+    }
+    fclose(fp);
+    // random windows, incl. extremes and a constant window
+    unsigned s = 12345;
+    int nr = 0;
+    for (int w = 0; w < 5000; w++) {
+        int16_t az[128];
+        for (int i = 0; i < 128; i++) {
+            s = s * 1103515245u + 12345u;
+            az[i] = (w % 50 == 0) ? (int16_t)7 : (w % 50 == 1) ? (int16_t)((i & 1) ? 32767 : -32768) : (int16_t)(s >> 16);
+        }
+        spec_zoom(az, za);
+        spec_zoom_ref(az, zb);
+        if (memcmp(za, zb, sizeof za) != 0) bad++;
+        nr++;
+    }
+    printf("spec_zoom 4-way vs reference: %d dataset + %d random windows, %d bit mismatches\n", n, nr, bad);
+    TEST_ASSERT_EQUAL_INT(6000, n);
+    TEST_ASSERT_EQUAL_INT(0, bad);
+}
+
 void test_spec_zoom(void) {
     FILE *fp = fopen(WINDOWS_BIN, "rb");
     TEST_ASSERT_NOT_NULL(fp);
@@ -252,6 +306,7 @@ int main(int, char **) {
     RUN_TEST(test_spec_power_domfreq);
     RUN_TEST(test_spec_bands);
     RUN_TEST(test_spec_zoom);
+    RUN_TEST(test_spec_zoom_interleaved_bit_identical);
     RUN_TEST(test_spec_peak_sines);
     return UNITY_END();
 }

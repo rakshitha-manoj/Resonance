@@ -34,14 +34,33 @@ static inline void spec_bands(const float *p, float *out) {
         out[b] = logf(p[4 * b] + p[4 * b + 1] + p[4 * b + 2] + p[4 * b + 3] + 1.0f);
 }
 
-/* Goertzel power of the mean-removed, Hann-windowed az at f_j = F0 + j*DF. */
+/* Goertzel power of the mean-removed, Hann-windowed az at f_j = F0 + j*DF.
+   Four frequencies per pass over the window: each keeps its OWN recurrence in the original operation order, so the result is
+   bit-identical to the one-frequency loop (test_native checks it on the 6000 dataset windows and random windows) while the four
+   independent chains overlap (host 79 -> 20 us). The tail (181 = 45 x 4 + 1) is done one frequency at a time. */
 static inline void spec_zoom(const int16_t *az, float *z) {
     int32_t sum = 0;
     for (int i = 0; i < WIN_N; i++) sum += az[i];
     float mean = (float)sum / WIN_N;
     float d[WIN_N];
     for (int i = 0; i < WIN_N; i++) d[i] = ((float)az[i] - mean) * spec_hann[i];
-    for (int j = 0; j < SPEC_ZOOM_N; j++) {
+    int j = 0;
+    for (; j + 4 <= SPEC_ZOOM_N; j += 4) {
+        float c0 = spec_zoom_coeff[j], c1 = spec_zoom_coeff[j + 1], c2 = spec_zoom_coeff[j + 2], c3 = spec_zoom_coeff[j + 3];
+        float a1 = 0.0f, a2 = 0.0f, b1 = 0.0f, b2 = 0.0f, e1 = 0.0f, e2 = 0.0f, g1 = 0.0f, g2 = 0.0f;
+        for (int n = 0; n < WIN_N; n++) {
+            float x = d[n];
+            float a0 = x + c0 * a1 - a2; a2 = a1; a1 = a0;
+            float b0 = x + c1 * b1 - b2; b2 = b1; b1 = b0;
+            float e0 = x + c2 * e1 - e2; e2 = e1; e1 = e0;
+            float g0 = x + c3 * g1 - g2; g2 = g1; g1 = g0;
+        }
+        z[j] = a1 * a1 + a2 * a2 - c0 * a1 * a2;
+        z[j + 1] = b1 * b1 + b2 * b2 - c1 * b1 * b2;
+        z[j + 2] = e1 * e1 + e2 * e2 - c2 * e1 * e2;
+        z[j + 3] = g1 * g1 + g2 * g2 - c3 * g1 * g2;
+    }
+    for (; j < SPEC_ZOOM_N; j++) {
         float c = spec_zoom_coeff[j];
         float s1 = 0.0f, s2 = 0.0f;
         for (int n = 0; n < WIN_N; n++) {

@@ -225,9 +225,10 @@ static inline size_t damage_line(char *buf, size_t cap, const DamageEvent &d) {
     Writer w(buf, cap);
     w.lit("{\"type\":\"damage\",\"t_us\":").u64(d.t_us);
     w.lit(",\"sf\":").u64(d.sf);
-    w.lit(",\"state\":").lit(d.begin ? "\"BEGIN\"" : "\"END\"");
+    w.lit(",\"state\":").lit(d.baseline_slave ? "\"BASELINE\"" : d.begin ? "\"BEGIN\"" : "\"END\"");
     w.lit(",\"drop\":").opt(d.drop);
     w.lit(",\"f1\":").opt2(d.f1).lit(",\"f1_0\":").opt2(d.f1_0);
+    if (d.baseline_slave) w.lit(",\"slave\":").u64(d.baseline_slave);   // BASELINE only: that slave's f1_0 was reset (recommissioned)
     w.ch('}');
     return w.finish();
 }

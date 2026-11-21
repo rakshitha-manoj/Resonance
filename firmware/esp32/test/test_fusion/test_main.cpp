@@ -1317,8 +1317,8 @@ struct DRig {
         in.f1_drop = drop;
         f.on_report_ex((uint8_t)slave, sf, in, t());
     }
-    void both(float d1, float d2) {   // f1_0 = 5 and 6 Hz
-        onex(1, 5.0f * (1.0f - d1), d1);
+    void both(float d1, float d2, float f1_0_1 = 5.0f) {   // f1_0 = f1_0_1 (default 5) and 6 Hz
+        onex(1, f1_0_1 * (1.0f - d1), d1);
         onex(2, 6.0f * (1.0f - d2), d2);
         sf++;
     }
@@ -1367,7 +1367,7 @@ static void test_damage_missing_slave_and_no_report_hold() {
     DRig r(cfgf(6.0f));
     for (int i = 0; i < 3; i++) r.both(0.0f, 0.0f);
     // slave 2 reports nothing for a stretch (its superframes are closed by the master finishing its polling): only slave 1 pools
-    for (int i = 0; i < DMG_P; i++) {
+    for (int i = 0; i < 2 * DMG_P + 2; i++) {
         r.f.advance(r.sf, true, r.t() - 1000);
         r.onex(1, 5.0f * 0.97f, 0.03f);
         r.f.advance(r.sf, false, r.t() + 1000);
@@ -1391,15 +1391,23 @@ static void test_damage_missing_slave_and_no_report_hold() {
         r.sf++;
     }
     TEST_ASSERT_TRUE(r.f.damage_active());
-    // slave 1's DEAD slot does not count either; back with a low drop: END after P
-    for (int i = 0; i < DMG_P; i++) {
+    // slave 1 (the BEGIN contributor) is still missing: slave 2 alone with a low drop must NOT end the damage (contributor guard)
+    for (int i = 0; i < 3 * DMG_P; i++) {
         r.f.advance(r.sf, true, r.t() - 1000);
         r.onex(2, 6.0f, 0.0f);
         r.f.advance(r.sf, false, r.t() + 1000);
         r.sf++;
     }
+    TEST_ASSERT_TRUE(r.f.damage_active());
+    // slave 1 is back (commissioned, low drop): END after P
+    for (int i = 0; i < DMG_P; i++) {
+        r.onex(1, 5.0f, 0.0f);
+        r.onex(2, 6.0f, 0.0f);
+        r.sf++;
+    }
     TEST_ASSERT_FALSE(r.f.damage_active());
-    TEST_ASSERT_EQUAL_UINT32(2, (uint32_t)r.col.dmg.size());
+    TEST_ASSERT_EQUAL_UINT32(4, (uint32_t)r.col.dmg.size());   // BEGIN, a BASELINE note for each slave (both went uncommissioned -> commissioned), END
+    TEST_ASSERT_EQUAL_UINT32(2, r.f.stats().baselines);
     // fresh start without any commissioned slave: nothing ever happens
     DRig q(cfgf(6.0f));
     for (int i = 0; i < 200; i++) { q.onex(1, 5.0f, NAN); q.onex(2, 5.0f, NAN); q.sf++; }
@@ -1421,6 +1429,90 @@ static void test_damage_survives_stream_restart_and_status() {
 }
 
 // ------------------------------------------------------------------ schema 3: damage line, sink order, widths
+// DAMAGE contributor guard (the verifier's scenario: the slave that sees the damage reboots, the other one sees nothing)
+static void test_damage_guard_lost_contributor_cannot_end_damage() {
+    DRig r(cfgf(6.0f));
+    for (int i = 0; i < 3; i++) r.both(0.0f, 0.0f);
+    for (int i = 0; i < DMG_P; i++) r.both(0.05f, 0.0f);          // pooled 0.025 >= 2 %, only slave 1 really sees it
+    TEST_ASSERT_TRUE(r.f.damage_active());
+    TEST_ASSERT_EQUAL_UINT32(1, (uint32_t)r.col.dmg.size());
+    // slave 1 reboots: for 200 superframes only slave 2 reports (drop 0), then slave 1 reports NOT commissioned for 95 windows
+    for (int i = 0; i < 200; i++) {
+        r.f.advance(r.sf, true, r.t() - 1000);
+        r.onex(2, 6.0f, 0.0f);
+        r.f.advance(r.sf, false, r.t() + 1000);
+        r.sf++;
+    }
+    TEST_ASSERT_TRUE(r.f.damage_active());                         // before the guard: END after 32 superframes of slave 2 alone
+    TEST_ASSERT_EQUAL_UINT32(1, (uint32_t)r.col.dmg.size());
+    TEST_ASSERT_TRUE(r.f.stats().dmg_held > 150);
+    for (int i = 0; i < 95; i++) { r.onex(1, 5.0f, NAN); r.onex(2, 6.0f, 0.0f); r.sf++; }   // slave 1 back, recommissioning (no drop yet)
+    TEST_ASSERT_TRUE(r.f.damage_active());
+    TEST_ASSERT_EQUAL_UINT32(0, r.f.stats().baselines);
+    // slave 1 commissions again ON THE DAMAGED STRUCTURE: its new f1_0 is the damaged f1, drop 0 -> a BASELINE note, then a legitimate END
+    for (int i = 0; i < DMG_P + 2; i++) r.both(0.0f, 0.0f, 5.0f * 0.95f);   // slave 1 f1_0 now 4.75 (was 5.0): f1_0 jumped, and COMMISSIONED false -> true
+    TEST_ASSERT_EQUAL_UINT32(1, r.f.stats().baselines);
+    int nb = 0, nend = 0;
+    for (size_t i = 0; i < r.col.dmg.size(); i++) {
+        if (r.col.dmg[i].baseline_slave == 1) { nb++; TEST_ASSERT_FLOAT_WITHIN(1e-3f, 4.75f, r.col.dmg[i].f1_0[0]); }
+        if (r.col.dmg[i].baseline_slave == 0 && !r.col.dmg[i].begin) nend++;
+    }
+    TEST_ASSERT_EQUAL_INT(1, nb);
+    TEST_ASSERT_EQUAL_INT(1, nend);
+    TEST_ASSERT_FALSE(r.f.damage_active());
+}
+
+static void test_damage_guard_lost_low_drop_slave_cannot_hurry_a_begin() {
+    DRig r(cfgf(6.0f));
+    for (int i = 0; i < 3; i++) r.both(0.0f, 0.0f);
+    for (int i = 0; i < 10; i++) r.both(0.03f, 0.0f);              // pooled 0.015: below delta, a run does not build
+    // slave 2 (the low-drop one) disappears: slave 1 alone would read 0.03 >= 2 %
+    uint32_t sf0 = r.sf;
+    int begin_after = -1;
+    for (int i = 0; i < 120; i++) {
+        r.f.advance(r.sf, true, r.t() - 1000);
+        r.onex(1, 5.0f * 0.97f, 0.03f);
+        r.f.advance(r.sf, false, r.t() + 1000);
+        r.sf++;
+        if (begin_after < 0 && r.f.damage_active()) begin_after = i + 1;
+    }
+    TEST_ASSERT_TRUE(r.f.stats().dmg_held >= 20);
+    TEST_ASSERT_TRUE_MESSAGE(begin_after > DMG_P + DMG_P - 4, "no BEGIN until slave 2 has left the reference set and slave 1 alone ran P superframes");
+    TEST_ASSERT_TRUE(begin_after <= 2 * DMG_P + 1);                 // it still comes: slave 1's own P-run is genuine evidence
+    (void)sf0;
+    // a SHORT dropout (3 superframes) is pooled over the rest and does not delay anything
+    DRig q(cfgf(6.0f));
+    for (int i = 0; i < 3; i++) q.both(0.0f, 0.0f);
+    int b2 = -1;
+    for (int i = 0; i < 60; i++) {
+        if (i >= 10 && i < 13) {
+            q.f.advance(q.sf, true, q.t() - 1000);
+            q.onex(1, 5.0f * 0.95f, 0.05f);
+            q.f.advance(q.sf, false, q.t() + 1000);
+            q.sf++;
+        } else q.both(0.05f, 0.05f);
+        if (b2 < 0 && q.f.damage_active()) b2 = i + 1;
+    }
+    TEST_ASSERT_EQUAL_INT(DMG_P, b2);
+    TEST_ASSERT_EQUAL_UINT32(0, q.f.stats().dmg_held);
+}
+
+static void test_json_damage_baseline_line() {
+    char b[J::JSON_LINE_MAX];
+    DamageEvent d;
+    d.t_us = 5;
+    d.sf = 7;
+    d.begin = false;
+    d.baseline_slave = 1;
+    d.drop = NAN;
+    d.f1[0] = 4.75f;
+    d.f1[1] = NAN;
+    d.f1_0[0] = 4.75f;
+    d.f1_0[1] = 6.0f;
+    J::damage_line(b, sizeof b, d);
+    TEST_ASSERT_EQUAL_STRING("{\"type\":\"damage\",\"t_us\":5,\"sf\":7,\"state\":\"BASELINE\",\"drop\":null,\"f1\":[4.75,null],\"f1_0\":[4.75,6],\"slave\":1}\n", b);
+}
+
 static void test_json_damage_line_and_sink_order() {
     char b[J::JSON_LINE_MAX];
     DamageEvent d;
@@ -1648,6 +1740,9 @@ int main(int, char **) {
     RUN_TEST(test_damage_begin_end_and_pooling);
     RUN_TEST(test_damage_missing_slave_and_no_report_hold);
     RUN_TEST(test_damage_survives_stream_restart_and_status);
+    RUN_TEST(test_damage_guard_lost_contributor_cannot_end_damage);
+    RUN_TEST(test_damage_guard_lost_low_drop_slave_cannot_hurry_a_begin);
+    RUN_TEST(test_json_damage_baseline_line);
     RUN_TEST(test_json_damage_line_and_sink_order);
     RUN_TEST(test_json_schema3_worst_case_widths);
     RUN_TEST(test_netsim_rule_f_end_to_end);

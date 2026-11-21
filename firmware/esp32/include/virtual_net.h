@@ -49,7 +49,11 @@ public:
 
     // Master -> slaves (the master's Transport).
     bool broadcast(const uint8_t *buf, size_t len, uint64_t now) override {
-        for (uint8_t i = 0; i < NUM_SLAVES; i++) sl(i).on_packet(buf, len, now + delay_);
+        bool poll = len > 1 && buf[1] == T_POLL;
+        for (uint8_t i = 0; i < NUM_SLAVES; i++) {
+            if (poll && pending_[i]) continue;  // still "sampling" (before its due time): a real slave is deaf then
+            sl(i).on_packet(buf, len, now + delay_);
+        }
         harvest_requests();
         return true;
     }
@@ -63,12 +67,7 @@ public:
         }
         harvest_requests();
         for (uint8_t i = 0; i < NUM_SLAVES; i++) {
-            if (pending_[i] && now >= due_[i]) {
-                pending_[i] = false;
-                int16_t az[WIN_N], gx[WIN_N];
-                src_->get((uint8_t)(i + 1), sl(i).window_sf(), az, gx);
-                sl(i).deliver_window(token_[i], az, gx, due_[i]);
-            }
+            if (pending_[i] && now >= due_[i]) pending_[i] = false;   // the window is "complete": the slave may answer polls now
         }
         for (;;) {  // frames to the master, oldest first
             int k = -1;
@@ -123,12 +122,18 @@ private:
         return false;
     }
 
-    // A beacon (or a free-run tick) may have asked a slave for a window: it completes SAMPLE_SPAN_US + compute later.
+    // A beacon (or a free-run tick) asked a slave for a window. The trace window is available at once, so the slave's FULL pipeline
+    // (features, AE, zoom, f1 tracker: tens of ms on a slow host, in Wokwi) runs RIGHT NOW, right after the beacon, not at the
+    // sampling-complete time where it would delay the master's poll schedule (two slaves back to back at 1.32 s made the polls late).
+    // The slave stays deaf to polls until the modelled completion time start + SAMPLE_SPAN_US + compute_ (released in service()).
     void harvest_requests() {
         for (uint8_t i = 0; i < NUM_SLAVES; i++) {
             uint32_t tok = sl(i).take_window_request();
             if (!tok) continue;
-            token_[i] = tok;  // a still-pending older window is abandoned by the slave (its token is stale)
+            token_[i] = tok;
+            int16_t az[WIN_N], gx[WIN_N];
+            src_->get((uint8_t)(i + 1), sl(i).window_sf(), az, gx);
+            sl(i).deliver_window(tok, az, gx, sl(i).window_start());
             due_[i] = sl(i).window_start() + SAMPLE_SPAN_US + compute_;
             pending_[i] = true;
         }

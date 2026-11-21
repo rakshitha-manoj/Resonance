@@ -47,6 +47,11 @@
 // drops >= DMG_DELTA, END after DMG_P below DMG_DELTA/2 (Sink::on_damage). It is fed during fusion commissioning too and survives a
 // stream restart (it describes the structure, not the stream). The commissioned f1_0 of a slave is derived on the master as
 // f1_est / (1 - f1_drop) from its last usable report.
+// Contributor guard: the DAMAGE state is defined by the slaves that contributed at the last transition. If one of them has had no usable
+// drop for DMG_ABSENT_HOLD (8) superframes, the decision is HELD and the run counters restart (stats.dmg_held): ACTIVE damage can then
+// not end (the slave that saw it may have rebooted and the other would see nothing), INACTIVE a member absent for a full P leaves the set.
+// A slave whose f1_0 is reset (COMMISSIONED false -> true after having been true, or f1_0 jumping by > 0.5 %) is announced with a
+// DamageEvent whose baseline_slave is 1 or 2 (JSON damage line, state BASELINE). f1_0, the AE normaliser and the b baseline are RAM-only.
 // Master restart: a report or advance with a superframe number below the next unclosed one restarts the stream (superframe
 // numbering restarts), keeping baselines. A jump of more than MAX_CATCHUP_SF superframes is skipped, not replayed.
 #include <stdint.h>
@@ -74,6 +79,7 @@ constexpr float    LOCAL_OTHER_MAX = 1.5f;   // rule c
 constexpr float    BASELINE_MIN = 1.0f;      // counts; guards the division
 constexpr uint32_t STATUS_EVERY_SF = 64;     // periodic status, about 90 s
 constexpr uint32_t MAX_CATCHUP_SF = 32;
+constexpr uint8_t  DMG_ABSENT_HOLD = 8;      // superframes (11 s) a DAMAGE contributor may be missing before the decision is held
 
 enum Cls : uint8_t { COMMISSIONING = 0, AMBIENT = 1, LOCAL = 2, BUILDING = 3, NO_DATA = 4, NUM_CLS = 5 };
 enum EvKind : uint8_t { EV_BEGIN = 1, EV_CHANGE = 2, EV_STATUS = 3 };
@@ -140,7 +146,8 @@ struct Sample {
 struct DamageEvent {
     uint64_t t_us;
     uint32_t sf;
-    bool begin;        // true BEGIN, false END
+    bool begin;        // true BEGIN, false END (not meaningful for a BASELINE note)
+    uint8_t baseline_slave = 0;  // 0 = a DAMAGE BEGIN / END; 1 or 2 = a BASELINE note: that slave's f1_0 was reset (it recommissioned)
     float drop;        // pooled drop of the triggering superframe
     float f1[2];       // each slave's f1 estimate in that superframe (NAN = no usable estimate)
     float f1_0[2];     // each slave's commissioned f1 (last usable report, NAN = never)
@@ -168,6 +175,8 @@ struct Stats {
     uint32_t rejected_reports, restarts, skipped_sf;
     uint32_t ae_bad, f1_bad;          // optional fields found unusable here (a Master already filters them: normally 0)
     uint32_t dmg_begins, dmg_ends;
+    uint32_t dmg_held;                // superframes in which the DAMAGE decision was held because a contributing slave was missing
+    uint32_t baselines;               // slave f1_0 baselines seen to be reset (recommissioning), each also logged as a damage BASELINE line
 };
 
 class Fusion {
@@ -184,7 +193,10 @@ public:
             comm_cnt_[i] = 0;
             alive_[i] = true;
             f1_0_[i] = NAN;
+            dmg_absent_[i] = 0;
+            comm_ever_[i] = comm_now_[i] = false;
         }
+        dmg_set_ = 3;
         dmg_init_default(&dmg_);
         clear_stream();
         started_ = false;
@@ -198,7 +210,7 @@ public:
         for (int c = 0; c < NUM_CLS; c++) stats_.by_cls[c] = 0;
         stats_.local_by_slave[0] = stats_.local_by_slave[1] = 0;
         stats_.degraded_sf = stats_.rejected_reports = stats_.restarts = stats_.skipped_sf = 0;
-        stats_.ae_bad = stats_.f1_bad = stats_.dmg_begins = stats_.dmg_ends = 0;
+        stats_.ae_bad = stats_.f1_bad = stats_.dmg_begins = stats_.dmg_ends = stats_.dmg_held = stats_.baselines = 0;
     }
 
     // A report accepted by the Master. Its optional fields are sanitized again here (a Master already did it; a direct caller may not).
@@ -376,23 +388,57 @@ private:
         // per-slave AE / f1 view of this superframe (what the log shows) and the DAMAGE feed
         uint8_t dok[2] = {0, 0};
         float ddrop[2] = {NAN, NAN};
+        uint8_t note = 0;   // bit i: slave i+1's baseline (f1_0) was reset
         for (int i = 0; i < 2; i++) {
             d.ae[i] = -1.0f;
             d.f1[i] = d.drop[i] = NAN;
             if (!(have && slot_have_[i])) continue;
             uint8_t xf = slot_x_[i];
+            {
+                bool c = (xf & net::FLAG_F1_COMMISSIONED) != 0;
+                if (c && !comm_now_[i] && comm_ever_[i]) note |= (uint8_t)(1 << i);   // commissioned again after having been commissioned: a reboot
+                if (c) comm_ever_[i] = true;
+                comm_now_[i] = c;
+            }
             if (xf & net::FLAG_AE_READY) d.ae[i] = slot_ae_[i];
             if (xf & net::FLAG_F1_VALID) d.f1[i] = slot_f1_[i];
             if ((xf & net::FLAG_F1_VALID) && (xf & net::FLAG_F1_COMMISSIONED)) {
                 d.drop[i] = slot_drop_[i];
                 dok[i] = 1;
                 ddrop[i] = slot_drop_[i];
-                if (1.0f - slot_drop_[i] > 0.01f) f1_0_[i] = slot_f1_[i] / (1.0f - slot_drop_[i]);
+                if (1.0f - slot_drop_[i] > 0.01f) {
+                    float old = f1_0_[i], nw = slot_f1_[i] / (1.0f - slot_drop_[i]);
+                    if (old == old && fabsf(nw - old) > 0.005f * old) note |= (uint8_t)(1 << i);   // f1_0 jumped by > 0.5 %: baseline reset
+                    f1_0_[i] = nw;
+                }
             }
         }
-        int dev = dmg_update(&dmg_, 2, dok, ddrop);
+        // DAMAGE decision with a contributor guard (documented in the header comment and STRUCTURE.md): the state is defined by the
+        // slaves that contributed at the last transition (dmg_set_). While a member of that set has had no usable drop for
+        // DMG_ABSENT_HOLD superframes the decision is HELD and the runs restart: ACTIVE damage never ends while a BEGIN contributor is
+        // missing (the slave that saw the damage may have rebooted; the others would see nothing); INACTIVE, a member absent for a
+        // full P superframes leaves the set (the remaining slaves' own P-run is then genuine evidence). Shorter dropouts are pooled over
+        // whoever is left, as in the evaluation of freq_tracking.
+        for (int i = 0; i < 2; i++) dmg_absent_[i] = dok[i] ? 0 : (uint8_t)(dmg_absent_[i] < 255 ? dmg_absent_[i] + 1 : 255);
+        bool hold = false;
+        for (int i = 0; i < 2; i++) {
+            if (!((dmg_set_ >> i) & 1) || dmg_absent_[i] < DMG_ABSENT_HOLD) continue;
+            if (!dmg_.active && dmg_absent_[i] >= dmg_.p) dmg_set_ = (uint8_t)(dmg_set_ & ~(1 << i));
+            else hold = true;
+        }
+        uint8_t cur = (uint8_t)((dok[0] ? 1 : 0) | (dok[1] ? 2 : 0));
+        int dev = DMG_EV_NONE;
+        if (hold) {
+            dmg_.up_run = dmg_.down_run = 0;
+            stats_.dmg_held++;
+        } else {
+            if (!dmg_.active && (cur & ~dmg_set_)) { dmg_set_ = (uint8_t)(dmg_set_ | cur); dmg_.up_run = 0; }   // a returning slave joins the set
+            dev = dmg_update(&dmg_, 2, dok, ddrop);
+            if (dev != DMG_EV_NONE) dmg_set_ = cur;   // the transition is defined by who contributed to it
+        }
         if (dev == DMG_EV_BEGIN) stats_.dmg_begins++;
         if (dev == DMG_EV_END) stats_.dmg_ends++;
+        stats_.baselines += (uint32_t)((note & 1) + ((note >> 1) & 1));
         if (!commissioned()) {
             for (int i = 0; i < 2; i++) {
                 if (have && slot_have_[i] && !base_ok_[i]) {
@@ -439,7 +485,19 @@ private:
                 de.begin = dev == DMG_EV_BEGIN;
                 de.drop = dmg_.pooled;
                 for (int i = 0; i < 2; i++) { de.f1[i] = dok[i] ? d.f1[i] : NAN; de.f1_0[i] = f1_0_[i]; }
+                de.baseline_slave = 0;
                 sink_->on_damage(de);
+            }
+            for (int i = 0; i < 2; i++) {
+                if (!((note >> i) & 1)) continue;
+                DamageEvent bn;
+                bn.t_us = now;
+                bn.sf = d.sf;
+                bn.begin = false;
+                bn.baseline_slave = (uint8_t)(i + 1);
+                bn.drop = dmg_.pooled;
+                for (int k = 0; k < 2; k++) { bn.f1[k] = dok[k] ? d.f1[k] : NAN; bn.f1_0[k] = f1_0_[k]; }
+                sink_->on_damage(bn);
             }
         }
         if (!key_valid_ || d.cls != key_cls_ || d.slave != key_slave_ || d.degraded != key_deg_) {
@@ -590,6 +648,9 @@ private:
     float slot_ae_[2], slot_f1_[2], slot_drop_[2];
     float f1_0_[2];
     dmg_t dmg_;
+    uint8_t dmg_set_;           // slaves whose drops define the DAMAGE state (those that contributed at the last transition)
+    uint8_t dmg_absent_[2];     // consecutive closed superframes without a usable f1 drop per slave (saturating)
+    bool comm_ever_[2], comm_now_[2];
     bool key_valid_, out_valid_;
     uint8_t out_cls_, out_slave_, out_deg_, cand_cls_, cand_slave_, cand_deg_;
     uint32_t cand_n_;

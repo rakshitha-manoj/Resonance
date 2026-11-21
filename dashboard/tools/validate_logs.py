@@ -7,7 +7,7 @@ or a new meta line forgets the state: the master starts with both slaves alive),
 agrees with the node line. A second meta line (hardware reboot) restarts the closed/events counters.
 Schema 3 (additive over 2): meta also has dmg_delta / dmg_p (and T_ae / gate for rule f; T is always the std-ratio threshold, for rule f T_b), sample and event lines carry ae / f1 / drop
 ([a, b] per slave, null = unknown) and dmg (0|1); the `damage` line {"type":"damage","t_us","sf","state":"BEGIN"|"END","drop",
-"f1":[..],"f1_0":[..]} must alternate BEGIN / END, follows the sample whose `dmg` flips (BEGIN: dmg 1 and drop >= dmg_delta, END: dmg 0
+"f1":[..],"f1_0":[..]} (plus an informational BASELINE state with a `slave` key: that slave's f1_0 was reset) must alternate BEGIN / END, follows the sample whose `dmg` flips (BEGIN: dmg 1 and drop >= dmg_delta, END: dmg 0
 and drop < dmg_delta / 2), a slave that did not report in a sample (age != 0) has null ae / f1 / drop, and drop needs f1.
 """
 import json
@@ -172,6 +172,27 @@ def validate(path):
             last_epoch = o.get("epoch")
             node_state = {1: True, 2: True}
             node_pending = {}
+            continue
+        if ty == "damage" and o.get("state") == "BASELINE":
+            # a slave's f1_0 was reset (it recommissioned): informational, no state change, extra key `slave`
+            stats["damage"] += 1
+            if schema != 3:
+                err(n, "damage line in a log older than schema 3")
+            if set(o) != DAMAGE_KEYS | {"slave"}:
+                err(n, f"damage BASELINE keys {sorted(set(o) ^ (DAMAGE_KEYS | {'slave'}))}")
+                continue
+            if not is_int(o["t_us"]) or o["t_us"] < last_t:
+                err(n, "damage BASELINE t_us")
+            else:
+                last_t = o["t_us"]
+            if o["slave"] not in (1, 2) or isinstance(o["slave"], bool):
+                err(n, "damage BASELINE slave")
+            if not (o["drop"] is None or (is_num(o["drop"]) and -1 <= o["drop"] <= 1)):
+                err(n, "damage BASELINE drop")
+            if not opt_pair(o["f1"], 0, 100) or not opt_pair(o["f1_0"], 0, 100):
+                err(n, "damage BASELINE f1 / f1_0")
+            elif o["slave"] in (1, 2) and o["f1_0"][o["slave"] - 1] is None:
+                err(n, "damage BASELINE without the slave's f1_0")
             continue
         if dmg_pending is not None and ty != "damage":
             err(n, f"the sample of sf {dmg_pending[0]} flipped dmg to {dmg_pending[1]} but no damage line follows")

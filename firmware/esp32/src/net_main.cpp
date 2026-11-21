@@ -76,6 +76,7 @@ static host::RttTracker g_rtt;
 class TimedTx : public Transport {
 public:
     explicit TimedTx(Transport *inner) : inner_(inner) {}
+    void set_inner(Transport *t) { inner_ = t; }
     bool broadcast(const uint8_t *buf, size_t len, uint64_t now) override {
         uint8_t slave, attempt;
         if (host::poll_info(buf, len, &slave, &attempt)) g_rtt.on_poll(slave, attempt, now_us());
@@ -96,9 +97,12 @@ public:
     }
 };
 static DemoWindows g_demo_src;
-static SlaveAnalytics g_vpipes[NUM_SLAVES];   // 2 x 25 KB (AE + f1 tracker of the two virtual slaves), static: never on the loop stack
-static VirtualNet g_vnet(&g_demo_src, g_vpipes);
-static TimedTx g_tx(&g_vnet);
+// The two virtual slaves' analytics (2 x 25 KB: AE + f1 tracker) live on the HEAP, allocated once in setup(): the ESP32's static DRAM
+// segment (dram0_0_seg) is only 124,580 B and this build is the one closest to it; heap bytes come from the same chip RAM but are not
+// counted against that link-time limit. Never on the loop stack (8 KB).
+static VirtualNet *g_vnet_p = nullptr;
+#  define g_vnet (*g_vnet_p)
+static TimedTx g_tx(nullptr);   // inner transport set in setup() once the virtual network exists
 #  define META_SOURCE "wokwi_demo"   // honest label: simulated traces, not a measurement
 #  define META_FLOOR_1 DEMO_FLOOR_1
 #  define META_FLOOR_2 DEMO_FLOOR_2
@@ -250,6 +254,17 @@ void setup() {
     }
     apply_allowlist();
 #else
+    {
+        SlaveAnalytics *pipes = (SlaveAnalytics *)malloc(sizeof(SlaveAnalytics) * NUM_SLAVES);
+        void *vm = malloc(sizeof(VirtualNet));
+        if (!pipes || !vm) {
+            Serial.println("heap fail: virtual slaves");
+            while (true) delay(1000);
+        }
+        for (int i = 0; i < NUM_SLAVES; i++) new (&pipes[i]) SlaveAnalytics();
+        g_vnet_p = new (vm) VirtualNet(&g_demo_src, pipes);
+        g_tx.set_inner(g_vnet_p);
+    }
     Serial.println("WOKWI_CLOUD_DEMO: no radio, two virtual slaves replay test/data/demo_traces.bin (looping)");
 #endif
     uint32_t epoch;

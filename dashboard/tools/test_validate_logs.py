@@ -99,6 +99,18 @@ def test_damage_episode_valid_and_every_break_is_caught():
     assert check(s2) != []
 
 
+def test_damage_baseline_note():
+    good = with_damage(LINES, 60)
+    i = next(k for k, ln in enumerate(good) if '"state":"BEGIN"' in ln)
+    t = json.loads(good[i])["t_us"]
+    note = json.dumps({"type": "damage", "t_us": t, "sf": 60, "state": "BASELINE", "drop": None, "f1": [4.75, None], "f1_0": [4.75, 6.0], "slave": 1}, separators=(",", ":"))
+    assert check(good[:i + 1] + [note] + good[i + 1:]) == []
+    bad = note.replace('"slave":1', '"slave":3')
+    assert check(good[:i + 1] + [bad] + good[i + 1:]) != []
+    bad = note.replace(',"slave":1', '')
+    assert any("BASELINE keys" in e for e in check(good[:i + 1] + [bad] + good[i + 1:]))
+
+
 def test_schema3_field_rules():
     lines = list(LINES)
     i = next(k for k, ln in enumerate(lines) if '"type":"sample"' in ln and '"sf":50,' in ln)

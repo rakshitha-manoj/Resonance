@@ -22,7 +22,12 @@ void tearDown(void) {}
 namespace {
 class HeaderSource : public VWindowSource {
 public:
+    uint64_t per_get_us = 0;   // artificial host compute time of ONE window (the host is blocked that long in get(), see Rig::run_until)
+    uint64_t stall_us = 0;
+    uint32_t gets = 0;
     void get(uint8_t slave, uint32_t sf, int16_t *az, int16_t *gx) override {
+        stall_us += per_get_us;
+        gets++;
         const int16_t *p = DEMO_TRACE[slave - 1][sf % DEMO_N_WINDOWS];  // the demo loops
         memcpy(az, p, 128 * sizeof(int16_t));
         memcpy(gx, p + 128, 128 * sizeof(int16_t));
@@ -57,6 +62,8 @@ struct Rig {
     void service() { fus.advance(master.current_sf(), master.polling_active(), clock(fus_last)); }
     void run_until(uint64_t t_end_us, size_t stop_after_samples = 0) {
         for (uint64_t t = 0; t < t_end_us; t += 1000) {
+            t += src.stall_us;   // a blocking window computation on the host lets simulated time pass
+            src.stall_us = 0;
             vnet.service(t, [&](const uint8_t *b, size_t n, uint64_t ft) {
                 master.on_packet(b, n, ft);
                 frames++;
@@ -68,7 +75,9 @@ struct Rig {
             }
             if (stop_after_samples && sink.samples.size() >= stop_after_samples) break;
         }
+        t_last_stall_check = src.stall_us;
     }
+    uint64_t t_last_stall_check = 0;
 };
 
 // Removes "t_us":<digits>, from a JSON line (timing differs between the netsim run and this one).
@@ -157,6 +166,30 @@ void test_cloud_demo_lines_equal_netsim_output_of_the_same_traces() {
     TEST_ASSERT_TRUE(with_f1 >= 70);   // f1 valid from the 32nd window (at least one slave)
 }
 
+// The full slave pipeline is slow on the Wokwi ESP32 (tens of ms per window, two slaves in one process). The windows are computed
+// right after the beacon, so even 60 ms (or 150 ms) of blocked host time per slave never makes the master's polls late.
+void test_slow_window_computation_does_not_delay_polls() {
+    const uint64_t per[3] = {0, 60000, 150000};
+    uint32_t base_reports = 0;
+    for (int k = 0; k < 3; k++) {
+        Rig r;
+        r.src.per_get_us = per[k];
+        r.run_until(1000000ull + 40ull * SUPERFRAME_US);
+        const MasterStats &s = r.master.stats();
+        char msg[64];
+        snprintf(msg, sizeof msg, "compute %u us per window", (unsigned)per[k]);
+        TEST_ASSERT_TRUE_MESSAGE(r.src.gets >= 70, msg);
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(0, s.missed_total[0] + s.missed_total[1], msg);
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(0, s.retries[0] + s.retries[1], msg);
+        TEST_ASSERT_TRUE_MESSAGE(r.master.alive(1) && r.master.alive(2), msg);
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(0, s.beacons_skipped, msg);
+        TEST_ASSERT_TRUE_MESSAGE(s.reports[0] >= s.beacons - 1 && s.reports[1] >= s.beacons - 1, msg);
+        if (k == 0) base_reports = s.reports[0];
+        else TEST_ASSERT_TRUE_MESSAGE(s.reports[0] + 1 >= base_reports, msg);
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(0, r.vnet.dropped(), msg);
+    }
+}
+
 void test_demo_trace_loops_and_keeps_producing() {
     // three laps: the events repeat (the baselines survive), no node ever dies, no stall
     Rig r;
@@ -199,6 +232,7 @@ int main(int, char **) {
     RUN_TEST(test_header_matches_trace_file);
     RUN_TEST(test_virtual_slaves_every_report_reaches_master_in_time);
     RUN_TEST(test_cloud_demo_lines_equal_netsim_output_of_the_same_traces);
+    RUN_TEST(test_slow_window_computation_does_not_delay_polls);
     RUN_TEST(test_demo_trace_loops_and_keeps_producing);
     RUN_TEST(test_cloud_demo_log_for_validator);
     return UNITY_END();
