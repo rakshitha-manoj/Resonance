@@ -140,7 +140,8 @@ Master publishes the schema-2 JSON lines over MQTT; dashboard subscribes over MQ
 ## docs/ and README
 - `docs/simulation_validation.md` – Phase 5 simulation validation report (results, what Wokwi can/cannot prove, Phase 6 carry-overs, reproduction commands).
 - `docs/hierarchy_validation.md` – R1 to R6 report (protocol, fusion selection, single node comparison, dashboard, ESP-NOW firmware); `docs/hardware_bringup.md` – flashing and the measurements to take on the three boards.
-- `README.md` – project description, status, branch history, what is blocked on hardware.
+- `docs/project_report.md` – Phase F final report (architecture, models, R3 test, DAMAGE, IoT, verification, resources, power/cost estimates, limitations, appendices incl. seed-block table); `docs/viva_prep.md` – pitch, 34 Q&A, numbers table; `docs/slides_outline.md` – 14-slide outline; `docs/demo_runbook.md` – viva demo steps; `docs/figures/` – the five report figures.
+- `README.md` – summary of the final state (TinyML + IoT + DAMAGE, simulation complete, hardware pending), links to the docs, branch history, what is blocked on hardware.
 
 ## requirements.txt
 - numpy, pandas, scikit-learn, joblib pinned to the versions in `.venv` (Python 3.12); model.joblib depends on the scikit-learn version

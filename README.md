@@ -1,38 +1,31 @@
 # Resonance
 
-Edge-based structural health monitoring. An ESP32 reads an MPU6050 accelerometer and gyroscope and classifies a structure's vibration as **normal**, **abnormal** or **faulty**, on the device, once per 1.28-second window (about every 1.3 s).
+Structural health monitoring with IoT and TinyML. Two ESP32 + MPU6050 sensor nodes each run a 110 B decision tree, an int8 autoencoder (942 B of weights, trained on healthy data only) and a natural-frequency tracker. An ESP32 master fuses the two nodes into AMBIENT / LOCAL / BUILDING events plus a DAMAGE alarm, and publishes over MQTT to a browser dashboard and Telegram alerts.
 
-Targets: accuracy ≥ 90%, inference < 50 ms, model < 100 KB.
+**Status: the simulation stage is complete; hardware bring-up is pending.** Every result is from the project's building simulator, a PC test harness or a simulator emulator. **Nothing has been measured on real boards or structures.**
 
-## Current status
+## Documents
 
-The single-node simulation stage is complete apart from two Wokwi runs of the Phase 5 firmware (smoothing self-test and boot config check), which are still to be recorded. Physical hardware has not arrived, so all results so far come from synthetic data, a PC test harness and the Wokwi simulator.
+- [Final project report](docs/project_report.md) (architecture, models, results, limitations, reproduction)
+- [Viva preparation](docs/viva_prep.md) and [slide outline](docs/slides_outline.md)
+- [Demo runbook](docs/demo_runbook.md) (offline dashboard demo: open `dashboard/index.html`, click "Damage demo (simulated)")
+- [Hardware bring-up guide](docs/hardware_bringup.md)
+- Earlier stage reports: [single node (Phases 1-5)](docs/simulation_validation.md), [hierarchy (R1-R6)](docs/hierarchy_validation.md)
 
-| | Result |
-|---|---|
-| Model | Depth-3 decision tree, 11 nodes, **110 B**, using 5 features from 2 sensor axes |
-| Accuracy | About **93%** on synthetic data (resampling estimate; real-structure accuracy is untested) |
-| Inference | About **24 ms** per window in Wokwi (simulated time) |
-| Footprint | On-device pipeline adds +2.6 KB flash and +0.6 KB RAM vs the Phase 1 sensor-streaming firmware |
-| C vs Python | 6000/6000 windows match on PC, 606/606 on the simulated ESP32 |
-
-Full details, including what simulation cannot prove: [docs/simulation_validation.md](docs/simulation_validation.md).
-
-### Hierarchy stage (branch `hier2-protocol`)
-
-The project now also has a three-board design: one master and two slaves, each slave running the classifier above, the master deciding AMBIENT, LOCAL (which slave) or BUILDING (both). Everything is simulation and host testing; **nothing has run on real hardware or in a browser.**
+## Headline results (simulation only; sources in the report)
 
 | | Result |
 |---|---|
-| Storey localisation | **Failed** both pre-stated gates (top-1 0.452 and 0.481 within-one for gate 1; alarm rate 0.770 against 0.80 for gate 2). Not claimed |
-| Retraining on building data | **Keep the old tree**: the new one had a higher false-alarm rate (0.051 against 0.007) |
-| Network protocol | Beacon/poll/report with retries, restart epochs and dead-slave detection; passed two rounds of independent verification |
-| Master decision (rule b, T = 3; the incumbent) | Test block: LOCAL event recall 0.453, BUILDING 0.811, **2.04 false onsets per hour** (design budget was 1.0; probably not met) |
-| Master decision since Phase C2a (rule f = b OR autoencoder, T_AE 6, T_b 3) | Pre-registered fresh-block decision, simulation only: mean event recall 0.734 against 0.622, **1.64 false onsets per hour** (budget 1.0 not met); now in the firmware with the f1 DAMAGE channel; nothing measured on hardware |
-| Against one node | Same false-alarm rate as one ratio node; adds event type and a second floor, not sensitivity |
-| Dashboard | Replay and live-USB viewer exist; no cloud broker |
+| Decision tree | 11 nodes, **110 B**, about **0.93** accuracy on synthetic data (resampling estimate, no untouched test) |
+| int8 autoencoder | 574 parameters, 942 B weights; C kernel bit-exact with TensorFlow Lite (0 mismatches on 10,000 vectors) |
+| Master rule f (std ratio OR autoencoder), fresh pre-registered block, 240 buildings, 28 h | mean event recall **0.734** against 0.622 for the std ratio alone (paired +0.113); **1.64 false onsets per hour, the 1/h budget is not met** (2.05/h on healthy ambient alone) |
+| DAMAGE (natural-frequency drop) | 30 % stiffness loss detected 1.00 / 1.00 / 0.91 at storeys 1 / 3 / 5, almost never at the top storeys (physics); coarse alarm only |
+| Hierarchy vs one node | same false-alarm rate; adds the second floor, event typing and dead-slave handling (rule b comparison) |
+| Storey localisation | failed its pre-stated gates, not claimed |
+| Cloud | MQTT (TLS, retained state, last will), dashboard, Telegram alerts; public broker is demo-only |
+| Resources | slave build 772,825 B flash / 72,788 B RAM; ESP32 compute estimated 3-8 ms per window (not measured) |
 
-Full details and caveats: [docs/hierarchy_validation.md](docs/hierarchy_validation.md).
+Older sections below describe the stage at which each part was built; where numbers differ, the report and the latest result files win.
 
 ## Blocked on hardware (Phase 6)
 
@@ -42,6 +35,8 @@ Full details and caveats: [docs/hierarchy_validation.md](docs/hierarchy_validati
 - For the three-board system: radio link loss and timing, compute time against the 50 ms limit, the noise gate value, and the dashboard's live mode. The measurements are listed in [docs/hardware_bringup.md](docs/hardware_bringup.md).
 
 ## Project history
+
+Branch `tinyml-iot` (current) adds Phase B (autoencoder), Phase A (f1 tracking, DAMAGE), Phase C (firmware integration, dashboard schema 3, demo), Phase D (MQTT cloud layer, alerts), Phase F (this documentation). `master` still holds the work up to the hierarchy merge.
 
 Phases 1 to 5 were each built on their own branch, independently verified, then merged into `master` in order with `--no-ff`, so each phase appears as a merge commit. The hierarchy work (R1 to R6) is on `hier2-protocol`, which is not merged into `master`.
 
