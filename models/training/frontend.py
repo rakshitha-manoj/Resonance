@@ -4,6 +4,7 @@ The library is built on demand into <cache base>/frontend/ (see cachedir.py) wit
 and rebuilt when any source or header is newer than it.
   features5(az, gx) -> (n, 5) float32   az, gx: int16 (n, 128)
   bands(az) -> (n, 16)   zoom(az) -> (n, 181)   peak(z) -> (n,) Hz   ZOOM_F (181,) frequency grid
+  build_lib(c_source, name): build any other firmware C bridge the same way (hash-named DLL, firmware flags)
 """
 import ctypes
 import hashlib
@@ -28,30 +29,35 @@ ZOOM_F = ZOOM_F0 + ZOOM_DF * np.arange(ZOOM_N)
 _lib = None
 
 
-def _build():
-    """The DLL name carries a hash of every source, this file and the compiler command, so an edit (or a git
-    checkout) builds a NEW file instead of overwriting one that another process may have loaded, and a change of
-    flags rebuilds too. Built to a unique temporary name, then renamed (parallel first builds cannot collide)."""
+def build_lib(c_source, name):
+    """Build a firmware C bridge (a .c file in firmware/esp32/tools/ that includes firmware headers) as a shared
+    library and return its path. Reusable by other bridges (e.g. the f1 tracker or the autoencoder).
+    The file name carries a hash of the C file, EVERY header in firmware/esp32/include/, this file and the compiler
+    command, so an edit (or a git checkout) builds a NEW file instead of overwriting one that another process may
+    have loaded, and a change of flags rebuilds too. Built to a unique temporary name, then renamed (parallel first
+    builds cannot collide). Flags as the firmware: -O2 -ffp-contract=off."""
+    c_source = Path(c_source).resolve()
     d = cachedir.script_dir("frontend")
     d.mkdir(parents=True, exist_ok=True)
     gcc = shutil.which("gcc")
     if gcc is None:
-        raise RuntimeError("gcc not found on PATH: needed to build the firmware front-end for Python "
+        raise RuntimeError("gcc not found on PATH: needed to build the firmware C bridges for Python "
                            "(install WinLibs / build-essential and retry)")
     flags = ["-O2", "-ffp-contract=off", "-shared"] + ([] if sys.platform == "win32" else ["-fPIC"])
     h = hashlib.sha256()
-    for f in SOURCES + [Path(__file__).resolve()]:
+    for f in [c_source, *sorted((FW / "include").glob("*.h")), Path(__file__).resolve()]:
+        h.update(f.name.encode())
         h.update(f.read_bytes())
     h.update(" ".join(flags).encode())
     ext = ".dll" if sys.platform == "win32" else ".so"
-    dll = d / f"frontend_{h.hexdigest()[:16]}{ext}"
+    dll = d / f"{name}_{h.hexdigest()[:16]}{ext}"
     if dll.exists():
         return dll
-    tmp = d / f"frontend_{h.hexdigest()[:16]}_{os.getpid()}_{uuid.uuid4().hex[:8]}{ext}"
-    cmd = [gcc, *flags, "-I", str(FW / "include"), str(SOURCES[0]), "-o", str(tmp), "-lm"]
+    tmp = d / f"{name}_{h.hexdigest()[:16]}_{os.getpid()}_{uuid.uuid4().hex[:8]}{ext}"
+    cmd = [gcc, *flags, "-I", str(FW / "include"), str(c_source), "-o", str(tmp), "-lm"]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
-        raise RuntimeError("front-end build failed:\n" + r.stderr)
+        raise RuntimeError(f"{name} build failed:" + chr(10) + r.stderr)
     try:
         os.replace(tmp, dll)
     except OSError:  # another process won the race and has the identical file loaded: use theirs
@@ -59,6 +65,10 @@ def _build():
             raise
         tmp.unlink(missing_ok=True)
     return dll
+
+
+def _build():
+    return build_lib(SOURCES[0], "frontend")
 
 
 def _load():
