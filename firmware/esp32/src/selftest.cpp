@@ -3,6 +3,8 @@
 #include "smooth.h"
 #include "spectrum.h"
 #include "selftest_data.h"
+#include "ae.h"
+#include "ae_selftest_vectors.h"
 
 void setup() {
     Serial.begin(115200);
@@ -64,6 +66,32 @@ void setup() {
 
     Serial.printf("spectrum us (bands+zoom+peak) avg=%u max=%u, zoom+peak avg=%u max=%u (sink %.3f)\r\n",
                   (unsigned)(spec_sum / ST_N), (unsigned)spec_max, (unsigned)(zoom_sum / ST_N), (unsigned)zoom_max, (double)peak_sink);
+    {
+        /* int8 autoencoder: parity with the TFLite reference kernels on AE_ST_N embedded vectors, and latency */
+        int ae_bad = 0;
+        uint32_t k_sum = 0, k_max = 0, s_sum = 0, s_max = 0;
+        float sink = 0.0f;
+        for (int i = 0; i < AE_ST_N; i++) {
+            int8_t y[AE_N_IN];
+            uint32_t t0 = micros();
+            ae_run_int8(ae_st_in[i], y);
+            uint32_t t1 = micros();
+            for (int j = 0; j < AE_N_IN; j++)
+                if (y[j] != ae_st_out[i][j]) ae_bad++;
+            float z[AE_N_IN];
+            for (int j = 0; j < AE_N_IN; j++) z[j] = ae_deq(ae_st_in[i][j]) * 0.5f;
+            uint32_t t2 = micros();
+            sink += ae_score_z(z);
+            uint32_t t3 = micros();
+            k_sum += t1 - t0;
+            if (t1 - t0 > k_max) k_max = t1 - t0;
+            s_sum += t3 - t2;
+            if (t3 - t2 > s_max) s_max = t3 - t2;
+        }
+        Serial.printf("ae parity %d vectors, %d int8 mismatches -> %s\r\n", AE_ST_N, ae_bad, ae_bad ? "FAIL" : "PASS");
+        Serial.printf("ae us int8 kernel avg=%u max=%u, quantise+kernel+score avg=%u max=%u (sink %.3f)\r\n",
+                      (unsigned)(k_sum / AE_ST_N), (unsigned)k_max, (unsigned)(s_sum / AE_ST_N), (unsigned)s_max, (double)sink);
+    }
     Serial.printf("seq windows=%d segments=%d\r\n", SQ_N, SQ_NSEG);
     int8_t hist[3] = {-1, -1, -1};
     int state = 0, prev_raw = 0, prev_state = 0;
