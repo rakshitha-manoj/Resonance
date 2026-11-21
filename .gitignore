@@ -4,6 +4,7 @@ __pycache__/
 .venv-tinyml/
 venv/
 *.tflite
+!models/tinyml/*.tflite
 data/raw/
 data/processed/
 .vscode/

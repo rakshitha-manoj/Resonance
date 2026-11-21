@@ -1,0 +1,154 @@
+{
+ "model": {
+  "design": "A",
+  "hidden": [
+   12,
+   2,
+   12
+  ],
+  "n_in": 20,
+  "params": 574,
+  "int8_tflite_bytes": 4568,
+  "float_recon_mse_val_healthy": 2.2541141510009766,
+  "int8_recon_mse_val_healthy": 2.3486618995666504,
+  "recon_mse_median_float": 1.6219481229782104,
+  "recon_mse_median_int8": 1.690094232559204,
+  "score_rel_diff_mean": 0.057483136653900146,
+  "score_corr": 0.9898780997467898,
+  "mahalanobis_shrinkage": 0.8,
+  "train_seconds": 5,
+  "val_recall_float": {
+   "imp": 0.9304597701149425,
+   "sp": 0.7909967845659164,
+   "shift": 0.609,
+   "x3": 0.101,
+   "mean": 0.6078641386702147,
+   "threshold": 5.798679828643799
+  },
+  "val_recall_int8": {
+   "imp": 0.9310344827586207,
+   "sp": 0.7813504823151125,
+   "shift": 0.5961666666666666,
+   "x3": 0.09316666666666666,
+   "mean": 0.6004295746017666,
+   "threshold": 5.903252124786377
+  }
+ },
+ "mahalanobis": {
+  "shrinkage": 0.8,
+  "val_recall_at_0.5pct": {
+   "imp": 0.9312260536398468,
+   "sp": 0.7909967845659164,
+   "shift": 0.645,
+   "x3": 0.43,
+   "mean": 0.6993057095514409,
+   "threshold": 5.18086581568537
+  }
+ },
+ "host_us_per_window": {
+  "base20_frontend": 18.3843049999723,
+  "features5": 33.45499999995809,
+  "ae_stage": 1.4067399999930785,
+  "mahalanobis_numpy": 1.9830600000204865
+ },
+ "ae_flash_bytes": 942,
+ "ae_macs": 528,
+ "benchmark_rows": [
+  {
+   "detector": "decision tree (depth 3, rule a, lowest-false-onset row)",
+   "params": "11 nodes",
+   "flash_B": 110,
+   "RAM": "5 floats",
+   "ops": "~3 compares (+ 2 DFTs of the front end, 32,768 MAC)",
+   "host_time": "features5 33.5 us",
+   "dev_config": "a, T=1.5, smoothed, k=3",
+   "dev_metrics": [
+    "8.86",
+    "0.676",
+    "0.536",
+    "0.975",
+    "0.060"
+   ]
+  },
+  {
+   "detector": "rule b (az_std / baseline >= T, fusion)",
+   "params": "1 baseline",
+   "flash_B": 4,
+   "RAM": "4 B baseline + 3 flags",
+   "ops": "1 divide + compare (+ std pass, ~400 flops)",
+   "host_time": "< 1 us (std only)",
+   "dev_config": "b, T=3, k=1",
+   "dev_metrics": [
+    "0.79",
+    "0.442",
+    "0.801",
+    "0.294",
+    "0.054"
+   ]
+  },
+  {
+   "detector": "Mahalanobis (shrinkage 0.80), rule m",
+   "params": "20 + 210",
+   "flash_B": 920,
+   "RAM": "~1.8 KB node state (shared with AE)",
+   "ops": "~440 MAC (float)",
+   "host_time": "1.98 us (numpy batch)",
+   "dev_config": "m, T=4, k=3",
+   "dev_metrics": [
+    "0.96",
+    "0.618",
+    "0.737",
+    "0.848",
+    "0.013"
+   ]
+  },
+  {
+   "detector": "int8 autoencoder 20-12-2-12-20, rule e",
+   "params": "574",
+   "flash_B": 942,
+   "RAM": "~1.8 KB node state + 40 B scratch",
+   "ops": "528 int8 MAC",
+   "host_time": "1.41 us (norm+quant+AE+score)",
+   "dev_config": "e, T=5, k=1",
+   "dev_metrics": [
+    "0.43",
+    "0.692",
+    "0.382",
+    "0.867",
+    "0.212"
+   ]
+  },
+  {
+   "detector": "rule f = b OR e",
+   "params": "-",
+   "flash_B": 946,
+   "RAM": "as AE",
+   "ops": "528 int8 MAC + b",
+   "host_time": "as e",
+   "dev_config": "f, T=6 (b T=3), k=1",
+   "dev_metrics": [
+    "0.89",
+    "0.658",
+    "0.803",
+    "0.771",
+    "0.204"
+   ]
+  },
+  {
+   "detector": "rule g = b OR m",
+   "params": "-",
+   "flash_B": 924,
+   "RAM": "as m",
+   "ops": "as m + b",
+   "host_time": "as m",
+   "dev_config": "g, T=4 (b T=3), k=3",
+   "dev_metrics": [
+    "1.00",
+    "0.617",
+    "0.779",
+    "0.848",
+    "0.010"
+   ]
+  }
+ ]
+}

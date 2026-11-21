@@ -1,0 +1,35 @@
+{
+ "design": "A",
+ "hidden": [
+  12,
+  2,
+  12
+ ],
+ "n_in": 20,
+ "params": 574,
+ "int8_tflite_bytes": 4568,
+ "float_recon_mse_val_healthy": 2.2541141510009766,
+ "int8_recon_mse_val_healthy": 2.3486618995666504,
+ "recon_mse_median_float": 1.6219481229782104,
+ "recon_mse_median_int8": 1.690094232559204,
+ "score_rel_diff_mean": 0.057483136653900146,
+ "score_corr": 0.9898780997467898,
+ "mahalanobis_shrinkage": 0.8,
+ "train_seconds": 5,
+ "val_recall_float": {
+  "imp": 0.9304597701149425,
+  "sp": 0.7909967845659164,
+  "shift": 0.609,
+  "x3": 0.101,
+  "mean": 0.6078641386702147,
+  "threshold": 5.798679828643799
+ },
+ "val_recall_int8": {
+  "imp": 0.9310344827586207,
+  "sp": 0.7813504823151125,
+  "shift": 0.5961666666666666,
+  "x3": 0.09316666666666666,
+  "mean": 0.6004295746017666,
+  "threshold": 5.903252124786377
+ }
+}
