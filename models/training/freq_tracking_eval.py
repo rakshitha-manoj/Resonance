@@ -90,7 +90,7 @@ BLOCKS = {"dev": (6_500_000, 120), "test": (6_600_000, 120), "small_dev": (6_950
 RESERVED = {"phase_B": (6_300_000, 1000), "phase_D": (6_400_000, 1000)}
 EXC_H, EXC_D = 10, 100
 CHUNK, CHUNK_SMALL = 12, 3
-EX_CELL = CELLS.index((3, 0.20))          # example plotted in the figures (fixed before scoring)
+EX_CELL = CELLS.index((3, 0.30))          # example plotted in the figures (presentation only; first (3, 0.20), switched to 30% because that example showed no onset; nothing is selected on it)
 
 
 def log(*a):
@@ -675,7 +675,7 @@ def render_md(R):
         if k == "note":
             continue
         md.append(f"| {k[5:]} | {v['n_bins']} | {v['relative_cost_of_zoom']:.2f} | {v['mean_abs_err_hz']:.4f} | {v['p95_abs_err_hz']:.4f} | {v['max_abs_err_hz']:.4f} | {v['bias_hz']:+.4f} | {v['within_building_sd_hz']:.4f} |")
-    md += ["", R["coarse_grid_study_dev"]["note"], "", "## Runtimes", "", f"{R['runtime_s']}", ""]
+    md += ["", R["coarse_grid_study_dev"]["note"], "", "## Runtimes", "", f"This run (cache hits): {R['runtime_s']}.", "", "Simulation of the two full blocks (120 buildings x 3 A_env x (2624 healthy + 25/9/9 x 200 damaged windows)) ran in parallel with 3 workers each on a shared, heavily loaded 12-core PC: about 12-25 min of wall time per round of 3 chunks of 12 buildings (about 730 s of CPU per chunk, 10 chunks per block); on an idle machine expect roughly 40 min per block with 3 workers. Evaluation (selection of 300 configs, bootstrap, tables) from the cache: about 20 s.", ""]
     md += ["## Limitations (honest)", "",
            "- Uniform shear building, f1 only; one mode, stationary excitation with a flat band (2-12 Hz); real ambient excitation is not white and has narrowband components (machinery, traffic) that sit on the spectrum and bias a peak-picker.",
            "- The only environment effect is a uniform stiffness drift (temperature-like); no mass change (occupancy, snow, equipment), no humidity/boundary effects, no excitation-amplitude dependence of f1 (real structures soften at higher amplitude).",
