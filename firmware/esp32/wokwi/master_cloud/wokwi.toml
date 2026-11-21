@@ -1,0 +1,8 @@
+# Cloud demo, no hardware. Env master_wokwi_cloud: the real master code path (Master + Fusion + JSON lines + MQTT task)
+# with TWO VIRTUAL slaves in the same firmware replaying test/data/demo_traces.bin (the trace loops, 162 s per lap).
+# The simulated ESP32 joins the open Wi-Fi "Wokwi-GUEST" (channel 6) and publishes to the public HiveMQ broker,
+# topics resonance/rsn-822298ab/<type> (site id = MQTT_SITE in include/mqtt_config.h). Simulated data, not a measurement.
+[wokwi]
+version = 1
+firmware = "../../.pio/build/master_wokwi_cloud/firmware.bin"
+elf = "../../.pio/build/master_wokwi_cloud/firmware.elf"

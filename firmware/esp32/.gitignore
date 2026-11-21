@@ -7,3 +7,6 @@
 include/selftest_data.h
 test/data/windows.bin
 test/data/smooth.bin
+
+include/demo_traces.h
+include/secrets.h

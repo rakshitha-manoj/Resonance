@@ -1,0 +1,4 @@
+# IoT tools (tools/sim_publisher.py, alerter.py, e2e_mqtt_test.py). Installed in the main venv: pip install -r requirements-iot.txt
+paho-mqtt==2.2.0
+# only for `sim_publisher.py --serial COMx` (bridging a real master on hardware day):
+pyserial>=3.5
