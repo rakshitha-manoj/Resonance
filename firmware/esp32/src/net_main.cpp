@@ -125,7 +125,51 @@ static MqttUplink g_mqtt;
 // can never crowd out events or the S, statistics.
 static constexpr size_t JSON_SAMPLE_RESERVE = 1200;
 
+#if ANN_ENABLED
+// Local alarm LEDs + buzzer (include/annunciator.h): fed with every closed superframe's debounced class and DAMAGE state,
+// applied to GPIO from loop() (ann_apply). Read-only with respect to fusion: no decision depends on it.
+#include "annunciator.h"
+static ann::Annunciator g_ann;
+static constexpr uint8_t ANN_TONE_CH = 4;   // LEDC channel for the buzzer tone
+static uint16_t g_ann_tone = 0;
+static void ann_pin_init(int pin) {
+    if (pin >= 0) {
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, LOW);
+    }
+}
+static void ann_setup() {
+    ann_pin_init(ANN_LED_HEARTBEAT_PIN);
+    ann_pin_init(ANN_LED_EVENT_PIN);
+    ann_pin_init(ANN_LED_DAMAGE_PIN);
+#if ANN_BUZZER_PIN >= 0
+    ledcSetup(ANN_TONE_CH, 2000, 10);
+    ledcAttachPin(ANN_BUZZER_PIN, ANN_TONE_CH);
+    ledcWriteTone(ANN_TONE_CH, 0);
+#endif
+}
+static void ann_apply() {
+    ann::Outputs o = g_ann.service(millis());
+    if (ANN_LED_HEARTBEAT_PIN >= 0) digitalWrite(ANN_LED_HEARTBEAT_PIN, o.heartbeat ? HIGH : LOW);
+    if (ANN_LED_EVENT_PIN >= 0) digitalWrite(ANN_LED_EVENT_PIN, o.event ? HIGH : LOW);
+    if (ANN_LED_DAMAGE_PIN >= 0) digitalWrite(ANN_LED_DAMAGE_PIN, o.damage ? HIGH : LOW);
+#if ANN_BUZZER_PIN >= 0
+    if (o.tone_hz != g_ann_tone) {   // only touch LEDC on a change
+        ledcWriteTone(ANN_TONE_CH, o.tone_hz);
+        g_ann_tone = o.tone_hz;
+    }
+#endif
+}
+#endif
+
 class SerialJson : public fusion::json::JsonLineSink {
+public:
+    void on_sample(const fusion::Sample &s) override {
+        fusion::json::JsonLineSink::on_sample(s);   // the JSON line (if samples are on)
+#if ANN_ENABLED
+        g_ann.on_superframe(s.cls, s.dmg != 0, millis());   // always, also when sample lines are off
+#endif
+    }
 protected:
     bool write_line(const char *line, size_t len, bool is_sample) override {
 #ifdef MQTT_ENABLED
@@ -247,6 +291,11 @@ void setup() {
     Serial.begin(115200);
     delay(500);
     common_banner("master");
+#if ANN_ENABLED
+    ann_setup();
+    Serial.printf("annunciator: heartbeat=%d event=%d damage=%d buzzer=%d\r\n", ANN_LED_HEARTBEAT_PIN, ANN_LED_EVENT_PIN,
+                  ANN_LED_DAMAGE_PIN, ANN_BUZZER_PIN);
+#endif
 #ifdef HAVE_RADIO
     if (!g_radio.begin()) {
         Serial.println("espnow fail");
@@ -327,6 +376,9 @@ void loop() {
 #endif
 #ifdef MQTT_ENABLED
     g_mqtt.poll_events();
+#endif
+#if ANN_ENABLED
+    ann_apply();   // a few GPIO writes; the loop wakes at least every 20 ms, enough for 200 ms beeps
 #endif
     now = now_us();
     wake = g_master.next_wakeup();

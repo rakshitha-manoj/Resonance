@@ -3,10 +3,23 @@
   "author": "Resonance",
   "editor": "wokwi",
   "parts": [
-    { "type": "wokwi-esp32-devkit-v1", "id": "esp", "top": 0, "left": 0, "attrs": {} }
+    { "type": "wokwi-esp32-devkit-v1", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-resistor", "id": "r_dmg", "top": 52, "left": 180, "rotate": 0, "attrs": { "value": "220" } },
+    { "type": "wokwi-led", "id": "led_dmg", "top": 0, "left": 270, "attrs": { "color": "red", "label": "DAMAGE" } },
+    { "type": "wokwi-resistor", "id": "r_ev", "top": 110, "left": 180, "rotate": 0, "attrs": { "value": "220" } },
+    { "type": "wokwi-led", "id": "led_ev", "top": 60, "left": 330, "attrs": { "color": "yellow", "label": "EVENT" } },
+    { "type": "wokwi-buzzer", "id": "bz", "top": 150, "left": 260, "attrs": { "volume": "0.2" } }
   ],
   "connections": [
     [ "esp:TX0", "$serialMonitor:RX", "", [] ],
-    [ "esp:RX0", "$serialMonitor:TX", "", [] ]
+    [ "esp:RX0", "$serialMonitor:TX", "", [] ],
+    [ "esp:D25", "r_dmg:1", "red", [ "h0" ] ],
+    [ "r_dmg:2", "led_dmg:A", "red", [ "v0" ] ],
+    [ "led_dmg:C", "esp:GND.1", "black", [ "v0" ] ],
+    [ "esp:D26", "r_ev:1", "gold", [ "h0" ] ],
+    [ "r_ev:2", "led_ev:A", "gold", [ "v0" ] ],
+    [ "led_ev:C", "esp:GND.1", "black", [ "v0" ] ],
+    [ "esp:D27", "bz:2", "green", [ "h0" ] ],
+    [ "bz:1", "esp:GND.2", "black", [ "v0" ] ]
   ]
 }
