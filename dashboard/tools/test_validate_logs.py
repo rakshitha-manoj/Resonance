@@ -10,6 +10,20 @@ import validate_logs as v  # noqa: E402
 
 DEMO = os.path.join(os.path.dirname(HERE), "demo_events_sim.jsonl")
 LINES = [ln.rstrip("\r\n") for ln in open(DEMO, encoding="utf-8")]
+def _strip_damage(lines):
+    """The bundled demo now contains a real DAMAGE episode; the synthetic-episode tests below start from the same log without it."""
+    out = []
+    for ln in lines:
+        o = json.loads(ln)
+        if o["type"] == "damage":
+            continue
+        if "dmg" in o:
+            o["dmg"] = 0
+        out.append(json.dumps(o, separators=(",", ":")))
+    return out
+
+
+NODMG = _strip_damage(LINES)
 META = LINES[0]
 E = json.loads(META)["epoch"]
 
@@ -74,7 +88,7 @@ def test_schema3_demo_and_legacy_schema2_both_valid():
 
 
 def test_damage_episode_valid_and_every_break_is_caught():
-    good = with_damage(LINES, 60, end_at=90)
+    good = with_damage(NODMG, 60, end_at=90)
     assert check(good) == []
     assert v.validate  # noqa
     # BEGIN without the flipping sample / END without BEGIN
@@ -83,8 +97,8 @@ def test_damage_episode_valid_and_every_break_is_caught():
     only_begin = [ln for ln in good if '"state":"END"' not in ln]
     assert any("flipped dmg" in e or "no damage line" in e for e in check(only_begin)), check(only_begin)
     # drop below delta at BEGIN, above delta/2 at END
-    assert any("BEGIN with pooled drop" in e for e in check(with_damage(LINES, 60, end_at=90, begin_drop=0.005)))
-    assert any("END with pooled drop" in e for e in check(with_damage(LINES, 60, end_at=90, end_drop=0.015)))
+    assert any("BEGIN with pooled drop" in e for e in check(with_damage(NODMG, 60, end_at=90, begin_drop=0.005)))
+    assert any("END with pooled drop" in e for e in check(with_damage(NODMG, 60, end_at=90, end_drop=0.015)))
     # wrong superframe / duplicate BEGIN
     bad_sf = [ln.replace('"state":"BEGIN"', '"state":"BEGIN","sf_x":1') for ln in good]
     assert any("damage keys" in e for e in check(bad_sf))
@@ -100,7 +114,7 @@ def test_damage_episode_valid_and_every_break_is_caught():
 
 
 def test_damage_baseline_note():
-    good = with_damage(LINES, 60)
+    good = with_damage(NODMG, 60)
     i = next(k for k, ln in enumerate(good) if '"state":"BEGIN"' in ln)
     t = json.loads(good[i])["t_us"]
     note = json.dumps({"type": "damage", "t_us": t, "sf": 60, "state": "BASELINE", "drop": None, "f1": [4.75, None], "f1_0": [4.75, 6.0], "slave": 1}, separators=(",", ":"))

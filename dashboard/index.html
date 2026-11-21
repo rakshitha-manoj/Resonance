@@ -1254,6 +1254,10 @@ function onMqMessage(my,base,topic,payload,packet){
     mqMasterEval(my);
     dirty=true; schedule(); return;
   }
+  if(leaf==="damage_state"){   // the retained latest damage line: live updates repeat it on resonance/<site>/damage, so a retained copy is stale unless the page is brand new and the master is online
+    if(retained) setTimeout(function(){ if(S===my&&!my.sm.length&&!my.ev.length&&!my.dl.length&&my.mqMaster==="online") mqPush(my,text) },MQ.retainedStateMs);
+    return;
+  }
   if(leaf==="state"){
     // the retained latest decision: only useful for a page that joined late, has nothing yet and whose master is KNOWN to be online (an unknown or offline status means the decision may be stale); live updates repeat the sample/event lines
     if(retained) setTimeout(function(){ if(S===my&&!my.sm.length&&!my.ev.length&&my.mqMaster==="online") mqPush(my,text) },MQ.retainedStateMs);   // not when the master is known to be offline: that decision is stale and its clock would collide with the next run

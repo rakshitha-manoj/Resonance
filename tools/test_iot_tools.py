@@ -83,7 +83,7 @@ def every_bundled_log_line_routes_to_a_known_leaf():
     for name in ("demo_events_sim.jsonl", "demo_events_faults_sim.jsonl"):
         for ln in open(os.path.join(REPO, "dashboard", name), encoding="utf-8"):
             r = rm.route(ln.rstrip("\r\n"))
-            assert r.leaf in ("meta", "restart", "sample", "begin", "change", "status_line", "node"), (name, ln[:60])
+            assert r.leaf in ("meta", "restart", "sample", "begin", "change", "status_line", "node", "damage"), (name, ln[:60])
 
 
 @test
@@ -172,8 +172,27 @@ def retained_and_ended_events_do_not_alert():
     assert a.status("offline", retained=False)[1].startswith("The master went OFFLINE")
     assert a.classify({"type": "damage", "ae": 1.5, "f1": 7.1})[1].startswith("DAMAGE indication")
     k, txt = a.classify({"type": "damage", "t_us": 1, "sf": 93, "state": "BEGIN", "drop": 0.0205, "f1": [5.25, None], "f1_0": [5.4, 6.0]})
-    assert k == "damage:BEGIN" and txt.startswith("DAMAGE indication BEGIN") and "2.05 %" in txt and "5.25/?" in txt, txt
+    assert k == "damage:BEGIN" and txt.startswith("DAMAGE ALARM: natural frequency down 2.1 %") and "5.25/?" in txt and "5.40/6.00" in txt and len(txt) < 140, txt
     assert a.classify({"type": "whatever"}) is None
+
+
+@test
+def alert_texts_for_damage_and_ae_driven_events():
+    a = al.Alerter(None, al.RateLimiter(0, 100), out=lambda s: None)
+    a.classify({"type": "meta", "T": 3, "T_ae": 6, "floors": [5, 10], "epoch": 1})
+    # frequency shift: only the AE is over its threshold
+    k, txt = a.classify({"type": "begin", "t_us": 239330094, "sf": 170, "class": "LOCAL", "slave": 2, "r1": 1.02, "r2": 1.97, "ae": [0.9, 9.51]})
+    assert txt == "LOCAL vibration event at floor 10 (sensor 2) [AE 9.5 >= 6] [sf 170, t=239.3 s]", txt
+    a.classify({"type": "change", "class": "AMBIENT", "slave": 0})
+    k, txt = a.classify({"type": "begin", "t_us": 1000000, "sf": 5, "class": "BUILDING", "r1": 4.2, "r2": 4.1, "ae": [2.0, 7.0]})
+    assert "std 4.2 >= 3" in txt and "AE 7.0 >= 6" in txt and txt.startswith("BUILDING-WIDE"), txt
+    k, txt = a.classify({"type": "damage", "sf": 300, "state": "END", "drop": 0.004, "f1": [7.0, 7.01], "f1_0": [7.03, 7.05]})
+    assert k == "damage:END" and txt.startswith("DAMAGE cleared") and "0.4 %" in txt, txt
+    k, txt = a.classify({"type": "damage", "sf": 310, "state": "BASELINE", "drop": None, "f1": [7.0, None], "f1_0": [7.0, None], "slave": 1})
+    assert k == "damage:BASELINE:1" and txt.startswith("Note: floor 5 (sensor 1) re-commissioned") and "7.00" in txt, txt
+    # no schema-3 fields (rule b log): no detector tag, same text as before
+    b = al.Alerter(None, al.RateLimiter(0, 100), out=lambda s: None)
+    assert b.classify({"type": "begin", "t_us": 0, "sf": 1, "class": "LOCAL", "slave": 1, "r1": 5.0, "r2": 1.0})[1].startswith("LOCAL vibration event at sensor 1 [sf 1")
 
 
 @test

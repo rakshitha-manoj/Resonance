@@ -7,7 +7,7 @@
 | `master/` | Master, ESP32 only, no sensor | `master` | Real master firmware running alone: boot line, JSON `meta` line, beacons and polls. No slaves answer, so it declares both DEAD after about 4 s. |
 | `slave1/` | Slave 1, ESP32 + MPU6050 | `slave1_wokwi` | Slave 1 with the radio replaced by a synthetic beacon every 1.4 s. Prints one `W,` line per window: sample span, compute time, deadline misses, class. |
 | `slave2/` | Slave 2, ESP32 + MPU6050 | `slave2_wokwi` | Same as slave 1, with node id 2. |
-| `master_cloud/` | Master, ESP32 only, **two virtual slaves inside the firmware** | `master_wokwi_cloud` | The IoT cloud path without hardware: Wi-Fi `Wokwi-GUEST` (open, channel 6), MQTT to the public HiveMQ broker, the demo traces replayed in a loop (impact, building-wide event, frequency shift every 162 s). See below. |
+| `master_cloud/` | Master, ESP32 only, **two virtual slaves inside the firmware** | `master_wokwi_cloud` | The IoT cloud path without hardware: Wi-Fi `Wokwi-GUEST` (open, channel 6), MQTT to the public HiveMQ broker, the demo traces replayed in a loop (impact, building-wide event, frequency shift every 448 s, with the DAMAGE alarm at about 5:30). See below. |
 | `all_three/` | All three boards | none | **Wiring picture only, cannot be simulated.** Open it in the Wokwi editor to see the layout. It has no `wokwi.toml` on purpose. |
 
 **Wokwi cannot simulate several boards talking to each other in one project.** Multiple microcontrollers in one diagram is still an open feature request: https://github.com/wokwi/wokwi-features/issues/186. So each board is simulated on its own here. The full 3-board network, with radio, packet loss and dead nodes, is simulated on the PC by `netsim` (see `.claude/STRUCTURE.md`).
@@ -21,7 +21,7 @@
 3. Run "Wokwi: Start Simulator".
 
 ### Cloud demo (`master_cloud/`, env `master_wokwi_cloud`)
-The only Wokwi project that talks to the internet. Nothing is measured: two `SlaveNode` state machines from `tiers.h` run inside the master firmware behind a loopback transport (`include/virtual_net.h`) and are fed windows from `test/data/demo_traces.bin` (converted to flash by `tools/gen_demo_header.py`, 116 windows x 2 slaves = 118,784 B, nothing decimated; the trace loops). Everything after the slaves is the real master path: `Master`, `Fusion`, the schema 2 JSON formatter, then the MQTT task on core 0.
+The only Wokwi project that talks to the internet. Nothing is measured: two `SlaveNode` state machines from `tiers.h` run inside the master firmware behind a loopback transport (`include/virtual_net.h`) and are fed windows from `test/data/demo_traces.bin` (converted to flash by `tools/gen_demo_header.py`, 320 windows x 2 slaves = 327,680 B, nothing decimated; the trace loops). Everything after the slaves is the real master path: `Master`, `Fusion`, the schema 2 JSON formatter, then the MQTT task on core 0.
 1. `pio run -e master_wokwi_cloud` (generates `include/demo_traces.h` first), select `wokwi/master_cloud/wokwi.toml`, start the simulator.
 2. The serial monitor shows `wifi: connected ssid=Wokwi-GUEST channel=6`, `mqtt: connected`, the JSON lines and `S,mqtt,...` statistics.
 3. Open `dashboard/index.html` in a browser, source **MQTT live**, site id `rsn-822298ab` (the default in `include/mqtt_config.h`), Connect. Or run `tools/alerter.py` / any MQTT client on `resonance/rsn-822298ab/#` at `broker.hivemq.com`.

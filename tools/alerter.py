@@ -88,6 +88,7 @@ class Alerter:
         self.out = out
         self.secrets = secrets
         self.floors = None
+        self.T = self.T_ae = None
         self.prev_key = None
         self.meta_epoch = None
         self.alive = {}
@@ -98,12 +99,28 @@ class Alerter:
             return "floor %s (sensor %d)" % (self.floors[slave - 1], slave)
         return "sensor %s" % slave
 
+    def detector(self, o, cls, slave):
+        """' [AE 9.5 >= 6]' / ' [std 3.4 >= 3]' / both: which detector of rule f is at or over its threshold on this line (schema 3)."""
+        slaves = (slave,) if cls == "LOCAL" else (1, 2)
+        ae, r = o.get("ae"), (o.get("r1"), o.get("r2"))
+        hits = []
+        for n in slaves:
+            rv = r[n - 1] if n in (1, 2) else None
+            av = ae[n - 1] if isinstance(ae, list) and len(ae) == 2 and n in (1, 2) else None
+            if self.T is not None and isinstance(rv, (int, float)) and rv >= self.T:
+                hits.append("std %.1f >= %g" % (rv, self.T))
+            if self.T_ae is not None and isinstance(av, (int, float)) and av >= self.T_ae:
+                hits.append("AE %.1f >= %g" % (av, self.T_ae))
+        return " [%s]" % ", ".join(hits) if hits else ""
+
     def classify(self, o, retained=False):
         """Returns (key, text) for a line that deserves an alert, else None."""
         t = o.get("type")
         if t == "meta":
             self.prev_key = None            # a new run / reboot: the first event of it is compared with nothing
             self.meta_epoch = o.get("epoch") if isinstance(o.get("epoch"), int) else None
+            self.T = o.get("T") if isinstance(o.get("T"), (int, float)) else None
+            self.T_ae = o.get("T_ae") if isinstance(o.get("T_ae"), (int, float)) else None
             fl = o.get("floors")
             if isinstance(fl, list) and len(fl) == 2:
                 self.floors = fl
@@ -121,9 +138,8 @@ class Alerter:
                 what = "LOCAL vibration event at " + self.floor(slave)
             if t == "change":
                 what += " (changed from %s)" % (prev[0] if prev else "?")
-            r = [x for x in (o.get("r1"), o.get("r2")) if isinstance(x, (int, float))]
-            tail = " r1=%s r2=%s" % (o.get("r1"), o.get("r2")) if r else ""
-            return ("%s:%s:%s" % (t, cls, slave), "%s [sf %s, t=%.1f s]%s" % (what, o.get("sf"), (o.get("t_us") or 0) / 1e6, tail))
+            tail = self.detector(o, cls, slave)
+            return ("%s:%s:%s" % (t, cls, slave), "%s%s [sf %s, t=%.1f s]" % (what, tail, o.get("sf"), (o.get("t_us") or 0) / 1e6))
         if t == "node":
             st = o.get("state")
             return ("node:%s:%s" % (o.get("slave"), st), "%s is %s (superframe %s)" % (self.floor(o.get("slave")).capitalize(), "OFFLINE (no valid report for 3 superframes)" if st == "DEAD" else "back ONLINE", o.get("sf")))
@@ -132,12 +148,16 @@ class Alerter:
             return ("restart", "The master restarted (new epoch %s); baselines are re-learned" % o.get("epoch"))
         if t == "damage":
             st, drop = o.get("state"), o.get("drop")
-            if st in ("BEGIN", "END") and isinstance(drop, (int, float)):   # the schema-3 line of the master firmware / netsim
-                f1, f10 = o.get("f1") or [None, None], o.get("f1_0") or [None, None]
-                fmt = lambda v: "?" if v is None else "%.2f" % v  # noqa: E731
-                txt = "DAMAGE indication %s: pooled f1 drop %.2f %% [f1 %s Hz, commissioned %s Hz, sf %s]" % (
-                    st, drop * 100.0, "/".join(fmt(x) for x in f1), "/".join(fmt(x) for x in f10), o.get("sf"))
-                return ("damage:%s" % st, txt)
+            f1, f10 = o.get("f1") or [None, None], o.get("f1_0") or [None, None]
+            fmt = lambda v: "?" if v is None else "%.2f" % v  # noqa: E731
+            hz = lambda a: "/".join(fmt(x) for x in a)  # noqa: E731
+            if st == "BASELINE":
+                n = o.get("slave")
+                return ("damage:BASELINE:%s" % n, "Note: %s re-commissioned its reference frequency (f1_0 %s Hz); its drop restarts from 0 (sf %s)" % (self.floor(n), fmt(f10[n - 1] if n in (1, 2) else None), o.get("sf")))
+            if st == "BEGIN" and isinstance(drop, (int, float)):
+                return ("damage:BEGIN", "DAMAGE ALARM: natural frequency down %.1f %% (f1 %s Hz vs %s Hz at commissioning), sf %s" % (drop * 100.0, hz(f1), hz(f10), o.get("sf")))
+            if st == "END" and isinstance(drop, (int, float)):
+                return ("damage:END", "DAMAGE cleared: natural frequency back to %.1f %% below commissioning (f1 %s Hz), sf %s" % (drop * 100.0, hz(f1), o.get("sf")))
             rest = {k: v for k, v in o.items() if k != "type"}
             return ("damage", "DAMAGE indication: " + json.dumps(rest, separators=(",", ":"))[:300])
         return None
