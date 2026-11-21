@@ -46,7 +46,7 @@ Needs internet. The broker is the free public HiveMQ one: anybody who knows the 
      .venv\Scripts\python.exe tools/alerter.py --site rsn-822298ab --transport websockets --port 8000 --cooldown 5
      ```
    - Test it: `.venv\Scripts\python.exe tools/alerter.py --selftest-message`. Without the two variables it only prints what it would send ("dry run").
-   - Expect messages like `LOCAL vibration event at floor 10 (sensor 2) [AE 9.5 >= 6]` and `DAMAGE ALARM: natural frequency down 4.3 % (f1 6.73/6.74 Hz vs 7.03/7.05 Hz at commissioning)`.
+   - Expect messages like `LOCAL vibration event at floor 10 (sensor 2) [AE 6.2 >= 6]` and `DAMAGE ALARM: natural frequency down 4.3 % (f1 6.73/6.74 Hz vs 7.03/7.05 Hz at commissioning)`.
 5. Start the alerter, then the publisher; show the phone when the DAMAGE message arrives.
 
 ## (c) Wokwi cloud demo (the master firmware in a simulated ESP32)

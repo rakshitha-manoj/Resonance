@@ -2,7 +2,7 @@
 
 Structural health monitoring with IoT and TinyML. Two ESP32 + MPU6050 sensor nodes each run a 110 B decision tree, an int8 autoencoder (942 B of weights, trained on healthy data only) and a natural-frequency tracker. An ESP32 master fuses the two nodes into AMBIENT / LOCAL / BUILDING events plus a DAMAGE alarm, and publishes over MQTT to a browser dashboard and Telegram alerts.
 
-**Status: the simulation stage is complete; hardware bring-up is pending.** Every result is from the project's building simulator, a PC test harness or a simulator emulator. **Nothing has been measured on real boards or structures.**
+**Status: the simulation stage is complete; hardware bring-up is pending.** Every result is from the project's building simulator, a PC test harness or the Wokwi emulator. **Nothing has been measured on real boards or structures.**
 
 ## Documents
 
@@ -17,7 +17,7 @@ Structural health monitoring with IoT and TinyML. Two ESP32 + MPU6050 sensor nod
 | | Result |
 |---|---|
 | Decision tree | 11 nodes, **110 B**, about **0.93** accuracy on synthetic data (resampling estimate, no untouched test) |
-| int8 autoencoder | 574 parameters, 942 B weights; C kernel bit-exact with TensorFlow Lite (0 mismatches on 10,000 vectors) |
+| int8 autoencoder | 574 parameters, 942 B weights; C kernel bit-exact with TensorFlow Lite on the PC (0 mismatches on 10,000 vectors) |
 | Master rule f (std ratio OR autoencoder), fresh pre-registered block, 240 buildings, 28 h | mean event recall **0.734** against 0.622 for the std ratio alone (paired +0.113); **1.64 false onsets per hour, the 1/h budget is not met** (2.05/h on healthy ambient alone) |
 | DAMAGE (natural-frequency drop) | 30 % stiffness loss detected 1.00 / 1.00 / 0.91 at storeys 1 / 3 / 5, almost never at the top storeys (physics); coarse alarm only |
 | Hierarchy vs one node | same false-alarm rate; adds the second floor, event typing and dead-slave handling (rule b comparison) |
@@ -31,14 +31,14 @@ Older sections below describe the stage at which each part was built; where numb
 
 - Real inference timing and boot-time sensor configuration check (`config ok dlpf=3 accel=0 gyro=0`).
 - Accuracy on real structures, and the real sensor's noise level compared with the synthetic data.
-- Sensor mounting orientation (the model assumes `az` is the gravity axis).
+- Sensor mounting orientation and axis: the simulator puts the lateral sway on `az`, while the bring-up guide mounts `az` as the vertical gravity axis, which would see little sway; the axis choice and threshold transfer must be settled on hardware.
 - For the three-board system: radio link loss and timing, compute time against the 50 ms limit, the noise gate value, and the dashboard's live mode. The measurements are listed in [docs/hardware_bringup.md](docs/hardware_bringup.md).
 
 ## Project history
 
 Branch `tinyml-iot` (current) adds Phase B (autoencoder), Phase A (f1 tracking, DAMAGE), Phase C (firmware integration, dashboard schema 3, demo), Phase D (MQTT cloud layer, alerts), Phase F (this documentation). `master` still holds the work up to the hierarchy merge.
 
-Phases 1 to 5 were each built on their own branch, independently verified, then merged into `master` in order with `--no-ff`, so each phase appears as a merge commit. The hierarchy work (R1 to R6) is on `hier2-protocol`, which is not merged into `master`.
+Phases 1 to 5 were each built on their own branch, independently verified, then merged into `master` in order with `--no-ff`, so each phase appears as a merge commit. The hierarchy work (R1 to R6) was done on `hier2-protocol` and merged into `master` (merge commit `f58d8ad`).
 
 | Phase | Branch | What it delivered |
 |---|---|---|
@@ -59,12 +59,12 @@ A branch `hier1-building-sim` exists but points at the Phase 5 merge commit (`49
 |---|---|
 | `data/generator/generate.py` | Synthetic dataset generator (output `data/processed/dataset.csv` is not committed; rerun to recreate it) |
 | `data/generator/building_sim.py` | 10-storey shear-building simulator (floor acceleration with damage, impacts, strong excitation) |
-| `models/training/` | Training and selection (`train.py`), model comparison, sensor-filter check, smoothing evaluation; localisation gates, building-data retraining (`train_building.py`), master-rule selection (`fusion_eval.py`, `fusion_eval_r2b.py`), single-node comparison (`compare_hierarchy.py`) |
+| `models/training/` | Training and selection (`train.py`), model comparison, filter and smoothing checks; localisation gates, building retraining; fusion selection (`fusion_eval*.py`, R2, R2b, R3), single-node comparison (`compare_hierarchy.py`); autoencoder (`ae_*.py`, `ae_final.py`); f1 tracking (`freq_tracking_eval.py`, `shm.py`); ctypes bridges to the firmware C code |
 | `models/selected/` | Deployed model, export for C, feature specification, reports and validation results (including gate, fusion and hierarchy results) |
 | `models/selected_building/` | Building-data retraining candidate and its report (not deployed) |
 | `firmware/esp32/` | PlatformIO project: live firmware, self-test firmware, network firmware (`master`, `slave1`, `slave2`; `include/net_proto.h`, `tiers.h`, `fusion.h`, `espnow_logic.h`), network simulator (`netsim`), PC tests, code generators (`tools/`), Wokwi configs (`wokwi/`: one folder per board of the 3-ESP32 system, a wiring view of all three, and the earlier single-board configs) |
-| `dashboard/` | `index.html` event-log viewer (replay and live over USB) and sample logs |
-| `docs/` | `simulation_validation.md` (Phases 1 to 5), `hierarchy_validation.md` (R1 to R6 report), `hardware_bringup.md` (flashing and measurements for the three boards) |
+| `dashboard/` | `index.html` single-file dashboard (replay, live USB, MQTT live, schema-3 damage demo embedded), simulated demo logs, validators and headless tests |
+| `docs/` | `project_report.md` (final report), `viva_prep.md`, `slides_outline.md`, `demo_runbook.md`, `simulation_validation.md` (Phases 1-5), `hierarchy_validation.md` (R1-R6), `hardware_bringup.md`, `figures/` |
 
 ## Running it
 
@@ -93,7 +93,7 @@ pio test -e espnow_logic      # ESP-NOW receive logic
 pio run -e master             # also slave1, slave2; flashing: docs/hardware_bringup.md
 ```
 
-Hierarchy studies (from the repository root; some take minutes to an hour, see the report's section 12):
+Hierarchy studies (from the repository root; some take minutes to an hour, see `docs/hierarchy_validation.md` section 12):
 
 ```
 .venv\Scripts\python.exe models\training\test_gates.py

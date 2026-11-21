@@ -8,7 +8,7 @@ How to read the numbers: every figure comes from a result file in the repository
 
 ## 1. Abstract
 
-We built a three-tier structural health monitoring (SHM) system: two ESP32 + MPU6050 sensor nodes, one ESP32 master that fuses their reports, and a cloud layer (MQTT, browser dashboard, Telegram alerts). Each sensor node runs a 110-byte decision tree, an int8 autoencoder (a TinyML anomaly detector, 942 B of weights) and a natural-frequency tracker on-device. The master decides AMBIENT / LOCAL / BUILDING events and a separate DAMAGE alarm. In simulation (fresh, pre-registered test block, 240 simulated buildings, 28 h): mean event recall rose from 0.622 to **0.734** by adding the autoencoder, at **1.64 false onsets per hour** (our 1/h budget was **not met**). Frequency tracking detects 30 % stiffness loss in storeys 1-5 (1.00 / 1.00 / 0.91) but is nearly blind to damage in the top storeys. The C inference code is bit-exact with TensorFlow Lite (0 mismatches on 10,000 vectors). The 110 B tree reaches about 93 % accuracy on synthetic data. Everything is simulation; no hardware measurement exists yet.
+We built a three-tier structural health monitoring (SHM) system: two ESP32 + MPU6050 sensor nodes, one ESP32 master that fuses their reports, and a cloud layer (MQTT, browser dashboard, Telegram alerts). Each sensor node runs a 110-byte decision tree, an int8 autoencoder (a TinyML anomaly detector, 942 B of weights) and a natural-frequency tracker on-device. The master decides AMBIENT / LOCAL / BUILDING events and a separate DAMAGE alarm. In simulation (fresh, pre-registered test block, 240 simulated buildings, 28 h): mean event recall rose from 0.622 to **0.734** by adding the autoencoder, at **1.64 false onsets per hour** (our 1/h budget was **not met**). Frequency tracking detects 30 % stiffness loss in storeys 1, 3 and 5 (1.00 / 1.00 / 0.91) but is nearly blind to damage in the top storeys. On the PC, the C inference code is bit-exact with TensorFlow Lite (0 mismatches on 10,000 vectors). The 110 B tree reaches about 93 % accuracy on synthetic data (resampling estimate). Everything is simulation; no hardware measurement exists yet.
 
 ---
 
@@ -22,7 +22,7 @@ A key physical idea is the **natural frequency**: every structure has frequencie
 
 ### 2.2 Why edge computing and TinyML
 
-Streaming raw vibration to a server is expensive in power and bandwidth. In the simulator, streaming raw 6-axis data from two slaves would be 8.64 MB per hour, against about 363 kB per hour of application payload for the actual protocol and about 10.5 kB per hour for the events-only cloud uplink at 0 % packet loss (`compare_hierarchy.md`). Processing at the node ("edge") also keeps the local network working when the internet fails.
+Streaming raw vibration to a server is expensive in power and bandwidth. In the simulator, streaming raw 6-axis data from two slaves would be 8.64 MB per hour. The hierarchy's radio traffic was measured at about 363 kB per hour of application payload with the earlier version-2 protocol (44 B reports, `compare_hierarchy.md`); with the current 56 B report it is about 424 kB per hour by the same frame arithmetic (not re-measured). The events-only cloud uplink (`JSON_SAMPLES` = 0) was 10.5 kB per hour with the older schema-2 lines (about 12-14 kB per hour estimated for schema 3); the default build also publishes one `sample` line per superframe for the live dashboard, about 0.7 MB per hour. Processing at the node ("edge") also keeps the local network working when the internet fails.
 
 **TinyML** means running machine-learning inference on microcontrollers with kilobytes of memory. Here: a small decision tree and a small neural network (autoencoder) whose weights occupy under 1 KB each and whose arithmetic uses 8-bit integers (**int8 quantisation**: weights and activations are stored as 8-bit integers with a scale factor, instead of 32-bit floats; this cuts memory and suits integer hardware).
 
@@ -36,7 +36,7 @@ From the project brief (`.claude/STRUCTURE.md`): accuracy of at least 90 %, infe
 
 | Target | Result | Where measured |
 |---|---|---|
-| Accuracy >= 90 % | about 0.93 (resampling estimate, synthetic data) | simulated |
+| Accuracy >= 90 % | about 0.93 (resampling estimate, synthetic data; the tree is not used by the master's final decision, section 5.1) | simulated |
 | Inference < 50 ms | about 24 ms per window in Wokwi simulator for the original tree pipeline; a real ESP32 is estimated at 3-8 ms for the full pipeline | simulator / estimate, not silicon |
 | Model < 100 KB | 110 B tree; 942 B autoencoder weights | exact sizes |
 
@@ -120,7 +120,7 @@ The hierarchy was a mentor requirement. Two slaves are the smallest number that 
 ## 4. Sensing and signal processing
 
 - **Sensor**: MPU6050, accelerometer +-2 g (16384 counts/g), gyroscope +-250 deg/s. Only the `az` (gravity axis) and `gx` axes are used.
-- **DLPF** (digital low-pass filter inside the sensor, CFG=3: 44 Hz accel / 42 Hz gyro) is a **hard requirement**: the training data never contained wideband noise above 50 Hz. In an independent verification (not reproducible from the repository), turning it off changed about 16 % of predictions. The firmware reads back the DLPF and range registers at boot and refuses to classify if they are wrong (`config fail`).
+- **DLPF** (digital low-pass filter inside the sensor, CFG=3: 44 Hz accel / 42 Hz gyro) is a **hard requirement**: the training data never contained wideband noise above 50 Hz. In an independent verification (not reproducible from the repository), turning it off, with simulated wideband noise above 50 Hz, changed about 16 % of predictions. The firmware reads back the DLPF and range registers at boot and refuses to classify if they are wrong (`config fail`).
 - **Sampling**: exact 100 Hz timer, 128-sample non-overlapping windows (1.28 s), frequency resolution 0.78125 Hz. Thresholds are in raw counts at these ranges.
 - **Tree features** (5): `az` standard deviation, excess kurtosis and dominant frequency; `gx` standard deviation and dominant frequency. Variance is computed in two passes (mean first) because a one-pass float32 formula flips predictions on `az`, which sits near 16384.
 - **Spectral front end** (`spectrum.h`), shared by the autoencoder and the f1 tracker:
@@ -133,7 +133,7 @@ The hierarchy was a mentor requirement. Two slaves are the smallest number that 
 
 ### 4.1 The simulator and its limits
 
-`data/generator/building_sim.py`: a 10-storey **uniform shear building** (equal floor masses, equal storey stiffnesses), stationary band-limited random base excitation (2-12 Hz), f1 drawn 4-10 Hz, damping 1-3 %, per-floor sensor noise and offset, MPU6050 low-pass emulation. Damage = fractional stiffness loss in one storey. `gx` is **not physical** (a gain times the lateral signal plus noise). Mass changes, temperature effects, torsion, soil interaction and non-stationary excitation are not modelled. Because the simulator, thresholds and scoring were all written by this project, the results show the method works **under these assumptions**, not on a real structure.
+`data/generator/building_sim.py`: a 10-storey **uniform shear building** (equal floor masses, equal storey stiffnesses), stationary band-limited random base excitation (2-12 Hz), f1 drawn 4-10 Hz, damping 1-3 %, per-floor sensor noise and offset, MPU6050 low-pass emulation. Damage = fractional stiffness loss in one storey. `gx` is **not physical** (a gain times the lateral signal plus noise). The simulator also puts the lateral (sway) floor acceleration on `az`, on top of the 1 g gravity offset, whereas the bring-up guide mounts `az` as the vertical (gravity) axis, which would see little of a shear building's sway. Which sensor axis to use, and whether the thresholds transfer, must be settled at hardware bring-up. Mass changes, temperature effects, torsion, soil interaction and non-stationary excitation are not modelled. Because the simulator, thresholds and scoring were all written by this project, the results show the method works **under these assumptions**, not on a real structure.
 
 ---
 
@@ -142,10 +142,10 @@ The hierarchy was a mentor requirement. Two slaves are the smallest number that 
 ### 5.1 The decision tree (original single-node classifier)
 
 - **Data**: 150 synthetic recordings (50 per class: normal / abnormal / faulty), 40 windows each = 6000 windows (`generate.py`, seed 42). Splits are always by recording, never by window, because windows of one recording are near duplicates.
-- **Selection** (`models/selected/report.md`): inputs = 18 mean-removed features (raw RMS excluded because it contains gravity and offset). Rule fixed in advance: smallest model of at most 5120 B whose repeated grouped 5-fold CV accuracy is at least 0.90 in all 10 repeats. Winner: **depth-3 tree, 11 nodes, 110 B** (retrained on all 150 recordings), using 5 features of 2 axes.
+- **Selection** (`models/selected/report.md`): inputs = 18 mean-removed features (raw RMS excluded because it contains gravity and offset). Rule (third version; the rule was revised twice after results were seen, see the selection history in `report.md`): smallest model of at most 5120 B whose repeated grouped 5-fold CV accuracy is at least 0.90 in all 10 repeats. Winner: **depth-3 tree, 11 nodes, 110 B** (retrained on all 150 recordings), using 5 features of 2 axes.
 - **Accuracy**: 0.9315 (sd 0.028) over 200 random re-draws of the test recordings; 0.9315 (sd 0.0075) over 40 repeats of 5-fold CV on all 150 recordings. **This is an estimate of the training procedure, not an untouched test**: the set-aside recordings were used as evidence when the selection rule was revised, so no untouched data remains. It is accuracy on synthetic data.
 - **Alternatives** under a replacement rule fixed in advance: random forest of 50 trees depth 4: 0.938 / 0.940, 11.5 KB (kept as documented fallback); best RBF SVM 0.911 / 0.912 up to 93 KB; best linear SVM 0.907 / 0.907 372 B; small neural network 0.87 dev CV. None qualified to replace the tree.
-- **Role today**: the tree still runs on each slave and its state is reported, but **the master's final decision does not use it**. Under the event-level false-alarm criterion every rule that relied on the tree's "faulty" output was over budget on the dev block (`hierarchy_validation.md` 7.4). The old tree alone on a single node gave 39.0 false onsets/h at floor 10 (healthy ambient, `compare_hierarchy.md`).
+- **Role today**: the tree still runs on each slave and its state is reported, but **the master's final decision does not use it**. Under the event-level false-alarm criterion every candidate of rules a and d, which rely on the tree's 'faulty' output, was over budget on the dev block; rule c (tree AND std ratio) met it at T = 3 but ranked below rule b (`hierarchy_validation.md` 7.4). The old tree alone on a single node gave 39.0 false onsets/h at floor 10 (healthy ambient, `compare_hierarchy.md`).
 
 ### 5.2 The int8 autoencoder (anomaly detector)
 
@@ -162,7 +162,7 @@ The hierarchy was a mentor requirement. Two slaves are the smallest number that 
   2. The input quantiser is `round_half_away(v / scale)` (a float division). The earlier `v * (1/scale)` differs at near-half values (10,171 of 10^6 adversarial values; essentially never on real windows). Found by the independent verifier, fixed before the test block was scored, and the dev selection was re-run and did not change (all 165 table rows identical in false onsets/h and mean recall).
   
   Note also that TFLite's default XNNPACK resolver is not the reference (its QUANTIZE rounds half to even, and it differed in 1 of 200,000 outputs).
-- **Is this "really TinyML"?** Yes in the sense that matters for the constraints: a trained neural network, int8 post-training quantised, under 1 KB of weights, run on a microcontroller. It is not running inside TensorFlow Lite Micro; it is hand-written C verified bit-exact against TFLite. A TFLM runtime comparison is future work.
+- **Is this 'really TinyML'?** By the constraints, yes: a trained neural network, int8 post-training quantised, under 1 KB of weights, compiled into the ESP32 slave firmware. It has not yet been executed on a board or in Wokwi; its outputs were verified on the PC. It is not running inside TensorFlow Lite Micro; it is hand-written C verified bit-exact against TFLite on the PC. A TFLM runtime comparison is future work.
 
 ### 5.3 Mahalanobis baseline
 
@@ -270,7 +270,7 @@ Damage lowers stiffness; stiffness lowers f1. The first mode (the lowest, simple
 - **Master detector** (`damage.h`): pooled drop = mean over slaves that have a valid drop. **DAMAGE BEGIN** after P = 32 consecutive superframes (45 s) with pooled drop >= delta = 2 %; **END** after 32 below 1 % (hysteresis). If no slave is usable, state is held. A contributor guard stops an active alarm ending just because the slave that saw the damage rebooted.
 - Parameters (M, C, delta, P) were selected on a dev block (6,500,000 + 120 buildings, drift A_env 0.5 %, false DAMAGE <= 1/24 h, maximise mean detection over 25 damage cells) and scored once on a test block (6,600,000 + 120).
 
-### 7.3 Results (test block, `freq_tracking.md`; simulation)
+### 7.3 Results (test block, `freq_tracking.md`; simulation; re-run once after the post-hoc tracker fix, section 7.4; numbers unchanged)
 
 - **False DAMAGE** per 24 h of healthy monitoring: 0.20 [0.00, 0.61] with no drift; **0.41 [0.00, 1.22] at 0.5 % stiffness drift**; **2.24 [0.81, 4.07] at 1 % drift** (budget exceeded under stronger drift).
 - **Detection** (primary pair, 0.5 % drift): mean over 25 (storey, loss) cells **0.217 [0.204, 0.232]**.
@@ -331,7 +331,7 @@ The master has one radio: its Wi-Fi station and ESP-NOW share a channel. The mas
 
 ### 8.3 Dashboard
 
-`dashboard/index.html` is one self-contained file (no build step): replay of JSON-lines logs, live over USB (Web Serial), live over MQTT-over-WebSocket, an embedded simulated damage demo that works from `file://`. It shows per-floor state, a DAMAGE banner (grey = not commissioned, green, amber, red), timeline, the std-ratio chart, the autoencoder ratio chart, f1 per sensor, pooled drop, a DAMAGE history, and an event history with a detector column (which detector fired: std, AE, smoothed). Every simulated page is labelled "SIMULATED DATA".
+`dashboard/index.html` is one self-contained file (no build step): replay of JSON-lines logs, live over USB (Web Serial), live over MQTT-over-WebSocket, an embedded simulated damage demo that works from `file://`. It shows per-floor state, a DAMAGE banner (grey = not commissioned, green, amber, red), timeline, the std-ratio chart, the autoencoder ratio chart, f1 per sensor, pooled drop, a DAMAGE history, and an event history with a detector column (which detector fired: std, AE, smoothed). The "SIMULATED DATA" banner is shown only for logs whose meta `source` is `netsim`; a `wokwi_demo` log would not be flagged, so say so when showing it.
 
 ![Dashboard at the end of the damage demo](figures/dashboard_overview.png)
 
@@ -341,12 +341,12 @@ The demo (seed 5,990,011; 320 superframes = 7.5 min; one building with f1 7.09 H
 
 ### 8.4 Telegram alerts
 
-`tools/alerter.py` subscribes to the topics and sends messages such as `LOCAL vibration event at floor 10 (sensor 2) [AE 9.5 >= 6]` and `DAMAGE ALARM: natural frequency down 4.3 % (f1 6.73/6.74 Hz vs 7.03/7.05 Hz at commissioning)`. It has a cooldown and an hourly budget, scrubs the bot token from all output, and prints instead of sending when no token is set.
+`tools/alerter.py` subscribes to the topics and sends messages such as `LOCAL vibration event at floor 10 (sensor 2) [AE 6.2 >= 6]` and `DAMAGE ALARM: natural frequency down 4.3 % (f1 6.73/6.74 Hz vs 7.03/7.05 Hz at commissioning)`. It has a cooldown and an hourly budget, scrubs the bot token from all output, and prints instead of sending when no token is set.
 
 ### 8.5 End-to-end test results (public broker, simulated data)
 
 - `tools/e2e_mqtt_test.py` runs the network simulator, subscribes to the real public broker, runs the publisher in a separate process and checks that every line arrives byte-identical and in publish order on the right topic, that the retained `state` equals the last decision, that meta is retained and that status goes online then offline. (The repository records the test, not a stored result log; run it to reproduce.)
-- The dashboard's headless test (`test_mqtt_dom.js`, jsdom) compares the live MQTT state with the file replay: it was run three times against `ws://broker.hivemq.com:8000/mqtt` at 4x speed (three sites in parallel) plus the fault log once; all passed and the live state was identical to the replay. Offline section: 24 checks pass.
+- The dashboard's headless test (`test_mqtt_dom.js`, jsdom) compares the live MQTT state with the file replay: it was run three times against `ws://broker.hivemq.com:8000/mqtt` at 4x speed (three sites in parallel) plus the fault log once; all passed and the live state was identical to the replay. Offline section: 25 checks pass. These live runs have no stored log.
 - **What was not run**: the Wokwi cloud demo (the master firmware in the Wokwi emulator) was never executed, because the Wokwi command-line tool was not available. The same virtual pipeline is verified on the PC (`pio test -e cloud_demo`: its lines equal the simulator's golden log apart from timestamps). No real master has ever published.
 
 ---
@@ -359,18 +359,18 @@ The demo (seed 5,990,011; 320 superframes = 7.5 min; one building with f1 7.09 H
 | | `pio test -e netsim` (protocol, state machines, simulator, fusion, JSON) | 115 (63 test_net + 52 test_fusion) |
 | | `espnow_logic` / `mqtt_logic` / `cloud_demo` | 26 / 34 / 6 |
 | Python tests | `test_iot_tools.py` / `test_validate_logs.py` / `test_gates.py` | 13 / 7 / 18 |
-| Dashboard | jsdom offline checks | 24 |
+| Dashboard | jsdom offline checks | 25 |
 
 (Sum of the unit-test counts above: 253 tests, all passing at the last recorded run, plus the dashboard checks.)
 
-**Bit-exact parity chains.** The same arithmetic is run in Python, in C on the PC, and on the ESP32 target, and compared:
-- Tree: C vs Python on all **6000 windows**, 0 mismatches; simulated ESP32 self-test 606/606 (516 hard cases near thresholds); smoothing 2592 sequences, 0 mismatches. Smallest distance to a split threshold vs largest float error >= 14.8x.
+**Bit-exact parity chains.** The same arithmetic is run in Python and in C on the PC and compared; only the original tree pipeline was also run on a simulated ESP32 (Wokwi, Phase 4 build, 606/606). The newer slave pipeline (band powers, autoencoder input, zoom, f1 tracker) has not run on an ESP32 or in Wokwi. It uses `logf`, whose ESP32 (newlib) and PC implementations may differ in the last bit, so on-target equality of the AE inputs and f1 estimates is expected to within rounding but not proven; the self-test's `ae parity` and `pipeline` lines are the first hardware-day check.
+- Tree: C vs Python on all **6000 windows**, 0 mismatches; simulated ESP32 self-test 606/606 (516 hard cases: 503 near a split threshold, 13 near DFT ties); smoothing 2592 sequences, 0 mismatches. Smallest distance to a split threshold vs largest float error >= 14.8x.
 - Autoencoder: C kernel vs TFLite reference interpreter, 0 mismatches on 10,000 vectors, 1000 with float inputs through a real TFLite QUANTIZE op.
 - Front end: C DFT argmax equals the old dominant-frequency code on 6000 windows; the interleaved four-frequency zoom loop is bit-identical to the one-frequency loop (6000 + 5000 random windows).
 - Fusion: `fusion.h` vs the Python reference `RefFusion`: 89 sequences, 3157 decisions, 1407 events, 0 mismatches (22 sequences of rule f); `RefFusion` vs the vectorised evaluation on 151,200 dev superframes, 0 mismatches. A test compares every selected constant in the firmware with the selection JSON files (mutating CHOSEN_T_AE, CHOSEN_T_B, the gate or the rule letter each fails the test).
 - Python evaluations **run the firmware C code** through a ctypes bridge (`frontend.py`, `shm.py`, `ae_bridge.py`), so what was evaluated is what is deployed.
 
-**Fuzzing and fault injection.** Independent verification (not reproducible from the repository, quoted as given) ran mutation tests, about 600,000 superframes of fault injection and 12 million fuzz iterations on the protocol; it found a master-restart blackout and a master-stall bug (both fixed), mode-2 locks of the tracker (fixed, section 7.4), the quantiser rounding difference (section 5.2) and a stale-DAMAGE case (contributor guard). The simulator kills and revives nodes, injects loss, delay, corruption and send failures, and recomputes invariants.
+**Fuzzing and fault injection.** At the hierarchy stage (protocol version 2, before the autoencoder, rule f and DAMAGE existed) independent verification ran mutation tests, protocol fuzzing and fault-injection runs; their counts and logs are not stored in the repository (`hierarchy_validation.md` §1.1 quotes the verifier's figures). They found a master-restart blackout and a master-stall bug (both fixed). Later per-phase verification passes found the tracker's mode-2 locks (section 7.4), the quantiser rounding difference (section 5.2) and a stale-DAMAGE case (contributor guard); a later protocol-v3 fuzz of 2 million frames accepted no truncated or version-2 frame (no stored log). In the repository the simulator kills and revives nodes, injects loss, delay, corruption and send failures and recomputes invariants (`pio test -e netsim`).
 
 **Independent verification passes.** Each phase was reviewed by a separate agent that re-ran tests and tried to break the change; several defects in this report's history were found this way.
 
@@ -396,7 +396,7 @@ All well under the 100 KB target **for the models**: tree 110 B, autoencoder 942
 
 **Compute time.**
 - Original tree pipeline: about 24 ms per window in Wokwi (simulated time, not silicon): features 24.1 ms, tree about 6 us. By instruction count about 99 % of this is the two 128-point DFTs (a radix-2 FFT would need an estimated 10-20x fewer operations; not implemented).
-- Full pipeline (features + bands + autoencoder + zoom + tracker + tree): **host-measured** 65-75 us per window mean on this PC (x86, -O2; max 90-210 us). The Goertzel zoom dominates (about 77 of 107 us in a stand-alone benchmark). **ESP32 estimate: roughly 3-8 ms** from instruction counts (240 MHz, hardware FPU). **This is an estimate**: the number on a real board is unmeasured, and **Wokwi timing is not silicon timing** (in Wokwi's model the full pipeline would be about 45 ms, right at the budget). The self-test prints `pipeline us ... FITS | EXCEEDS the 45 ms budget`; it must be run on a board. The poll timing tolerates about 50 ms of slave compute (slave 1's first poll fails above ~50 ms; false DEAD from ~68-70 ms).
+- Full pipeline (features + bands + autoencoder + zoom + tracker + tree): **host-measured** about 30-45 us per window mean on this PC (x86, -O2; max about 85-210 us; load-dependent). Before the zoom was changed to evaluate four frequencies per pass it was 65-75 us, the zoom alone about 79 us; it is now about 20 us on the host. **ESP32 estimate: roughly 3-8 ms** from instruction counts (240 MHz, hardware FPU). **This is an estimate**: the number on a real board is unmeasured, and **Wokwi timing is not silicon timing** (in Wokwi's model the full pipeline would be about 45 ms, right at the budget). The self-test prints `pipeline us ... FITS | EXCEEDS the 45 ms budget`; it must be run on a board. The poll timing tolerates about 50 ms of slave compute (slave 1's first poll fails above ~50 ms; false DEAD from ~68-70 ms).
 - If needed: evaluate the zoom on every 2nd grid point (0.1 Hz) to halve the cost; it lost nothing measurable in simulation (mean abs error 0.0421 Hz at all steps up to 0.3 Hz) but changes a selected quantity, so it was not applied.
 
 ---
@@ -410,7 +410,7 @@ All well under the 100 KB target **for the models**: tree 110 B, autoencoder 942
 Assumed typical figures (ESP32 datasheet, order of magnitude): CPU active at 240 MHz about 30-70 mA without radio; Wi-Fi/ESP-NOW receive about 95-100 mA; transmit about 180-240 mA peak; MPU6050 about 3.9 mA with accelerometer and gyroscope on. A development board adds its USB-UART chip and regulator losses.
 
 - **Master**: always on, Wi-Fi station plus ESP-NOW, so roughly 100 mA at 5 V-equivalent; **mains/USB powered**, this is acceptable.
-- **Slave at 100 % duty (our design)**: the ESP-NOW receiver must listen for each 1.4 s beacon and the CPU samples every 10 ms, so the radio and CPU are effectively always on: about 100-110 mA average (assumption). With a 2000 mAh battery that is roughly 18-20 hours; with 10,000 mAh, about 4 days. **So the current design is for USB/mains-powered slaves**, not coin-cell or long-life battery operation.
+- **Slave at 100 % duty (our design)**: the ESP-NOW receiver must listen for each 1.4 s beacon and the CPU samples every 10 ms, so the radio and CPU are effectively always on: about 100-110 mA average (assumption). With a 2000 mAh battery that is roughly 18-20 hours; with 10,000 mAh, about 2.5-4 days depending on the converter (power-bank capacity is rated at 3.7 V). **So the current design is for USB/mains-powered slaves**, not coin-cell or long-life battery operation.
 - Possible reductions (future work, not implemented): light sleep between windows (the 1.4 s superframe is known, so the radio could be off outside the beacon and poll slots), lower sample rate, and DMA-style batch reads of the MPU6050 FIFO. Savings are not estimated here.
 
 ### 11.2 Bill of materials (approximate Indian-rupee prices; market prices vary, treat as rough and to be confirmed)
@@ -430,9 +430,9 @@ A cloud broker is free (public demo) or a small VPS/Raspberry Pi running a Mosqu
 ## 12. Limitations
 
 1. **Simulation only.** No sensor data from a real structure and no run on real ESP32 boards exist. Wokwi was not run for the cloud demo, and Wokwi runs of the Phase 5 firmware (smoothing self-test, boot config check) were never recorded either.
-2. **Uniform shear building**, stationary band-limited synthetic excitation, modelled `gx`, scale-model frequencies (f1 4-10 Hz). Real wind, traffic and occupancy vary in level and spectrum; real structures are not uniform and stiffness changes with temperature and amplitude.
+2. **Uniform shear building**, stationary band-limited synthetic excitation, modelled `gx`, scale-model frequencies (f1 4-10 Hz); `az` carries the lateral sway in the simulator but is the vertical axis on the mounted sensor. Real wind, traffic and occupancy vary in level and spectrum; real structures are not uniform and stiffness changes with temperature and amplitude.
 3. **The result describes fit to our simulator**: simulator, thresholds and scoring were written by the same project.
-4. **Provisional noise gate** (92.12 counts) from synthetic data. It is critical: without it the AE rules give about 17 false onsets/h; it stops working when sensor noise is about 1.5-1.75x the assumed level (independent verification).
+4. **Provisional noise gate** (92.12 counts) from synthetic data. It is critical: without it the AE rules give about 17 false onsets/h; it stopped working for the old tree's false alarms when sensor noise was about 1.5-1.75x the assumed level (independent verification, R0); this was not measured for rule f. The gate also cuts out 39 % of healthy simulated floor-windows (98 % on floor 1, `hierarchy_validation.md` section 4.1), so the autoencoder flag is effectively off on low, quiet floors; the firmware's default floor labels are 1/2, so upper floors (as evaluated: 5/10) are recommended.
 5. **Commissioning in RAM**: all baselines (rule b, autoencoder normaliser and reference, f1_0) are learned in the first minutes after power-on and lost on reboot. They assume the structure is quiet and undamaged then; **nothing detects a bad commissioning**. A slave rebooting on a damaged structure hides the damage.
 6. **False-alarm budget not met**: 1.64/h (f), 2.05/h on healthy ambient only, against the 1.0/h budget. Both intervals include values below 1.
 7. **DAMAGE channel limited** to large (about 20-30 %) stiffness loss in the lower storeys; detection of damage under realistic drift is untested; false DAMAGE rises to 2.24/24 h at 1 % stiffness drift; the post-hoc robustness fix means its test numbers are not a clean one-shot.

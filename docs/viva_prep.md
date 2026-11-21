@@ -6,7 +6,7 @@ Companion to `project_report.md` (section numbers below refer to it). Golden rul
 
 **What.** A three-tier IoT/TinyML system for structural health monitoring: two ESP32 + MPU6050 sensor nodes, an ESP32 master that fuses them, and a cloud layer (MQTT, dashboard, Telegram).
 
-**Why.** Raw vibration streaming is costly (8.64 MB/h for two nodes, simulated) and fails when the network fails. Doing the analysis on the node keeps the system working locally and sends only decisions (about 10.5 kB/h of events, simulated at 0 % loss).
+**Why.** Raw vibration streaming is costly (8.64 MB/h for two nodes, simulated) and fails when the network fails. Doing the analysis on the node keeps the system working locally; the radio carries small reports (about 0.4 MB/h for the hierarchy) and an events-only uplink is about 10-14 kB/h (the default build also streams one sample line per superframe, about 0.7 MB/h, for the live dashboard).
 
 **How.**
 - Each node computes features, runs a 110 B decision tree, an int8 autoencoder (942 B of weights, trained on healthy data only) and a natural-frequency tracker.
@@ -18,14 +18,14 @@ Companion to `project_report.md` (section numbers below refer to it). Golden rul
 - Adding the autoencoder: mean event recall 0.622 -> **0.734**, for +0.25 false onsets/h.
 - False onsets 1.64/h, **budget of 1/h not met** (2.05/h on healthy ambient alone).
 - DAMAGE: 30 % stiffness loss in storeys 1/3/5 detected 1.00/1.00/0.91; top storeys almost invisible (physics).
-- C kernel bit-exact with TensorFlow Lite: 0 mismatches on 10,000 vectors.
+- C kernel bit-exact with TensorFlow Lite on the PC: 0 mismatches on 10,000 vectors.
 - Not done: hardware measurement. Everything is simulation; bring-up plan is written.
 
 ## Likely questions and short answers
 
 **1. What is TinyML?** Machine learning inference on microcontrollers with kilobytes of memory. Here: a decision tree (110 B) and an int8-quantised autoencoder (942 B weights, 574 parameters) in hand-written C.
 
-**2. Is this really TinyML?** Yes for the constraints: a trained neural network, post-training quantised to int8, under 1 KB of weights, running on an MCU. It does not use the TFLite Micro runtime; it is C code verified bit-exact against TFLite. A TFLM comparison is future work.
+**2. Is this really TinyML?** By the constraints, yes: a trained neural network, post-training quantised to int8, under 1 KB of weights, compiled into the ESP32 slave firmware. It has not run on a board yet (hardware pending); the C kernel was verified bit-exact against TFLite on the PC. It does not use the TFLite Micro runtime; a TFLM comparison is future work.
 
 **3. Why an autoencoder and not a classifier?** A classifier needs labelled faults; for a real structure we have none. The autoencoder is trained on healthy data only and flags anything unfamiliar. It catches frequency shifts (0.80 vs 0.30) and sparse impacts (0.20 vs 0.06) that the plain amplitude rule misses.
 
@@ -51,7 +51,7 @@ Companion to `project_report.md` (section numbers below refer to it). Golden rul
 
 **14. What did the post-hoc fix change?** Independent verification found mode-2 locks on low floors of low-f1 buildings after the test was scored. We added a unimodality check and a +-20 % band gate without re-selecting parameters. Results on cached blocks are essentially unchanged; we disclose that the test numbers are therefore not a clean one-shot.
 
-**15. Why do you track f1 relative to its own commissioned value?** The estimator has about +-0.1 Hz bias per structure, so absolute f1 is unreliable; the relative change is accurate (median error 0.025 Hz). The price: it only sees changes after commissioning.
+**15. Why do you track f1 relative to its own commissioned value?** A real structure's true f1 is unknown, so only the change from its own commissioned value is meaningful. In simulation the absolute error is small (median 0.025 Hz, p99 0.12 Hz on floors 5/10), but mode-2 locks on low floors and per-building offsets make absolute thresholds fragile. The price: it only sees changes after commissioning.
 
 **16. What is the role of the master?** It keeps the 1.4 s clock (beacon), polls both slaves, learns each slave's baseline, fuses the two reports into AMBIENT/LOCAL/BUILDING, runs the DAMAGE detector, declares dead slaves, and publishes JSON to the cloud. It has no sensor.
 
@@ -67,29 +67,31 @@ Companion to `project_report.md` (section numbers below refer to it). Golden rul
 
 **22. What if a slave reboots on a damaged structure?** It recommissions on the damaged state and reports drop 0, hiding the damage. Baselines are RAM-only; NVS persistence is future work. The master logs a BASELINE note when f1_0 resets.
 
-**23. How much memory and compute?** Models: tree 110 B, autoencoder 942 B (528 int8 MACs). Slave build: 772,825 B flash, 72,788 B static RAM. Compute: PC-measured 65-75 us per window for the whole slave pipeline; ESP32 **estimated** 3-8 ms (unmeasured); the older tree pipeline was 24 ms in Wokwi, which is a simulator figure. Target was < 50 ms.
+**23. How much memory and compute?** Models: tree 110 B, autoencoder 942 B (528 int8 MACs). Slave build: 772,825 B flash, 72,788 B static RAM. Compute: PC-measured about 30-45 us per window for the whole slave pipeline; ESP32 **estimated** 3-8 ms (unmeasured); the older tree pipeline was 24 ms in Wokwi, which is a simulator figure. Target was < 50 ms.
 
-**24. Do you meet the 50 ms target?** In simulation and by estimate yes; on silicon it is unmeasured. The self-test prints FITS/EXCEEDS for the full pipeline and is the first hardware-day check.
+**24. Do you meet the 50 ms target?** Not yet shown for the full pipeline. The original tree pipeline took about 24 ms in Wokwi (simulated time). The full pipeline has not run on a board or in Wokwi: scaled from Wokwi's tree timing it would be about 45 ms (right at the limit), while instruction counts suggest 3-8 ms on a real 240 MHz ESP32. The self-test prints FITS/EXCEEDS and is the first hardware-day check.
 
 **25. Why simulation, not hardware?** The boards were not available during development. We therefore made the simulation as strict as possible: bit-exact parity C vs Python vs TFLite, fresh blocks, pre-registration, and a written bring-up plan with pass criteria. We do not claim hardware results.
 
 **26. Why is the noise gate a risk?** 92.12 counts is derived from synthetic data. Without it the autoencoder rule gives about 17 false onsets/h (dev). It must be re-measured on the real sensor (`n` command, bring-up section 7).
 
-**27. Is the public broker secure?** No: anyone knowing the site id can read the topics. It is for simulated demo data only. The connection uses TLS 8883 with a pinned root CA, but this ESP32 build does not check certificate expiry. A private broker with TLS and authentication is a configuration change. ESP-NOW peers are trusted on first use (guards against accidents, not attackers).
+**27. Is the public broker secure?** No: anyone knowing the site id can read the topics. It is for simulated demo data only. The master firmware connects with TLS on port 8883 using a committed root CA (Amazon Root CA 1), but this ESP32 build does not check certificate expiry. The demo path (`sim_publisher.py` over `ws://...:8000`) is unencrypted; only the master firmware uses TLS 8883. A private broker with TLS and authentication is a configuration change. ESP-NOW peers are trusted on first use (guards against accidents, not attackers).
 
-**28. How was it verified?** 253 unit tests (host), bit-exact parity chains (tree 6000/6000, AE 0/10,000 mismatches, fusion 3157 decisions 0 mismatches), a network simulator with fault injection, and separate verification passes per phase (which found real bugs: restart blackout, quantiser rounding, mode-2 locks).
+**28. How was it verified?** 253 unit tests (host), bit-exact parity chains on the PC (tree 6000/6000, AE 0/10,000 mismatches, fusion 3157 decisions 0 mismatches), a network simulator with fault injection, and separate verification passes per phase (which found real bugs: restart blackout, quantiser rounding, mode-2 locks).
 
 **29. What are the main limitations?** Simulation only; uniform shear building and synthetic excitation; provisional noise gate; RAM-only commissioning (nothing detects a bad one); false-onset budget not met; DAMAGE limited to large lower-storey loss; no temperature compensation; no hardware numbers.
 
 **30. How accurate is the tree really?** About 0.93 on synthetic data (resampling estimate of the procedure, not an untouched test; set-aside recordings influenced a selection revision). Real-structure accuracy is unknown.
 
-**31. Why a decision tree and not a bigger network?** A pre-stated rule picked the smallest model with CV accuracy >= 0.90; the tree won against 23 alternatives (forest 0.94 at 11.5 KB, SVMs, MLP). Notably, the master's final rule does not use the tree at all: ratio and autoencoder rules did better at the event level.
+**31. Why a decision tree and not a bigger network?** A selection rule (revised twice during selection, documented) picked the smallest model with CV accuracy >= 0.90; the tree won against 23 alternatives (forest 0.94 at 11.5 KB, SVMs, MLP). Notably, the master's final rule does not use the tree at all: ratio and autoencoder rules did better at the event level.
 
 **32. Why is the energy budget a problem?** Slaves listen for beacons and sample at 100 Hz continuously: roughly 100 mA (datasheet-based estimate), so a 2000 mAh battery lasts about a day. The design assumes USB/mains power. Light sleep between slots is future work.
 
 **33. What would you do with three more months?** Hardware bring-up and the measurement list; record real labelled data and re-fit the gate; NVS baselines; temperature compensation of f1; a small lab frame with adjustable stiffness; mode-shape localisation; TFLM comparison; private broker and OTA.
 
 **34. What is the single most important thing you learned?** That choosing the metric matters: per-superframe accuracy hid 126 false alarms per hour; fixing the criterion and the test in advance made the results trustworthy even where they are unflattering.
+
+**35. Which axis does your sensor measure?** The simulator puts the lateral (sway) floor acceleration on `az`, on top of the 1 g gravity offset, but the bring-up guide mounts `az` as the vertical (gravity) axis, which would see little of a shear building's sway. Which axis to use, and whether the thresholds transfer, must be settled at hardware bring-up. This is an open issue, not a solved one.
 
 ## Numbers to remember
 
@@ -98,7 +100,7 @@ Companion to `project_report.md` (section numbers below refer to it). Golden rul
 | Window / superframe | 128 samples at 100 Hz = 1.28 s; 1.4 s cycle | design |
 | Tree | 11 nodes, 110 B, about 0.93 accuracy | synthetic, resampling |
 | Autoencoder | 20-12-2-12-20, 574 params, 942 B, 528 int8 MACs | |
-| C vs TFLite | 0 mismatches / 10,000 vectors | bit-exact |
+| C vs TFLite | 0 mismatches / 10,000 vectors | bit-exact, on the PC |
 | Report frame | 56 B (wire v3); beacon 17 B, poll 18 B | |
 | DEAD rule | 3 missed superframes, about 4.2 s | simulated |
 | R3 test: rule f | 1.64 false onsets/h [0.75, 2.79]; mean recall 0.734 | simulated, scored once |
@@ -112,6 +114,6 @@ Companion to `project_report.md` (section numbers below refer to it). Golden rul
 | DAMAGE detection, 30 % loss, storey 1/3/5/8/10 | 1.00 / 1.00 / 0.91 / 0.03 / 0.00 | test block |
 | False DAMAGE per 24 h | 0.41 (0.5 % drift), 2.24 (1 % drift) | |
 | Slave build | 772,825 B flash; 72,788 B RAM | pio run |
-| Compute | PC 65-75 us; ESP32 estimated 3-8 ms (unmeasured) | |
+| Compute | PC about 30-45 us; ESP32 estimated 3-8 ms (unmeasured) | |
 | Tests | 253 unit tests passing (listed in report section 9) | |
 | Seeds | R3 test 6,400,000+240; f1 test 6,600,000+120 | Appendix C |

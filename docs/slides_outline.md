@@ -6,7 +6,7 @@ Say "simulated" on every results slide. Figures are in `docs/figures/`.
 
 **2. Problem and objectives.**
 - Structures age and get damaged; early detection saves cost and lives.
-- Edge processing: no raw streaming (8.64 MB/h vs about 10.5 kB/h of events, simulated).
+- Edge processing: no raw streaming (8.64 MB/h raw vs about 0.4 MB/h of node reports; events-only uplink about 10-14 kB/h, simulated).
 - Targets: accuracy >= 90 %, < 50 ms, model < 100 KB; hierarchy requirement.
 - Figure: none (or a simple building sketch).
 
@@ -32,7 +32,7 @@ Say "simulated" on every results slide. Figures are in `docs/figures/`.
 - Table: report section 5.4 benchmark.
 
 **7. Making the C code trustworthy.**
-- Bit-exact vs TFLite: 0 mismatches / 10,000 vectors; the rounding gotchas.
+- Bit-exact vs TFLite on the PC: 0 mismatches / 10,000 vectors; the rounding gotchas.
 - Tree 6000/6000; fusion 3157 decisions 0 mismatches.
 - Python evaluations run the firmware C code.
 
