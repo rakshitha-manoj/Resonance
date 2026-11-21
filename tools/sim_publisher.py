@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Publishes Resonance JSON lines (schema 2, firmware/esp32/include/fusion_json.h) to MQTT, with the same topics as the
+"""Publishes Resonance JSON lines (schema 3, firmware/esp32/include/fusion_json.h) to MQTT, with the same topics as the
 master firmware (resonance/<site>/<type>, see resonance_mqtt.py). Three sources:
 
   default   run the netsim simulator on the demo traces and publish its event log, paced by each line's t_us

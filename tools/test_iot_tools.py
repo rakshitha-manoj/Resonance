@@ -171,6 +171,8 @@ def retained_and_ended_events_do_not_alert():
     assert a.status("offline", retained=True) is None
     assert a.status("offline", retained=False)[1].startswith("The master went OFFLINE")
     assert a.classify({"type": "damage", "ae": 1.5, "f1": 7.1})[1].startswith("DAMAGE indication")
+    k, txt = a.classify({"type": "damage", "t_us": 1, "sf": 93, "state": "BEGIN", "drop": 0.0205, "f1": [5.25, None], "f1_0": [5.4, 6.0]})
+    assert k == "damage:BEGIN" and txt.startswith("DAMAGE indication BEGIN") and "2.05 %" in txt and "5.25/?" in txt, txt
     assert a.classify({"type": "whatever"}) is None
 
 

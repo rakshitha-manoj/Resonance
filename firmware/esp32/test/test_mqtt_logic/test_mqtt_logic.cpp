@@ -5,6 +5,7 @@
 #include <vector>
 #include <unity.h>
 #include "mqtt_logic.h"
+#include "fusion_json.h"   // real schema-3 lines from the firmware formatter
 
 using namespace mqtt;
 
@@ -456,6 +457,70 @@ void test_bridge_status_carries_boot_epoch() {
     TEST_ASSERT_EQUAL(2, b.stats().status_published);
 }
 
+// The REAL lines of the firmware formatter (fusion_json.h, schema 3, trailing newline and all), not hand-written look-alikes.
+void test_real_schema3_lines_route_and_damage_state_holds_the_real_line() {
+    using namespace fusion;
+    DamageEvent d;
+    d.t_us = 131529754ull;
+    d.sf = 93;
+    d.begin = true;
+    d.drop = 0.0205f;
+    d.f1[0] = 5.25f;
+    d.f1[1] = NAN;
+    d.f1_0[0] = 5.4f;
+    d.f1_0[1] = 6.0f;
+    char b[json::JSON_LINE_MAX];
+    size_t n = json::damage_line(b, sizeof b, d);
+    TEST_ASSERT_TRUE(n > 0 && b[n - 1] == '\n');
+    Route r = route_of(b, n - 1);
+    TEST_ASSERT_EQUAL(K_DAMAGE, r.kind);
+    TEST_ASSERT_TRUE(r.to_damage_state);
+    TEST_ASSERT_FALSE(r.to_state);
+    TEST_ASSERT_FALSE(r.retain);
+    TEST_ASSERT_EQUAL_STRING("resonance/rsn-0123abcd/damage", topic(std::string(b, n - 1).c_str()).c_str());
+    Bridge<8> &br = *make_bridge();
+    br.push(b, n);                       // with its newline, as SerialJson::write_line hands it over
+    FakeIo io;
+    TEST_ASSERT_TRUE(br.pump(io));
+    TEST_ASSERT_EQUAL(2, io.pubs.size());
+    TEST_ASSERT_EQUAL_STRING("resonance/rsn-0123abcd/damage", io.pubs[0].topic.c_str());
+    TEST_ASSERT_FALSE(io.pubs[0].retain);
+    TEST_ASSERT_EQUAL_STRING("resonance/rsn-0123abcd/damage_state", io.pubs[1].topic.c_str());
+    TEST_ASSERT_TRUE(io.pubs[1].retain);
+    TEST_ASSERT_EQUAL_STRING(std::string(b, n - 1).c_str(), io.pubs[1].payload.c_str());
+    TEST_ASSERT_NOT_NULL(strstr(io.pubs[1].payload.c_str(), "\"state\":\"BEGIN\""));
+    // the END line replaces the retained BEGIN (same topic, retained)
+    d.begin = false;
+    d.drop = 0.004f;
+    n = json::damage_line(b, sizeof b, d);
+    br.push(b, n);
+    FakeIo io2;
+    TEST_ASSERT_TRUE(br.pump(io2));
+    TEST_ASSERT_EQUAL_STRING("resonance/rsn-0123abcd/damage_state", io2.pubs[1].topic.c_str());
+    TEST_ASSERT_NOT_NULL(strstr(io2.pubs[1].payload.c_str(), "\"state\":\"END\""));
+    // the other schema-3 lines at their widest all fit the queue's line cap and route as before
+    Sample s;
+    memset(&s, 0, sizeof s);
+    s.t_us = 18446744073709551615ull; s.sf = s.closed = 4294967295u; s.cls = COMMISSIONING; s.slave = 2; s.degraded = 2;
+    s.r[0] = s.r[1] = 3.9e18f; s.age_sf[0] = s.age_sf[1] = 2147483647; s.commission_n[0] = s.commission_n[1] = 255;
+    s.ae[0] = s.ae[1] = 3.9e18f; s.f1[0] = s.f1[1] = 99.99999f; s.drop[0] = s.drop[1] = -0.9999999f; s.dmg = 1;
+    n = json::sample_line(b, sizeof b, s);
+    TEST_ASSERT_TRUE(n > 0 && n - 1 <= LINE_CAP);
+    TEST_ASSERT_EQUAL(K_SAMPLE, route_of(b, n - 1).kind);
+    Event e;
+    memset(&e, 0, sizeof e);
+    e.kind = EV_BEGIN; e.cls = LOCAL; e.slave = 1; e.ae[0] = e.ae[1] = 3.9e18f; e.f1[0] = e.f1[1] = 99.99999f; e.drop[0] = e.drop[1] = -0.9999999f;
+    n = json::event_line(b, sizeof b, e);
+    TEST_ASSERT_TRUE(n > 0 && n - 1 <= LINE_CAP);
+    TEST_ASSERT_TRUE(route_of(b, n - 1).to_state);   // begin / change are the retained decision
+    json::Meta m;
+    m.source = "master"; m.cfg = chosen_config(); m.floor1 = 5; m.floor2 = 10; m.epoch = 1; m.samples = true;
+    n = json::meta_line(b, sizeof b, m);
+    TEST_ASSERT_TRUE(n > 0 && n - 1 <= LINE_CAP);
+    TEST_ASSERT_EQUAL(K_META, route_of(b, n - 1).kind);
+    static_assert(LINE_CAP == json::JSON_LINE_MAX, "LINE_CAP must equal JSON_LINE_MAX");
+}
+
 void test_bridge_damage_state_and_no_duplicate_after_partial_failure() {
     Bridge<8> &b = *make_bridge();
     b.push(LINE(DAMAGE));
@@ -695,6 +760,7 @@ int main(int, char **) {
     RUN_TEST(test_bridge_no_meta_yet_no_republish);
     RUN_TEST(test_bridge_publish_failure_keeps_line_for_retry);
     RUN_TEST(test_bridge_status_carries_boot_epoch);
+    RUN_TEST(test_real_schema3_lines_route_and_damage_state_holds_the_real_line);
     RUN_TEST(test_bridge_damage_state_and_no_duplicate_after_partial_failure);
     RUN_TEST(test_damage_is_not_evicted_before_samples_and_reserved_leaf);
     RUN_TEST(test_handoff_policy_reserves_slots_for_non_samples);

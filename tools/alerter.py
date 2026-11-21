@@ -131,6 +131,13 @@ class Alerter:
             self.prev_key = None
             return ("restart", "The master restarted (new epoch %s); baselines are re-learned" % o.get("epoch"))
         if t == "damage":
+            st, drop = o.get("state"), o.get("drop")
+            if st in ("BEGIN", "END") and isinstance(drop, (int, float)):   # the schema-3 line of the master firmware / netsim
+                f1, f10 = o.get("f1") or [None, None], o.get("f1_0") or [None, None]
+                fmt = lambda v: "?" if v is None else "%.2f" % v  # noqa: E731
+                txt = "DAMAGE indication %s: pooled f1 drop %.2f %% [f1 %s Hz, commissioned %s Hz, sf %s]" % (
+                    st, drop * 100.0, "/".join(fmt(x) for x in f1), "/".join(fmt(x) for x in f10), o.get("sf"))
+                return ("damage:%s" % st, txt)
             rest = {k: v for k, v in o.items() if k != "type"}
             return ("damage", "DAMAGE indication: " + json.dumps(rest, separators=(",", ":"))[:300])
         return None

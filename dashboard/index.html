@@ -364,7 +364,7 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
 <script>
 "use strict";
 (function(){
-var SCHEMA_MAX=2, CLASSES=["COMMISSIONING","AMBIENT","LOCAL","BUILDING","NO_DATA"];
+var SCHEMA_MAX=3, CLASSES=["COMMISSIONING","AMBIENT","LOCAL","BUILDING","NO_DATA"];
 var CI={COMMISSIONING:0,AMBIENT:1,LOCAL:2,BUILDING:3,NO_DATA:4};
 var LIVE_CAP=200000, SAMPLE_CAP=150000;
 var $=function(id){return document.getElementById(id)};
@@ -451,7 +451,7 @@ function parseLine(line,live){
         commission_windows:isCount(o.commission_windows)&&o.commission_windows>0?o.commission_windows:20,
         status_every_sf:o.status_every_sf,superframe_s:isNum(o.superframe_s)&&o.superframe_s>0?o.superframe_s:1.4,
         floors:fl,epoch:isNum(o.epoch)?o.epoch:null,samples:o.samples===true};
-      if(o.schema<1||o.schema>SCHEMA_MAX) warn("schema","Log schema is "+o.schema+" but this dashboard understands schemas 1 and 2. Values may be wrong or missing.");
+      if(o.schema<1||o.schema>SCHEMA_MAX) warn("schema","Log schema is "+o.schema+" but this dashboard understands schemas 1 to 3 (schema 3 only adds fields and the damage line, which this version does not draw yet). Values may be wrong or missing.");
       $("simFlag").hidden=!(S.meta.source==="netsim");
       if(live) S.raw.push(line);
       return "meta";

@@ -31,7 +31,7 @@ Double-click `dashboard/index.html`, or drag it into Chrome or Edge (works from 
 
 ## Input format
 
-JSON lines, schema 2 (schema 1 still works), exactly as described under "JSON-lines event log" in `.claude/STRUCTURE.md`:
+JSON lines, schema 3 (schemas 2 and 1 still work; schema 3 only adds the `ae`, `f1`, `drop`, `dmg` fields and the `damage` line, which this page ignores until the next phase), exactly as described under "JSON-lines event log" in `.claude/STRUCTURE.md`:
 
 - `meta` (`schema`, `source`, `rule`, `T`, `debounce`, `commission_windows`, `status_every_sf`, `superframe_s`, `floors`, `epoch`, `samples`);
 - `sample` (`t_us`, `sf`, `class`, `slave`, `degraded_alive`, `r1`, `r2`, `alive`, `age`, `commission_n`, `closed`), one per superframe;

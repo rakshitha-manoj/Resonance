@@ -41,6 +41,7 @@ struct Collect : fusion::json::JsonLineSink {
 // Same wiring as the master in src/net_main.cpp (listener -> fusion, fusion_service after every tick / frame).
 struct Rig {
     HeaderSource src;
+    SlaveAnalytics pipes[NUM_SLAVES];   // the AE + f1 tracker of the two virtual slaves (~25 KB each; static on the ESP32)
     VirtualNet vnet;
     Collect sink;
     fusion::Fusion fus;
@@ -48,7 +49,7 @@ struct Rig {
     Master master;
     uint64_t fus_last = 0;
     uint32_t frames = 0;
-    Rig() : vnet(&src), fus(&sink), lis(&fus), master(&vnet, &lis) { master.reset(1000000, 0xC0FFEEu); }
+    Rig() : vnet(&src, pipes), fus(&sink), lis(&fus), master(&vnet, &lis) { master.reset(1000000, 0xC0FFEEu); }
     uint64_t clock(uint64_t t) {
         if (t < fus_last) t = fus_last;
         return fus_last = t;
@@ -118,7 +119,8 @@ void test_virtual_slaves_every_report_reaches_master_in_time() {
 }
 
 void test_cloud_demo_lines_equal_netsim_output_of_the_same_traces() {
-    // dashboard/demo_events_sim.jsonl is REAL netsim output of demo_traces.bin (floors 5,10): meta, 116 samples, 10 events + status
+    // dashboard/demo_events_sim.jsonl is REAL netsim output of demo_traces.bin (floors 5,10), schema 3: meta, 116 samples, 10 events + status
+    // (with the AE ratio, f1 and drop of the slaves' full pipeline in every sample; the virtual slaves run the same pipeline)
     FILE *fp = fopen("../../dashboard/demo_events_sim.jsonl", "rb");
     TEST_ASSERT_NOT_NULL(fp);
     std::vector<std::string> gold;
@@ -144,6 +146,15 @@ void test_cloud_demo_lines_equal_netsim_output_of_the_same_traces() {
     }
     TEST_ASSERT_TRUE(compared >= 126);
     TEST_ASSERT_EQUAL_UINT32(0, r.sink.overflow);
+    // the comparison is not vacuous: the golden log carries real AE ratios and f1 estimates from the slaves' pipeline
+    int with_ae = 0, with_f1 = 0;
+    for (size_t i = 0; i < gold.size(); i++) {
+        if (gold[i].find("\"type\":\"sample\"") == std::string::npos) continue;
+        if (gold[i].find("\"ae\":[null,null]") == std::string::npos) with_ae++;
+        if (gold[i].find("\"f1\":[null,null]") == std::string::npos) with_f1++;
+    }
+    TEST_ASSERT_TRUE(with_ae >= 90);   // AE ready from the 21st window of 116
+    TEST_ASSERT_TRUE(with_f1 >= 70);   // f1 valid from the 32nd window (at least one slave)
 }
 
 void test_demo_trace_loops_and_keeps_producing() {

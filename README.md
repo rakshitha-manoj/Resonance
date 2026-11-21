@@ -27,7 +27,8 @@ The project now also has a three-board design: one master and two slaves, each s
 | Storey localisation | **Failed** both pre-stated gates (top-1 0.452 and 0.481 within-one for gate 1; alarm rate 0.770 against 0.80 for gate 2). Not claimed |
 | Retraining on building data | **Keep the old tree**: the new one had a higher false-alarm rate (0.051 against 0.007) |
 | Network protocol | Beacon/poll/report with retries, restart epochs and dead-slave detection; passed two rounds of independent verification |
-| Master decision (rule b, T = 3) | Test block: LOCAL event recall 0.453, BUILDING 0.811, **2.04 false onsets per hour** (design budget was 1.0; probably not met) |
+| Master decision (rule b, T = 3; the incumbent) | Test block: LOCAL event recall 0.453, BUILDING 0.811, **2.04 false onsets per hour** (design budget was 1.0; probably not met) |
+| Master decision since Phase C2a (rule f = b OR autoencoder, T_AE 6, T_b 3) | Pre-registered fresh-block decision, simulation only: mean event recall 0.734 against 0.622, **1.64 false onsets per hour** (budget 1.0 not met); now in the firmware with the f1 DAMAGE channel; nothing measured on hardware |
 | Against one node | Same false-alarm rate as one ratio node; adds event type and a second floor, not sensitivity |
 | Dashboard | Replay and live-USB viewer exist; no cloud broker |
 

@@ -5,6 +5,7 @@
 #include "selftest_data.h"
 #include "ae.h"
 #include "ae_selftest_vectors.h"
+#include "slave_pipe.h"
 
 void setup() {
     Serial.begin(115200);
@@ -91,6 +92,41 @@ void setup() {
         Serial.printf("ae parity %d vectors, %d int8 mismatches -> %s\r\n", AE_ST_N, ae_bad, ae_bad ? "FAIL" : "PASS");
         Serial.printf("ae us int8 kernel avg=%u max=%u, quantise+kernel+score avg=%u max=%u (sink %.3f)\r\n",
                       (unsigned)(k_sum / AE_ST_N), (unsigned)k_max, (unsigned)(s_sum / AE_ST_N), (unsigned)s_max, (double)sink);
+    }
+    {
+        /* FULL slave pipeline per window = what SlaveNode::deliver_window runs between the last sample and the poll:
+           features_ex (one az DFT) + gx kurtosis + spec_bands + AE commissioning / int8 score + spec_zoom + f1 tracker (ring mean,
+           peak, commissioning) + tree. Budget: the slave must be done ~45 ms after its last sample (docs/hardware_bringup.md). */
+        static net::SlaveAnalytics pipe;   /* 25 KB: static, never on the 8 KB loop stack */
+        pipe.reset();
+        uint32_t p_sum = 0, p_max = 0, s_sum = 0, s_max = 0, s_n = 0, over = 0;
+        int cls_mis = 0, ae_first = -1, f1_first = -1, f1_comm = -1;
+        float ae_sink = 0.0f;
+        for (int w = 0; w < ST_N; w++) {
+            net::SlaveOut o;
+            uint32_t t0 = micros();
+            pipe.process(st_az[w], st_gx[w], &o);
+            int c = classify(o.f);
+            uint32_t dt = micros() - t0;
+            if (c != st_cls[w]) cls_mis++;
+            p_sum += dt;
+            if (dt > p_max) p_max = dt;
+            if (dt > 45000) over++;
+            if (w >= 40) {  /* steady state: AE scoring and the tracker's ring mean + peak every window */
+                s_sum += dt;
+                s_n++;
+                if (dt > s_max) s_max = dt;
+            }
+            if (ae_first < 0 && (o.xflags & net::FLAG_AE_READY)) ae_first = w + 1;
+            if (f1_first < 0 && (o.xflags & net::FLAG_F1_VALID)) f1_first = w + 1;
+            if (f1_comm < 0 && (o.xflags & net::FLAG_F1_COMMISSIONED)) f1_comm = w + 1;
+            ae_sink += o.ae_ratio;
+        }
+        Serial.printf("pipeline us (features+bands+AE+zoom+f1 tracker+tree) per window: all avg=%u max=%u, steady state (window>=40) avg=%u max=%u, windows over 45 ms: %u of %d -> %s (sink %.3f)\r\n",
+                      (unsigned)(p_sum / ST_N), (unsigned)p_max, (unsigned)(s_n ? s_sum / s_n : 0), (unsigned)s_max, (unsigned)over, ST_N,
+                      over == 0 ? "FITS the 45 ms budget" : "EXCEEDS the 45 ms budget", (double)ae_sink);
+        Serial.printf("pipeline class match %d/%d, AE_READY from window %d, F1_VALID from %d, F1_COMMISSIONED from %d (-1 = never in this data)\r\n",
+                      ST_N - cls_mis, ST_N, ae_first, f1_first, f1_comm);
     }
     Serial.printf("seq windows=%d segments=%d\r\n", SQ_N, SQ_NSEG);
     int8_t hist[3] = {-1, -1, -1};
