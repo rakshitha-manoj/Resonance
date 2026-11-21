@@ -210,15 +210,16 @@ static void print_stats() {
                   (unsigned)g_rtt.after_retry, (unsigned)g_rtt.over_timeout, (unsigned)g_rtt.unmatched, (unsigned)s.rx_stale);
 #ifdef MQTT_ENABLED
     // wifi/mqtt = link state now, channel = Wi-Fi (= ESP-NOW) channel, enq = lines handed to the uplink, handoff_drop(_samples) = poll
-    // loop could not hand over (never blocks; samples are refused first), joins = Wi-Fi join attempts / of them fast (no scan), queued/q_drop_* = waiting in the uplink while offline (samples go first),
+    // loop could not hand over (never blocks; samples are refused first), joins = Wi-Fi join attempts / of them with the saved channel + BSSID hint (the IDF may still scan other channels), queued/q_drop_* = waiting in the uplink while offline (samples go first),
     // pub_fail = publish errors, published = lines delivered to the broker, connects/drops = broker sessions.
     const mqtt::QueueStats &qs = g_mqtt.queue_stats();
-    Serial.printf("S,mqtt,wifi=%d,mqtt=%d,channel=%u,enq=%u,handoff_drop=%u,handoff_drop_samples=%u,joins=%u/%u,queued=%u,q_drop_samples=%u,q_drop_other=%u,pub_fail=%u,published=%u,connects=%u,drops=%u\r\n",
+    Serial.printf("S,mqtt,wifi=%d,mqtt=%d,channel=%u,enq=%u,handoff_drop=%u,handoff_drop_samples=%u,joins=%u/%u,queued=%u,q_drop_samples=%u,q_drop_other=%u,pub_fail=%u,published=%u,connects=%u,drops=%u,conn_fail/attempts=%u/%u,heap_free=%u,heap_min=%u\r\n",
                   (int)g_mqtt.wifi_up(), (int)g_mqtt.mqtt_up(), (unsigned)g_mqtt.wifi_channel(), (unsigned)g_mqtt.enqueued(),
                   (unsigned)g_mqtt.handoff_dropped(), (unsigned)g_mqtt.handoff_dropped_samples(), (unsigned)g_mqtt.wifi_joins(),
                   (unsigned)g_mqtt.fast_joins(), (unsigned)g_mqtt.queued(), (unsigned)qs.dropped_samples,
                   (unsigned)qs.dropped_other, (unsigned)g_mqtt.bridge_stats().publish_fail, (unsigned)g_mqtt.bridge_stats().published,
-                  (unsigned)g_mqtt.connects(), (unsigned)g_mqtt.drops());
+                  (unsigned)g_mqtt.connects(), (unsigned)g_mqtt.drops(), (unsigned)g_mqtt.connect_fails(),
+                  (unsigned)g_mqtt.connect_attempts(), (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap());
 #endif
 }
 

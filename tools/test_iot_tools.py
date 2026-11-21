@@ -102,6 +102,28 @@ def pacer_real_time_speed_and_restart():
 
 
 @test
+def looped_recording_is_schema_valid():
+    import tempfile
+    sys.path.insert(0, os.path.join(REPO, "dashboard", "tools"))
+    import validate_logs as v
+    for name in ("demo_events_sim.jsonl", "demo_events_faults_sim.jsonl"):
+        lap1 = [ln.rstrip("\r\n") for ln in open(os.path.join(REPO, "dashboard", name), encoding="utf-8")]
+        lap2 = list(sp.lap_lines(lap1))
+        lap3 = list(sp.lap_lines(lap1))
+        assert lap2[0] != lap1[0] and lap2[1].startswith('{"type":"restart","t_us":0,"epoch":')
+        keep = lambda L: [x for x in L if rm.route(x).kind not in ('meta', 'restart')]
+        assert keep(lap2) == keep(lap1)                      # everything but the epochs / restart lines is byte for byte
+        e2, e3 = json.loads(lap2[0])["epoch"], json.loads(lap3[0])["epoch"]
+        assert json.loads(lap2[1])["epoch"] == e2 and json.loads(lap2[1])["prev_epoch"] is None
+        with tempfile.TemporaryDirectory() as d:
+            f = os.path.join(d, "loop.jsonl")
+            with open(f, "w", newline="\n", encoding="utf-8") as fh:
+                fh.write("\n".join(lap1 + lap2 + lap3) + "\n")
+            errs = v.validate(f)[0]
+            assert errs == [], (name, errs[:3])
+
+
+@test
 def line_t_us():
     assert sp.line_t_us('{"type":"sample","t_us":123,"sf":1}') == 123
     assert sp.line_t_us('{"type":"meta","schema":2}') is None

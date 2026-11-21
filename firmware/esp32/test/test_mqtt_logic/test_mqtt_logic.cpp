@@ -512,6 +512,37 @@ void test_handoff_policy_reserves_slots_for_non_samples() {
     TEST_ASSERT_FALSE(handoff_accepts(K_SAMPLE, 0, 0));
 }
 
+void test_head_progress_survives_eviction_of_a_younger_sample() {
+    // verifier probe: head = event whose state copy failed; offline the queue fills with samples; further pushes evict the oldest
+    // SAMPLE (not the head): after reconnect the event must not be published a second time
+    Bridge<4> b;
+    b.set_site("rsn-0123abcd");
+    b.push(LINE(BEGIN));
+    FakeIo io;
+    io.fail_after = 1;   // the line goes out, its retained state copy fails
+    TEST_ASSERT_FALSE(b.pump(io));
+    for (int i = 0; i < 6; i++) { std::string s = sample(10 + i); b.push(s.c_str(), s.size()); }   // fills, then evicts samples only
+    FakeIo io2;
+    TEST_ASSERT_TRUE(b.on_connected(io2));
+    TEST_ASSERT_TRUE(b.pump(io2, 20));
+    for (size_t i = 0; i < io2.pubs.size(); i++)
+        TEST_ASSERT_FALSE_MESSAGE(io2.pubs[i].topic == "resonance/rsn-0123abcd/begin", "the event was published twice");
+    TEST_ASSERT_EQUAL_STRING("resonance/rsn-0123abcd/state", io2.pubs[1].topic.c_str());   // only its missing state copy went out
+    // but when the head itself IS evicted (queue of non-samples only), the new head starts from scratch
+    Bridge<2> c;
+    c.set_site("rsn-0123abcd");
+    c.push(LINE(BEGIN));
+    c.push(LINE(CHANGE));
+    FakeIo io3;
+    io3.fail_after = 1;
+    TEST_ASSERT_FALSE(c.pump(io3));            // BEGIN's main publish done, state copy failed
+    c.push(LINE(NODE));                        // full, no sample: the oldest (BEGIN, the head) is evicted
+    FakeIo io4;
+    TEST_ASSERT_TRUE(c.pump(io4, 10));
+    TEST_ASSERT_EQUAL_STRING("resonance/rsn-0123abcd/change", io4.pubs[0].topic.c_str());   // CHANGE published in full
+    TEST_ASSERT_EQUAL_STRING(CHANGE, io4.pubs[0].payload.c_str());
+}
+
 void test_link_wifi_backoff_is_configurable_slow() {
     Link l(30000, 300000);
     TEST_ASSERT_EQUAL(ACT_WIFI_BEGIN, l.poll(0, false, false));
@@ -668,6 +699,7 @@ int main(int, char **) {
     RUN_TEST(test_damage_is_not_evicted_before_samples_and_reserved_leaf);
     RUN_TEST(test_handoff_policy_reserves_slots_for_non_samples);
     RUN_TEST(test_link_wifi_backoff_is_configurable_slow);
+    RUN_TEST(test_head_progress_survives_eviction_of_a_younger_sample);
     RUN_TEST(test_bridge_pump_respects_max_lines);
     RUN_TEST(test_bridge_bad_site_publishes_nothing);
     RUN_TEST(test_bridge_status_topic_for_lwt);

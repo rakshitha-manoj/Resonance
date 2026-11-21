@@ -11,13 +11,21 @@
 //     "offline". E = the master's boot epoch (the same number as meta.epoch), so a consumer can tell the will of an OLD
 //     half-open session (it fires ~45 s after an unclean reboot, after the new boot already said "online") from a real
 //     outage: an "offline" whose epoch differs from the latest meta epoch is stale.
-//   * ESP-NOW shares the Wi-Fi radio: it runs on whatever channel the access point uses. The radio must NOT wander: the
-//     Arduino auto-reconnect is switched off (it rescans all channels forever when the router is gone, and every scan
-//     takes the radio off the ESP-NOW channel), joins are driven by mqtt::Link with a slow back-off (30 s .. 5 min), and after
-//     the first successful join every re-join uses the remembered channel + BSSID (no scan; after 3 such failures a full
-//     scan is allowed again, the AP may have moved). The boot-time join is done by wait_wifi() BEFORE the master starts
-//     beaconing. Residual risk: while the router is away, each attempt keeps the radio on the old channel (fine for ESP-NOW);
-//     if the router comes back on ANOTHER channel the master follows it and the slaves must rescan (ChannelScan, up to ~20 s).
+//   * ESP-NOW shares the Wi-Fi radio: it runs on whatever channel the access point uses. The radio is protected as far as the
+//     stack allows: the Arduino auto-reconnect is switched off (it rescans forever when the router is gone), joins are driven by
+//     mqtt::Link with a slow back-off (30 s .. 5 min), and the boot-time join (wait_wifi()) happens BEFORE the master beacons.
+//     After the first join each re-join passes the remembered channel + BSSID, but that is only a HINT: the IDF starts its scan on
+//     that channel and, when the AP is absent, still scans the others (fast-scan stops early only when the AP is found). So with
+//     the router DOWN every join attempt takes the radio off the ESP-NOW channel for roughly 1.5-2 s: expect an occasional missed
+//     poll or beacon (one DEAD needs 3 consecutive missed superframes, so a single attempt every >= 30 s should not kill a slave,
+//     but this is NOT verified on hardware: step 8b of docs/hardware_bringup.md measures it). If the router returns on another
+//     channel the master follows it and the slaves rescan (ChannelScan, up to ~20 s).
+//   * Blocking calls: connect() runs in the task, never in the poll loop. TCP connect 5 s and TLS handshake 10 s at most
+//     (WiFiClientSecure defaults are 30 s / 120 s); the hand-off queue keeps taking lines meanwhile (12 slots, 4 reserved for
+//     non-samples): in the worst case (15 s, ~11 lines) samples are refused first, events/node lines survive, all counted.
+//   * TLS certificate DATES are NOT checked by this build (the framework's mbedtls has CONFIG_MBEDTLS_HAVE_TIME_DATE off): the
+//     chain is verified against the committed root CA, expiry is ignored. SNTP is therefore best-effort only (timestamps), and a
+//     blocked UDP 123 does not stop the uplink.
 #include <Arduino.h>
 #include <WiFi.h>
 #include <time.h>
@@ -67,6 +75,10 @@ public:
         client_.setBufferSize(mqtt::LINE_CAP + 160);  // topic <= ~80 B + payload <= 448 B + header
         client_.setKeepAlive(30);
         client_.setSocketTimeout(5);
+        net_.setTimeout(5);               // seconds: TCP connect and socket reads (WiFiClientSecure default 30 s)
+#if MQTT_TLS
+        net_.setHandshakeTimeout(10);     // seconds (default 120 s)
+#endif
         Serial.printf("mqtt: uplink on core 0, broker %s:%d%s, site %s, topics resonance/%s/<type>\r\n", MQTT_HOST, (int)MQTT_PORT,
                       MQTT_TLS ? " (TLS)" : "", MQTT_SITE, MQTT_SITE);
         if (!MQTT_TLS) Serial.println("mqtt: plain TCP, no encryption or authentication: simulator/demo data only");
@@ -121,7 +133,7 @@ public:
                                   "slaves must scan to find it (or build all boards with -DESPNOW_CHANNEL=%u)\r\n",
                                   (unsigned)ch, (int)ESPNOW_CHANNEL, (unsigned)ch, (unsigned)ch);
             } else {
-                Serial.println("wifi: disconnected (no automatic rescan; slow re-join on the known channel)");
+                Serial.println("wifi: disconnected (no automatic retry by the stack; slow re-join by the uplink)");
             }
         }
         if (m != last_mqtt_) {
@@ -130,7 +142,17 @@ public:
         }
         if (time_ok_ != last_time_ok_) {
             last_time_ok_ = time_ok_;
-            if (time_ok_) Serial.println("mqtt: wall clock set (SNTP), TLS certificate dates can be checked");
+            if (time_ok_) Serial.println("mqtt: wall clock set (SNTP; informational, certificate dates are not checked by this build)");
+        }
+        uint32_t att = connect_attempts_, fl = connect_fails_;
+        if (fl != last_fails_) {   // one clear line per failed attempt: reason from PubSubClient::state() and, for TLS, mbedtls
+            last_fails_ = fl;
+            int st = last_state_;
+            const char *why = st == -2 ? "TCP/TLS connect failed (unreachable, blocked port, handshake or certificate)" :
+                              st == -4 ? "timeout" : st == -3 ? "connection lost" : st == -1 ? "disconnected" :
+                              st == 4 ? "bad credentials" : st == 5 ? "not authorized" : "refused by the broker";
+            Serial.printf("mqtt: connect attempt %u to %s:%d failed: state=%d %s%s%s (next try after back-off)\r\n", (unsigned)att,
+                          MQTT_HOST, (int)MQTT_PORT, st, why, last_err_[0] ? ", tls: " : "", last_err_);
         }
     }
 
@@ -147,6 +169,8 @@ public:
     uint32_t drops() const { return link_.drops(); }
     uint32_t wifi_joins() const { return wifi_joins_; }
     uint32_t fast_joins() const { return fast_joins_; }
+    uint32_t connect_attempts() const { return connect_attempts_; }
+    uint32_t connect_fails() const { return connect_fails_; }
 
 private:
     struct Item {
@@ -169,7 +193,7 @@ private:
         wifi_joins_++;
         if (have_ap_ && fast_fails_ < 3) {
             if (wifi_attempt_open_) fast_fails_++;
-            WiFi.begin(WIFI_SSID, WIFI_PASSWORD, saved_channel_, saved_bssid_, true);   // known channel + BSSID: no scan
+            WiFi.begin(WIFI_SSID, WIFI_PASSWORD, saved_channel_, saved_bssid_, true);   // known channel + BSSID: a hint, NOT a guarantee of no scan
             fast_joins_++;
         } else {
             if (have_ap_) { have_ap_ = false; fast_fails_ = 0; }                         // the AP moved? allow a full scan again
@@ -203,24 +227,26 @@ private:
             if (a == mqtt::ACT_WIFI_BEGIN) {
                 join_wifi();
             } else if (a == mqtt::ACT_MQTT_CONNECT) {
+                const char *user = strlen(MQTT_USER) ? MQTT_USER : nullptr;
+                const char *pass = strlen(MQTT_USER) ? MQTT_PASSWORD : nullptr;
+                connect_attempts_++;
+                bool ok = client_.connect(client_id, user, pass, will_topic, 1, true, will_payload, true);
+                last_state_ = client_.state();
+                if (!ok) {
+                    connect_fails_++;
+                    last_err_[0] = 0;
 #if MQTT_TLS
-                if (!time_ok_) {   // certificate dates need the wall clock
-                    time_t t = time(nullptr);
-                    if (t > 1700000000) time_ok_ = true;
-                }
+                    net_.lastError(last_err_, sizeof last_err_);
 #endif
-                if (time_ok_) {
-                    const char *user = strlen(MQTT_USER) ? MQTT_USER : nullptr;
-                    const char *pass = strlen(MQTT_USER) ? MQTT_PASSWORD : nullptr;
-                    bool ok = client_.connect(client_id, user, pass, will_topic, 1, true, will_payload, true);
-                    link_.mqtt_result(millis(), ok, (uint16_t)(esp_random() & 0xFFFF));
-                    if (ok) {
-                        mq = true;
-                        last_status_ms = millis();
-                        if (!bridge_.on_connected(io)) { drop_connection(); mq = false; }
-                    }
+                }
+                link_.mqtt_result(millis(), ok, (uint16_t)(esp_random() & 0xFFFF));
+                if (ok) {
+                    mq = true;
+                    last_status_ms = millis();
+                    if (!bridge_.on_connected(io)) { drop_connection(); mq = false; }
                 }
             }
+            if (!time_ok_ && time(nullptr) > 1700000000) time_ok_ = true;   // informational only
             if (wifi && !wifi_up_) {
                 esp_wifi_set_ps(WIFI_PS_NONE);  // modem sleep would add ESP-NOW receive latency
                 wifi_channel_ = (uint8_t)WiFi.channel();
@@ -228,9 +254,7 @@ private:
                 if (b) { memcpy(saved_bssid_, b, 6); saved_channel_ = wifi_channel_; have_ap_ = true; }
                 fast_fails_ = 0;
                 wifi_attempt_open_ = false;
-#if MQTT_TLS
-                configTime(0, 0, "pool.ntp.org", "time.google.com");   // SNTP, for the certificate validity check
-#endif
+                configTime(0, 0, "pool.ntp.org", "time.google.com");   // best-effort SNTP (timestamps); nothing waits for it
             }
             wifi_up_ = wifi;
             mqtt_up_ = mq;
@@ -261,6 +285,10 @@ private:
     bool last_wifi_ = false, last_mqtt_ = false, last_time_ok_ = !MQTT_TLS;
     bool have_ap_ = false, wifi_attempt_open_ = false;
     uint8_t saved_bssid_[6] = {0}, saved_channel_ = 0, fast_fails_ = 0;
+    volatile uint32_t connect_attempts_ = 0, connect_fails_ = 0;
+    uint32_t last_fails_ = 0;
+    volatile int last_state_ = 0;
+    char last_err_[80] = {0};
     volatile uint32_t enqueued_ = 0, handoff_dropped_ = 0, handoff_dropped_samples_ = 0, wifi_joins_ = 0, fast_joins_ = 0;
 };
 

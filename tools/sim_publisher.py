@@ -16,6 +16,8 @@ A private broker needs only options/env: --host --port 8883 --tls --user, env MQ
 import argparse
 import json
 import os
+import random
+import re
 import subprocess
 import sys
 import tempfile
@@ -91,6 +93,33 @@ class Pacer:
         if self.base_wall is None:
             self.base_wall = now - sim / self.speed
         return max(0.0, self.base_wall + sim / self.speed - now)
+
+
+def lap_lines(lines, rng=random):
+    """Lines of a repeat lap as a REBOOTED master would print them: every epoch of the lap is mapped to a fresh random one (the meta's,
+    and those of netsim's own restart lines, keeping their prev_epoch chain), and the meta line is followed by a restart line (epoch =
+    the new meta epoch, prev_epoch null: the host cannot tell a first boot from a reboot), exactly the firmware's boot pattern, which
+    dashboard/tools/validate_logs.py accepts. Everything else is passed through byte for byte."""
+    mapping = {}
+
+    def fresh(old):
+        if old not in mapping:
+            mapping[old] = rng.randint(1, 2**32 - 1)
+        return mapping[old]
+
+    def remap(ln):
+        return re.sub(r'"((?:prev_)?epoch)":(%sd+)' % chr(92), lambda m: '"%s":%d' % (m.group(1), fresh(int(m.group(2)))), ln)
+
+    for ln in lines:
+        k = rm.route(ln).kind
+        if k == "meta":
+            ln = remap(ln)
+            yield ln
+            yield '{"type":"restart","t_us":0,"epoch":%d,"prev_epoch":null}' % json.loads(ln)["epoch"]
+        elif k == "restart":
+            yield remap(ln)
+        else:
+            yield ln
 
 
 def line_t_us(line):
@@ -206,9 +235,6 @@ def run(args):
         n_run = 0
         while True:
             n_run += 1
-            if n_run > 1 and not args.serial:
-                # a new lap starts at t_us 0 again, like a rebooted master: say so (the dashboard continues its timeline after a restart line)
-                pub.send_line('{"type":"restart","t_us":0,"epoch":%d,"prev_epoch":%d}' % (pub.epoch or 1, pub.epoch or 1))
             if args.serial:
                 source = serial_lines(args.serial, args.baud)
                 pacer = Pacer(0)  # the master already runs in real time
@@ -216,6 +242,8 @@ def run(args):
                 source = read_lines(args.jsonl)
             else:
                 source = netsim_lines(args.netsim_exe, args.traces, args.netsim_args.split() if args.netsim_args else [])
+            if n_run > 1 and not args.serial:
+                source = lap_lines(source)   # a new lap = a rebooted master: new epoch in the meta, then a restart line, like the firmware
             for line in source:
                 if line is None:
                     continue

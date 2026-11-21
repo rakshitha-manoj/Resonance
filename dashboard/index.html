@@ -380,7 +380,7 @@ function fresh(){
     stats:{ok:0,bad:0,ignored:0,other:0,outOfOrder:0,capped:0,samples:0,restarts:0,nodes:0},warns:{},
     eLines:[],t0:0,tEnd:0,playhead:0,k:0,ks:0,playing:false,speed:10,
     lastArrival:0,raw:[],port:null,reader:null,
-    kind:"",mq:null,mqRecv:0,mqDup:0,mqSeen:null,mqSeenQ:[],mqBuf:[],mqSeq:0,mqMax:null,mqTimer:null,mqMaster:"",mqSite:"",mqEver:false};
+    kind:"",mq:null,mqRecv:0,mqDup:0,mqSeen:null,mqSeenQ:[],mqBuf:[],mqSeq:0,mqMax:null,mqTimer:null,mqMaster:"",mqSite:"",mqEver:false,mqEpoch:null,mqStatus:null,mqClosed:null,mqBreak:false,bootEpoch:null,feedRetained:false};
 }
 S=fresh();
 var dirty=true, rafOn=false, lastFrame=0, lastTableK=-1, lastTableN=-1, lastTableT=0;
@@ -444,6 +444,7 @@ function parseLine(line,live){
     if(o===null||typeof o!=="object"||Array.isArray(o)) return "bad";
     if(o.type==="meta"){
       if(!isNum(o.schema)) return "bad";
+      if(S.bootEpoch===null&&isNum(o.epoch)&&!S.feedRetained) S.bootEpoch=o.epoch;   // a retained meta may belong to an EARLIER run of the master
       var fl=null;
       if(Array.isArray(o.floors)&&o.floors.length===2&&isNum(o.floors[0])&&isNum(o.floors[1])) fl=[o.floors[0],o.floors[1]];
       S.meta={schema:o.schema,source:typeof o.source==="string"?o.source:null,rule:o.rule,T:isNum(o.T)?o.T:null,
@@ -484,10 +485,18 @@ function parseLine(line,live){
     if(o.type==="restart"){
       if(!isNum(o.t_us)||o.t_us<0) return "bad";
       var t=o.t_us+S.tOff;
-      // MQTT delivers topics in no fixed order: a restart line may arrive after newer lines, so there only a drop of more than 30 s counts as a clock reset
-      if(t<S.lastT-(S.kind==="mqtt"?30e6:0)){  // the master clock started again at 0 (reboot): continue the timeline after the last line
+      // A restart whose epoch differs from the current one and whose clock is small (the firmware prints it at boot, t = time since boot,
+      // well under REBOOT_T_US) is a reboot whatever the previous run's length. Otherwise (no epoch, or a clock that simply continues
+      // as in netsim) MQTT, which delivers topics in no fixed order, only counts a drop of more than 30 s as a clock reset.
+      var curEp=S.bootEpoch!==null?S.bootEpoch:(S.meta?S.meta.epoch:null);   // bootEpoch: first meta, then every restart line (a later meta may already be here: meta is not delayed)
+      var reboot=isNum(o.epoch)&&isNum(curEp)&&o.epoch!==curEp&&o.t_us<=REBOOT_T_US;
+      var mq=S.kind==="mqtt", hasEp=isNum(o.epoch)&&isNum(curEp);
+      // MQTT, restart with an epoch: only a reboot (new epoch + small boot clock) resets the clock; the boot-pattern restart (same epoch) and netsim's
+      // continued-clock restart never do, however late the line arrives. Without an epoch the old rule applies (30 s drop for MQTT).
+      if(mq&&hasEp?(reboot&&t<S.lastT):(t<S.lastT-(mq?30e6:0))){  // the master clock started again at 0 (reboot): continue the timeline after the last line
         S.tOff=S.lastT+sfus()-o.t_us; t=o.t_us+S.tOff; S.rebased++;
       }
+      if(isNum(o.epoch)) S.bootEpoch=o.epoch;
       S.rs.push({t:t,epoch:isNum(o.epoch)?o.epoch:null,prev:isNum(o.prev_epoch)?o.prev_epoch:null,first:!S.ev.length&&!S.sm.length});
       if(S.rs[S.rs.length-1].first===false) S.stats.restarts++;
       if(live) S.raw.push(line);
@@ -681,8 +690,9 @@ function stopLive(){
    Same schema-2 JSON lines as the serial source, one per message on resonance/<site>/<type> (see tools/resonance_mqtt.py and
    firmware/esp32/include/mqtt_logic.h). Every line goes through parseLine() like in the other sources. MQTT only orders messages
    per topic, so lines are held briefly and released sorted by t_us (restart/node/sample/event tie-break) before parsing. */
-var MQ={holdMs:2500,resetUs:30e6,tickMs:250,seenMax:800,retainedStateMs:700};
+var MQ={holdMs:2500,resetUs:30e6,tickMs:250,seenMax:800,retainedStateMs:1500};
 var WSS_DEFAULT="wss://broker.hivemq.com:8884/mqtt", WS_FALLBACK="ws://broker.hivemq.com:8000/mqtt";
+var REBOOT_T_US=15e6;
 var SITE_RE=/^[a-z0-9_-]{1,32}$/;
 function setMq(cls,text){ var e=$("mqState"); e.className="pill "+cls; e.textContent=text }
 function mqCountsText(){
@@ -693,10 +703,20 @@ function parseStatus(text){
   if(text==="online"||text==="offline") return {state:text,epoch:null};   // legacy plain text
   try{ var o=JSON.parse(text); return {state:(o&&(o.state==="online"||o.state==="offline"))?o.state:null,epoch:(o&&isNum(o.epoch))?o.epoch:null} }catch(e){ return {state:null,epoch:null} }
 }
+// An "offline" of an OLDER boot (its half-open session timing out after the new boot said "online") is stale: ignore it.
+// Re-evaluated whenever the status or the meta changes, because the retained status can arrive before the retained meta.
+function mqMasterEval(my){
+  var st=my.mqStatus; if(!st||!st.state) return;
+  var stale=st.state==="offline"&&isNum(st.epoch)&&my.meta&&isNum(my.meta.epoch)&&st.epoch!==my.meta.epoch;
+  if(!stale) my.mqMaster=st.state; else if(my.mqMaster==="offline") my.mqMaster="";
+}
 function mqRank(o){ switch(o.type){case "meta":return -1;case "restart":return 0;case "node":return 1;case "sample":return 2;default:return 3} }
-function mqFeed(my,text){
+function mqFeed(my,text,retained){
   if(S!==my) return;
+  S.feedRetained=!!retained;
   var res=parseLine(text,true); count(res);
+  S.feedRetained=false;
+  if(res==="meta") mqMasterEval(my);
   liveResort();
   showMsgs(); dirty=true; schedule();
 }
@@ -720,11 +740,22 @@ function mqRelease(my,all){
   var out=b.splice(0,n);
   for(var i=0;i<out.length;i++) mqFeed(my,out[i].text);
 }
-function mqPush(my,text){
+function mqPush(my,text,retained){
   var o=null; try{o=JSON.parse(text)}catch(e){}
-  if(!o||typeof o!=="object"||!isNum(o.t_us)){ mqFeed(my,text); return }   // meta and anything without a time: no ordering needed
+  if(o&&o.type==="meta"&&isNum(o.epoch)&&my.mqEpoch===null&&!retained) my.mqEpoch=o.epoch;   // later metas (reboots) are told apart by their restart line
+  if(!o||typeof o!=="object"||!isNum(o.t_us)){ mqFeed(my,text,retained); return }   // meta and anything without a time: no ordering needed
   var t=o.t_us;
-  if(my.mqMax!==null&&t<my.mqMax-MQ.resetUs){ mqRelease(my,true); my.mqMax=null }   // the master's clock restarted: flush the old run first
+  var reboot=o.type==="restart"&&isNum(o.epoch)&&isNum(my.mqEpoch)&&o.epoch!==my.mqEpoch&&t<=REBOOT_T_US&&my.mqMax!==null&&t<my.mqMax;
+  if(o.type==="restart"&&isNum(o.epoch)) my.mqEpoch=o.epoch;
+  // Samples travel on ONE topic, so they arrive in order: a sample whose `closed` counter is LOWER than the previous one means the master
+  // rebooted (its counters start again; netsim's restart keeps them), even when the restart line itself is still on its way.
+  var brk=false;
+  if(o.type==="sample"&&isNum(o.closed)){
+    if(my.mqClosed!==null&&o.closed<my.mqClosed&&!my.mqBreak){ brk=true; my.mqBreak=true }
+    my.mqClosed=o.closed;
+  }
+  if(o.type==="restart"){ if(my.mqBreak){ reboot=false; my.mqBreak=false } else if(reboot) my.mqClosed=null }   // already flushed by the sample counter
+  if(my.mqMax!==null&&(reboot||brk||t<my.mqMax-MQ.resetUs)){ mqRelease(my,true); my.mqMax=null }   // the master's clock restarted: flush the old run first
   if(my.mqMax===null||t>my.mqMax) my.mqMax=t;
   my.mqBuf.push({t:t,r:mqRank(o),seq:my.mqSeq++,at:performance.now(),text:text});
 }
@@ -759,14 +790,13 @@ function onMqMessage(my,base,topic,payload,packet){
   my.mqRecv++;
   var retained=!!(packet&&packet.retain);
   if(leaf==="status"){   // retained {"state":"online"|"offline","epoch":E} of the master; "offline" = its last will
-    var st=parseStatus(text);
-    // an "offline" of an OLDER boot (its half-open session timing out after the new boot said "online") is stale: ignore it
-    if(st.state&&!(st.state==="offline"&&isNum(st.epoch)&&my.meta&&isNum(my.meta.epoch)&&st.epoch!==my.meta.epoch)) my.mqMaster=st.state;
+    my.mqStatus=parseStatus(text);
+    mqMasterEval(my);
     dirty=true; schedule(); return;
   }
   if(leaf==="state"){
-    // the retained latest decision: only useful for a page that joined late, has nothing yet and whose master is online; live updates repeat the sample/event lines
-    if(retained) setTimeout(function(){ if(S===my&&!my.sm.length&&!my.ev.length&&my.mqMaster!=="offline") mqPush(my,text) },MQ.retainedStateMs);   // not when the master is known to be offline: that decision is stale and its clock would collide with the next run
+    // the retained latest decision: only useful for a page that joined late, has nothing yet and whose master is KNOWN to be online (an unknown or offline status means the decision may be stale); live updates repeat the sample/event lines
+    if(retained) setTimeout(function(){ if(S===my&&!my.sm.length&&!my.ev.length&&my.mqMaster==="online") mqPush(my,text) },MQ.retainedStateMs);   // not when the master is known to be offline: that decision is stale and its clock would collide with the next run
     return;
   }
   if(!retained||leaf!=="meta"){   // a retained meta of an older run is still wanted (floors); everything else retained is stale
@@ -775,7 +805,7 @@ function onMqMessage(my,base,topic,payload,packet){
     if(my.mqSeenQ.length>MQ.seenMax) my.mqSeen.delete(my.mqSeenQ.shift());
   }
   if(!retained) notifyLine(text);
-  mqPush(my,text);
+  mqPush(my,text,retained);
 }
 function connectMqtt(){
   if(typeof mqtt==="undefined"||!mqtt.connect){

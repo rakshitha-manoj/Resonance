@@ -7,6 +7,7 @@
 // Usage (jsdom is not a project dependency: install it anywhere, e.g. `npm i jsdom` in a scratch folder):
 //   NODE_PATH=<folder>/node_modules node dashboard/tools/test_mqtt_dom.js [--url ws://broker.hivemq.com:8000/mqtt]
 //        [--site rsn-822298ab] [--log dashboard/demo_events_faults_sim.jsonl] [--python <python>] [--speed 0]
+// Reboot case: --log dashboard/tools/short_reboot.jsonl --speed 2 (a burst can reorder a reboot's restart line across topics, see dashboard/README.md).
 // (broker.hivemq.com:8884 / wss and 1883 are blocked on some networks; ws://...:8000/mqtt is the plain WebSocket port.)
 "use strict";
 const fs = require("fs");

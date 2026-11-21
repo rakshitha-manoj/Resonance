@@ -22,7 +22,7 @@
 #endif
 
 // Default broker = the free public HiveMQ one, over TLS (port 8883, certificate verified with the committed root CA in
-// hivemq_public_ca.h; needs the wall clock, the uplink gets it from SNTP before connecting). Wokwi's gateway does not pass plain
+// hivemq_public_ca.h; chain verified, expiry dates NOT checked by this framework build). Wokwi's gateway does not pass plain
 // MQTT on 1883 reliably, 8883 works. -DMQTT_PUBLIC_TLS=0 falls back to plain 1883 (no encryption, no server check).
 // Any MQTT_HOST of your own is used as given: set MQTT_PORT / MQTT_TLS / MQTT_CA_PEM with it (secrets.h).
 #ifndef MQTT_HOST

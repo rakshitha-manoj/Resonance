@@ -142,6 +142,7 @@ public:
     LineQueue() { clear(); }
     void clear() {
         head_ = count_ = 0;
+        head_evicted_ = false;
         memset(&st_, 0, sizeof(st_));
     }
     size_t size() const { return count_; }
@@ -149,18 +150,25 @@ public:
     bool empty() const { return count_ == 0; }
     const QueueStats &stats() const { return st_; }
 
+    // True if the LAST push() removed the oldest queued line (the head): a publisher that is part-way through the head line must then
+    // forget its progress. Evicting a younger sample, or refusing the new one, leaves the head alone.
+    bool head_evicted() const { return head_evicted_; }
+
     bool push(const char *line, size_t len, Kind kind) {
+        head_evicted_ = false;
         if (!line || len == 0 || len > LINE_CAP) { st_.too_long++; return false; }
         bool is_sample = kind == K_SAMPLE;
         if (count_ == DEPTH) {
             int victim = oldest_sample();
             if (victim >= 0) {
+                if (victim == 0) head_evicted_ = true;
                 remove_at((size_t)victim);
                 st_.dropped_samples++;
             } else if (is_sample) {
                 st_.dropped_samples++;
                 return false;
             } else {
+                head_evicted_ = true;
                 remove_at(0);
                 st_.dropped_other++;
             }
@@ -214,6 +222,7 @@ private:
     }
     Slot slots_[DEPTH];
     size_t head_, count_;
+    bool head_evicted_;
     QueueStats st_;
 };
 
@@ -370,8 +379,9 @@ public:
             meta_len_ = (uint16_t)len;
             have_meta_ = true;
         }
-        if (q_.size() == q_.capacity()) head_stage_ = 0;   // the head may be evicted by this push: its progress no longer applies
-        return q_.push(line, len, r.kind);
+        bool ok = q_.push(line, len, r.kind);
+        if (q_.head_evicted()) head_stage_ = 0;   // only when the head itself was dropped: the new head starts at stage 0
+        return ok;
     }
 
     // Call right after (re)connecting: publishes "online" (retained) and, if no meta is waiting in the queue,
