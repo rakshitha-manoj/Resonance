@@ -6,7 +6,17 @@ Candidate (read from `fusion_eval_r3_selected.json`): **f, T=6 (b T=3), k=1**. I
 
 ## Decision
 
-**Deploy rule f.** Criterion 1 (paired mean-recall gain, 95% interval [+0.103, +0.122] excludes 0 on the gain side): MET. Criterion 2 (paired false-onset increase +0.25/h, limit 0.5): MET. Both hold: deploy f.
+**Deploy rule f.**
+- **Criterion 1, the paired mean-recall gain:** MET. Its 95 % interval is [+0.103, +0.122], which excludes 0 on the gain side.
+- **Criterion 2, the paired false-onset increase:** MET on the point estimate, +0.25/h against a limit of 0.5. That is 46 vs 39 false onsets in 28 h, from 20 vs 16 buildings. The pre-registration judges the point estimate, but its 95 % interval [+0.04, +0.50] reaches the limit, so the alarm cost is only bounded at about that level.
+
+Both criteria hold, so f is deployed.
+
+**The 1/h false-onset budget is not met by either rule, on the point estimates.** f is at 1.64/h [0.75, 2.79] and b at 1.39/h [0.54, 2.54], over healthy + noise monitoring. Both intervals still include values below 1/h.
+
+That headline figure includes 5.6 h of noise-only recordings, in which neither rule ever fires. **On healthy ambient monitoring alone, the rate that applies to a real quiet building, the rates are higher: f 2.05/h and b 1.74/h.**
+
+As in R2b, the budget is a target that the simulated system does not reach. The comparison that the deployment rests on is the paired one: +0.113 mean recall for +0.25 false onsets per hour.
 
 ## Primary pair (floors 5/10)
 
