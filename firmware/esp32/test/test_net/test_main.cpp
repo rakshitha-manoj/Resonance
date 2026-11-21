@@ -69,9 +69,12 @@ static ReportPkt sample_report() {
     r.window = 0xA0B0C0D0;
     r.raw = 2;
     r.state = 1;
-    r.flags = FLAG_LOW_SIGNAL | FLAG_UNSYNCED;
+    r.flags = FLAG_LOW_SIGNAL | FLAG_UNSYNCED | FLAG_AE_READY | FLAG_F1_VALID | FLAG_F1_COMMISSIONED;
     const float v[5] = {1.5f, -2.25f, 3.125f, 1e6f, 0.78125f};
     for (int i = 0; i < 5; i++) r.f[i] = v[i];
+    r.ae_ratio = 7.5f;
+    r.f1_est = 5.25f;
+    r.f1_drop = 0.0125f;
     return r;
 }
 
@@ -116,7 +119,13 @@ void test_sizes(void) {
     TEST_ASSERT_TRUE(MAX_SF_JUMP >= MAX_MISSED_BEACONS + 2 && MAX_SF_JUMP <= 16);
     TEST_ASSERT_EQUAL_UINT(17, BEACON_LEN);
     TEST_ASSERT_EQUAL_UINT(18, POLL_LEN);
-    TEST_ASSERT_EQUAL_UINT(44, REPORT_LEN);
+    TEST_ASSERT_EQUAL_UINT(56, REPORT_LEN);   // wire version 3: 44 + ae_ratio, f1_est, f1_drop
+    TEST_ASSERT_EQUAL_UINT8(3, VERSION);
+    TEST_ASSERT_TRUE(REPORT_LEN <= MAX_PAYLOAD);
+    // polling still fits: the timing constants are unchanged and a 56-byte reply is far below the 18 ms reply timeout
+    TEST_ASSERT_TRUE(POLL_WORST_END_US < SUPERFRAME_US);
+    TEST_ASSERT_EQUAL_UINT32(1400000, SUPERFRAME_US);
+    TEST_ASSERT_EQUAL_UINT32(18000, REPLY_TIMEOUT_US);
 }
 
 void test_roundtrip(void) {
@@ -153,6 +162,51 @@ void test_roundtrip(void) {
     TEST_ASSERT_EQUAL_UINT8(2, o.h.src);
     TEST_ASSERT_EQUAL_UINT16(513, o.h.seq);
     for (int i = 0; i < 5; i++) TEST_ASSERT_EQUAL_MEMORY(&r.f[i], &o.f[i], 4);
+    TEST_ASSERT_EQUAL_MEMORY(&r.ae_ratio, &o.ae_ratio, 4);
+    TEST_ASSERT_EQUAL_MEMORY(&r.f1_est, &o.f1_est, 4);
+    TEST_ASSERT_EQUAL_MEMORY(&r.f1_drop, &o.f1_drop, 4);
+    // the new floats sit at the end of the payload, little endian, before the CRC
+    TEST_ASSERT_EQUAL_UINT(56, n);
+    float x;
+    memcpy(&x, b + n - CRC_LEN - 12, 4);
+    TEST_ASSERT_EQUAL_FLOAT(7.5f, x);
+    memcpy(&x, b + n - CRC_LEN - 8, 4);
+    TEST_ASSERT_EQUAL_FLOAT(5.25f, x);
+    memcpy(&x, b + n - CRC_LEN - 4, 4);
+    TEST_ASSERT_EQUAL_FLOAT(0.0125f, x);
+}
+
+// Version 3 on the wire: a version-2 frame (44 bytes, header version 2) is not accepted, whatever its CRC.
+void test_report_v2_frame_rejected_and_flag_bits(void) {
+    uint8_t b[MAX_PAYLOAD], c[MAX_PAYLOAD];
+    size_t n = encode_report(b, 1, 0, 1, sample_report());
+    ReportPkt rp;
+    TEST_ASSERT_TRUE(decode_report(b, n, &rp));
+    // old-length frame with a valid CRC and the old header version
+    size_t m = n - 12;
+    memcpy(c, b, m - CRC_LEN);
+    c[2] = 2;
+    uint16_t crc = crc16(c, m - CRC_LEN);
+    memcpy(c + m - CRC_LEN, &crc, 2);
+    TEST_ASSERT_EQUAL_UINT(44, m);
+    TEST_ASSERT_FALSE(decode_report(c, m, &rp));
+    // new length, old version byte
+    memcpy(c, b, n);
+    c[2] = 2;
+    crc = crc16(c, n - CRC_LEN);
+    memcpy(c + n - CRC_LEN, &crc, 2);
+    TEST_ASSERT_FALSE(decode_report(c, n, &rp));
+    // flag bits: six defined, two reserved
+    TEST_ASSERT_EQUAL_HEX8(0x3F, FLAGS_VALID);
+    TEST_ASSERT_EQUAL_HEX8(0x04, FLAG_AE_READY);
+    TEST_ASSERT_EQUAL_HEX8(0x08, FLAG_F1_VALID);
+    TEST_ASSERT_EQUAL_HEX8(0x10, FLAG_F1_COMMISSIONED);
+    TEST_ASSERT_EQUAL_HEX8(0x20, FLAG_F1_NOT_COMMISSIONED);
+    for (int bit = 0; bit < 8; bit++) {
+        ReportPkt p = good_report(0);
+        p.flags = (uint8_t)(1u << bit);
+        TEST_ASSERT_EQUAL_INT(bit < 6 ? 1 : 0, report_fields_ok(p) ? 1 : 0);
+    }
 }
 
 static void expect_all_rejected(const uint8_t *b, size_t n, int kind) {
@@ -1021,7 +1075,7 @@ void test_master_field_validation(void) {
         p = good_report(0);           p.state = (uint8_t)v; r.inject(p, 1, 100); bad++;
     }
     // Reserved flag bits (every one of them, alone).
-    for (int bit = 2; bit < 8; bit++) {
+    for (int bit = 6; bit < 8; bit++) {
         ReportPkt p = good_report(0); p.flags = (uint8_t)(1u << bit); r.inject(p, 1, 100); bad++;
     }
     // Non-finite feature values, each slot, NaN / +inf / -inf.
@@ -1749,6 +1803,187 @@ void test_sim_master_stall(void) {
     }
 }
 
+// ------------------------------------------------------------------ wire version 3: master validation of the optional fields
+void test_master_optional_fields_dropped_but_report_kept(void) {
+    const uint32_t nanb = 0x7FC00000u, infb = 0x7F800000u;
+    float nanf, inff;
+    memcpy(&nanf, &nanb, 4);
+    memcpy(&inff, &infb, 4);
+    const uint8_t ALL = FLAG_AE_READY | FLAG_F1_VALID | FLAG_F1_COMMISSIONED;
+    struct Case { uint8_t flags; float ae, f1, drop; uint8_t want; uint32_t ae_bad, f1_bad; };
+    const Case cases[] = {
+        {ALL, 7.5f, 5.25f, 0.0125f, ALL, 0, 0},                                            // all good: untouched
+        {ALL, nanf, 5.25f, 0.0125f, (uint8_t)(ALL & ~FLAG_AE_READY), 1, 0},                // NaN ae
+        {ALL, inff, 5.25f, 0.0125f, (uint8_t)(ALL & ~FLAG_AE_READY), 1, 0},                // inf ae
+        {ALL, -0.5f, 5.25f, 0.0125f, (uint8_t)(ALL & ~FLAG_AE_READY), 1, 0},               // a negative ratio cannot exist
+        {ALL, 7.5f, nanf, 0.0125f, (uint8_t)(ALL & ~FLAG_F1_VALID), 0, 1},                 // NaN f1: valid cleared (the drop is moot)
+        {ALL, 7.5f, inff, nanf, (uint8_t)(ALL & ~FLAG_F1_VALID), 0, 1},
+        {ALL, 7.5f, 150.0f, 0.0125f, (uint8_t)(ALL & ~FLAG_F1_VALID), 0, 1},               // above any plausible f1
+        {ALL, 7.5f, -1.0f, 0.0125f, (uint8_t)(ALL & ~FLAG_F1_VALID), 0, 1},
+        {ALL, 7.5f, 5.25f, nanf, (uint8_t)(ALL & ~FLAG_F1_COMMISSIONED), 0, 1},            // valid f1, unusable drop
+        {ALL, 7.5f, 5.25f, 1.5f, (uint8_t)(ALL & ~FLAG_F1_COMMISSIONED), 0, 1},            // |drop| > 1
+        {ALL, nanf, nanf, nanf, FLAG_F1_COMMISSIONED, 1, 1},                            // everything bad: report still kept (commissioned = f1_0 exists)
+        {0, nanf, nanf, nanf, 0, 0, 0},                                                     // flags clear: the floats are ignored, not counted
+        {FLAG_F1_VALID, 0.0f, 5.25f, nanf, FLAG_F1_VALID, 0, 0},                            // valid without commissioned: the drop is not used
+        {FLAG_F1_COMMISSIONED, 0.0f, nanf, nanf, FLAG_F1_COMMISSIONED, 0, 0},               // commissioned but this window invalid
+        {FLAG_F1_NOT_COMMISSIONED | FLAG_LOW_SIGNAL, 0.0f, nanf, nanf, FLAG_F1_NOT_COMMISSIONED | FLAG_LOW_SIGNAL, 0, 0},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+        MasterRig r;
+        r.to_polling();
+        ReportPkt p = good_report(0);
+        p.flags = cases[i].flags;
+        p.ae_ratio = cases[i].ae;
+        p.f1_est = cases[i].f1;
+        p.f1_drop = cases[i].drop;
+        p.f[0] = 123.0f;
+        r.inject(p, 1, 100);
+        char msg[48];
+        snprintf(msg, sizeof msg, "case %u", (unsigned)i);
+        TEST_ASSERT_EQUAL_UINT_MESSAGE(1, r.rec.rep_sf.size(), msg);         // the report itself is kept
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(0, r.m.stats().rx_bad_field, msg);
+        TEST_ASSERT_TRUE_MESSAGE(r.m.has_report(1), msg);
+        TEST_ASSERT_EQUAL_FLOAT_MESSAGE(123.0f, r.m.latest(1).f[0], msg);    // rule b's input intact
+        TEST_ASSERT_EQUAL_HEX8_MESSAGE(cases[i].want, r.m.latest(1).flags, msg);
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(cases[i].ae_bad, r.m.stats().rx_ae_bad, msg);
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(cases[i].f1_bad, r.m.stats().rx_f1_bad, msg);
+    }
+    // a non-finite CORE feature is still a rejected report, whatever the optional fields say
+    MasterRig q;
+    q.to_polling();
+    ReportPkt bad = good_report(0);
+    bad.f[0] = nanf;
+    q.inject(bad, 1, 100);
+    TEST_ASSERT_EQUAL_UINT32(1, q.m.stats().rx_bad_field);
+    TEST_ASSERT_EQUAL_UINT(0, q.rec.rep_sf.size());
+}
+
+// ------------------------------------------------------------------ slave analytics (slave_pipe.h through SlaveNode)
+static void gen_sine_window(int16_t *az, int16_t *gx, uint32_t seed, double hz, double amp) {
+    uint32_t x = seed * 2654435761u + 1u;
+    for (int i = 0; i < 128; i++) {
+        x = x * 1664525u + 1013904223u;
+        double nz = ((x >> 8) & 0xFFFF) / 65535.0 - 0.5;
+        az[i] = (int16_t)(16384.0 + amp * sin(6.283185307179586 * hz * i * 0.01 + 0.3) + 40.0 * nz);
+        x = x * 1664525u + 1013904223u;
+        gx[i] = (int16_t)(60.0 * sin(6.283185307179586 * (hz + 1.0) * i * 0.01) + 20.0 * (((x >> 8) & 0xFFFF) / 65535.0 - 0.5));
+    }
+}
+
+void test_slave_pipeline_flags_and_commissioning(void) {
+    static SlaveAnalytics pa;
+    SlaveRig r;
+    r.s.attach(&pa);
+    TEST_ASSERT_EQUAL_UINT(0, (unsigned)pa.ae.n);
+    int16_t az[128], gx[128];
+    uint32_t first_ae = 0, first_f1 = 0, first_comm = 0;
+    for (uint32_t w = 0; w < 110; w++) {
+        gen_sine_window(az, gx, w, 6.0, 600.0);
+        r.run_window((uint64_t)w * SUPERFRAME_US, az, gx, w);
+        const ReportPkt &rp = r.s.report();
+        if ((rp.flags & FLAG_AE_READY) && !first_ae) first_ae = w + 1;
+        if ((rp.flags & FLAG_F1_VALID) && !first_f1) first_f1 = w + 1;
+        if ((rp.flags & FLAG_F1_COMMISSIONED) && !first_comm) first_comm = w + 1;
+        if (!(rp.flags & FLAG_AE_READY)) TEST_ASSERT_EQUAL_FLOAT(0.0f, rp.ae_ratio);
+        else TEST_ASSERT_TRUE(rp.ae_ratio >= 0.0f && rp.ae_ratio < 1e6f);
+        if (rp.flags & FLAG_F1_VALID) TEST_ASSERT_FLOAT_WITHIN(0.3f, 6.0f, rp.f1_est);
+        else TEST_ASSERT_TRUE(rp.f1_est != rp.f1_est);                     // NAN on the wire when not valid
+        if (rp.flags & FLAG_F1_COMMISSIONED) TEST_ASSERT_TRUE(fabsf(rp.f1_drop) < 0.05f);
+        if (!((rp.flags & FLAG_F1_VALID) && (rp.flags & FLAG_F1_COMMISSIONED))) TEST_ASSERT_TRUE(rp.f1_drop != rp.f1_drop);
+        TEST_ASSERT_EQUAL_HEX8(0, rp.flags & FLAG_F1_NOT_COMMISSIONED);     // a clean tone commissions in time
+        TEST_ASSERT_EQUAL_HEX8(0, rp.flags & ~FLAGS_VALID);
+    }
+    printf("slave pipeline: AE_READY from window %u, F1_VALID from %u, F1_COMMISSIONED from %u\n", (unsigned)first_ae, (unsigned)first_f1, (unsigned)first_comm);
+    TEST_ASSERT_EQUAL_UINT32(21, first_ae);       // windows 1..20 commission, the ratio starts with the 21st
+    TEST_ASSERT_EQUAL_UINT32(32, first_f1);       // M = 32 spectra in the ring
+    TEST_ASSERT_TRUE(first_comm > 0 && first_comm <= 32 + 64);   // M + C - 1 = 95 windows on a clean tone
+    TEST_ASSERT_EQUAL_UINT32(0, r.s.stats().windows_rejected);
+    // reset() is a power-on: both recommission
+    r.s.reset();
+    TEST_ASSERT_EQUAL_UINT(0, (unsigned)pa.ae.n);
+    TEST_ASSERT_EQUAL_INT(0, pa.f1.commissioned);
+    TEST_ASSERT_EQUAL_INT(0, pa.f1.n_windows);
+    TEST_ASSERT_TRUE(r.s.analytics() == &pa);
+}
+
+void test_slave_pipeline_not_commissioned_flag(void) {
+    static SlaveAnalytics pa;
+    SlaveRig r;
+    r.s.attach(&pa);
+    int16_t az[128], gx[128];
+    uint32_t first = 0;
+    for (int i = 0; i < 128; i++) { az[i] = 16384; gx[i] = 0; }       // a flat signal has no peak: the tracker never commissions
+    for (uint32_t w = 0; w < 300; w++) {
+        r.run_window((uint64_t)w * SUPERFRAME_US, az, gx, w);
+        const ReportPkt &rp = r.s.report();
+        TEST_ASSERT_EQUAL_HEX8(0, rp.flags & (FLAG_F1_VALID | FLAG_F1_COMMISSIONED));
+        if ((rp.flags & FLAG_F1_NOT_COMMISSIONED) && !first) first = w + 1;
+    }
+    TEST_ASSERT_EQUAL_UINT32(32 + 4 * 64, first);    // overdue after M + F1T_PATIENCE * C windows
+}
+
+void test_slave_pipeline_does_not_change_tree_outputs(void) {
+    load_windows();
+    static SlaveAnalytics pa;
+    SlaveRig with, without;
+    with.s.attach(&pa);
+    for (uint32_t w = 0; w < 60; w++) {
+        const Win &x = g_win[w * 97 % g_win.size()];
+        with.run_window((uint64_t)w * SUPERFRAME_US, x.az, x.gx, w);
+        without.run_window((uint64_t)w * SUPERFRAME_US, x.az, x.gx, w);
+        const ReportPkt &a = with.s.report(), &b = without.s.report();
+        TEST_ASSERT_EQUAL_UINT8(b.raw, a.raw);
+        TEST_ASSERT_EQUAL_UINT8(b.state, a.state);
+        TEST_ASSERT_EQUAL_HEX8(b.flags, a.flags & (FLAG_LOW_SIGNAL | FLAG_UNSYNCED));
+        for (int i = 0; i < 5; i++) TEST_ASSERT_EQUAL_MEMORY(&b.f[i], &a.f[i], 4);   // features_ex == features, bit for bit
+        // no pipeline attached: the slave says nothing about the AE or f1
+        TEST_ASSERT_EQUAL_HEX8(0, b.flags & ~(FLAG_LOW_SIGNAL | FLAG_UNSYNCED));
+        TEST_ASSERT_EQUAL_FLOAT(0.0f, b.ae_ratio);
+        TEST_ASSERT_TRUE(b.f1_est != b.f1_est && b.f1_drop != b.f1_drop);
+    }
+}
+
+void test_sim_analytics_reports(void) {
+    netsim::SimConfig c = base_cfg(3, 60);
+    c.quiet = true;
+    netsim::Sim on(c);
+    on.run();
+    c.analytics = false;
+    netsim::Sim off(c);
+    off.run();
+    TEST_ASSERT_EQUAL_UINT32(on.res.reports_delivered[1], off.res.reports_delivered[1]);
+    uint32_t ready = 0;
+    for (size_t i = 0; i < on.res.reports.size(); i++) {
+        const netsim::ReportRec &rr = on.res.reports[i];
+        TEST_ASSERT_EQUAL_HEX8(0, rr.flags & ~FLAGS_VALID);
+        if (rr.flags & FLAG_AE_READY) { ready++; TEST_ASSERT_TRUE(rr.ae_ratio >= 0.0f); }
+        else TEST_ASSERT_EQUAL_FLOAT(0.0f, rr.ae_ratio);
+        if (rr.window < 20) TEST_ASSERT_EQUAL_HEX8(0, rr.flags & FLAG_AE_READY);
+        if (rr.window >= 20) TEST_ASSERT_EQUAL_HEX8(FLAG_AE_READY, rr.flags & FLAG_AE_READY);
+    }
+    TEST_ASSERT_TRUE(ready > 60);                  // both slaves, windows 20..59
+    for (size_t i = 0; i < off.res.reports.size(); i++) TEST_ASSERT_EQUAL_HEX8(0, off.res.reports[i].flags & ~(FLAG_LOW_SIGNAL | FLAG_UNSYNCED));
+    // the pipeline's host time is measured, not modelled
+    TEST_ASSERT_TRUE(on.res.host_windows >= 100);
+    TEST_ASSERT_TRUE(on.res.host_window_ns_total > 0);
+    // a revived slave is a power-on: it recommissions (AE not ready again)
+    netsim::SimConfig k = base_cfg(3, 60);
+    k.quiet = true;
+    k.kills.push_back({2, 30});
+    k.revives.push_back({2, 32});
+    netsim::Sim s(k);
+    s.run();
+    bool after = false;
+    for (size_t i = 0; i < s.res.reports.size(); i++) {
+        const netsim::ReportRec &rr = s.res.reports[i];
+        if (rr.slave == 2 && rr.sf >= 33) {   // the revived slave's window counter and AE restart: ready again only from its 21st window
+            if (rr.window < 20) { after = true; TEST_ASSERT_EQUAL_HEX8(0, rr.flags & FLAG_AE_READY); }
+            else TEST_ASSERT_EQUAL_HEX8(FLAG_AE_READY, rr.flags & FLAG_AE_READY);
+        }
+    }
+    TEST_ASSERT_TRUE(after);
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_crc_check_value);
@@ -1756,8 +1991,14 @@ int main(int, char **) {
     RUN_TEST(test_roundtrip);
     RUN_TEST(test_bitflip_rejected);
     RUN_TEST(test_version_and_length);
+    RUN_TEST(test_report_v2_frame_rejected_and_flag_bits);
     RUN_TEST(test_wrong_length_with_valid_crc);
     RUN_TEST(test_wrong_type_with_valid_crc);
+    RUN_TEST(test_master_optional_fields_dropped_but_report_kept);
+    RUN_TEST(test_slave_pipeline_flags_and_commissioning);
+    RUN_TEST(test_slave_pipeline_not_commissioned_flag);
+    RUN_TEST(test_slave_pipeline_does_not_change_tree_outputs);
+    RUN_TEST(test_sim_analytics_reports);
     RUN_TEST(test_gate_threshold);
     RUN_TEST(test_gate_unchanged_on_dataset);
     RUN_TEST(test_slave_addressing_and_ready);

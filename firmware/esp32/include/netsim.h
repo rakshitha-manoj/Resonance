@@ -262,13 +262,18 @@ struct SimResult {
         }
         snprintf(b, sizeof b, "invariants: tx_in_sampling=%u poll_overrun=%u\n", viol_tx_in_sampling, viol_poll_overrun);
         s += b;
+        return s;
+    }
+
+    // Measured host time (NOT deterministic, so it is not part of summary()): the slave pipeline per delivered window on this PC.
+    std::string host_summary() const {
+        char b[256];
         if (host_windows)
             snprintf(b, sizeof b, "host: slave pipeline per window mean=%.1f us max=%.1f us over %u windows (this PC, not the ESP32; model compute_us is a separate constant)\n",
                      (double)host_window_ns_total / host_windows / 1000.0, (double)host_window_ns_max / 1000.0, host_windows);
         else
             snprintf(b, sizeof b, "host: no windows delivered\n");
-        s += b;
-        return s;
+        return b;
     }
 };
 

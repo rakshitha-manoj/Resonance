@@ -22,7 +22,12 @@ struct Col : Sink {
 };
 
 static Config cfg(char rule, float T, bool raw, uint8_t comm_n = 3, uint32_t st = 64, uint8_t k = 1) {
-    Config c = {rule, T, raw, comm_n, st, k};
+    Config c = {rule, T, raw, comm_n, st, k, 3.0f, CHOSEN_AE_GATE};
+    return c;
+}
+// Rule f: T = the AE threshold, T_b = the std-ratio threshold of the b part.
+static Config cfgf(float T_ae, float T_b = 3.0f, uint8_t k = 1, uint8_t comm_n = 3) {
+    Config c = {'f', T_ae, false, comm_n, 64, k, T_b, CHOSEN_AE_GATE};
     return c;
 }
 
@@ -34,6 +39,30 @@ struct Rig {
     explicit Rig(const Config &c) : f(&col, c), sf(0) {}
     uint64_t t() const { return (uint64_t)sf * 1400000ull + 1320000ull; }
     void one(int slave, uint8_t raw, uint8_t state, float f0) { f.on_report_raw((uint8_t)slave, sf, raw, state, f0, t()); }
+    // report with the version-3 fields: AE ratio / ready, f1 estimate / drop (NAN = not valid; a finite drop = commissioned)
+    void onex(int slave, float f0, float ae, bool ready, float f1 = NAN, float drop = NAN) {
+        SlaveIn in;
+        in.raw = in.state = 0;
+        in.f0 = f0;
+        in.xflags = (uint8_t)((ready ? net::FLAG_AE_READY : 0) | (f1 == f1 ? net::FLAG_F1_VALID : 0) | ((f1 == f1 && drop == drop) ? net::FLAG_F1_COMMISSIONED : 0));
+        in.ae = ae;
+        in.f1_est = f1;
+        in.f1_drop = drop;
+        f.on_report_ex((uint8_t)slave, sf, in, t());
+    }
+    // both slaves with AE ratios (ready) and optional f1 / drop; the second report closes the superframe
+    const Decision &bothx(float f1v, float f2v, float ae1, float ae2, bool rdy1 = true, bool rdy2 = true) {
+        onex(1, f1v, ae1, rdy1);
+        onex(2, f2v, ae2, rdy2);
+        sf++;
+        return col.dec.back();
+    }
+    const Decision &bothd(float d1, float d2, float f1_0 = 5.0f) {   // both with f1 and drop: f1 = f1_0 * (1 - drop), AE ready and quiet
+        onex(1, 100, 0.5f, true, f1_0 * (1.0f - d1), d1);
+        onex(2, 100, 0.5f, true, f1_0 * (1.0f - d2), d2);
+        sf++;
+        return col.dec.back();
+    }
     // both slaves report; the second report closes the superframe
     const Decision &both(float f1, float f2, uint8_t raw1 = 0, uint8_t st1 = 0, uint8_t raw2 = 0, uint8_t st2 = 0) {
         one(1, raw1, st1, f1);
@@ -67,14 +96,15 @@ static void expect(const Decision &d, int cls, int slave = 0, int degraded = 0) 
 }
 
 // ------------------------------------------------------------------ constants
-// The final selected configuration as written into the parity vectors by tools/gen_fusion_vectors.py (version 3), which reads it
-// from models/selected/validation/fusion_eval.json ("final_selected"): an INDEPENDENT source for the constants in fusion.h.
+// The final selected configuration as written into the parity vectors by tools/gen_fusion_vectors.py (version 4), which reads it
+// from models/selected/validation/fusion_eval_r3_selected.json (rule f, T = AE threshold, T_b, k), the gate from fusion_eval_r3_dev.json
+// and the commissioning windows from fusion_eval.json: an INDEPENDENT source for the constants in fusion.h.
 #pragma pack(push, 1)
-struct SelRec { uint8_t rule, use_raw, k, comm_n; float T; uint32_t status_every, max_catchup; float other_max; };
+struct SelRec { uint8_t rule, use_raw, k, comm_n; float T; uint32_t status_every, max_catchup; float other_max; float T_b, gate; uint8_t gated, pad[3]; };
 #pragma pack(pop)
-static_assert(sizeof(SelRec) == 20, "selected-config block is 20 bytes");
+static_assert(sizeof(SelRec) == 32, "selected-config block is 32 bytes");
 
-static const uint32_t VECTORS_VERSION = 3;
+static const uint32_t VECTORS_VERSION = 4;
 
 static void read_vectors_header(FILE *fp, uint32_t *nseq, SelRec *sel) {
     char magic[4];
@@ -103,10 +133,16 @@ static void test_chosen_constants() {
     SelRec sel;
     read_vectors_header(fp, &nseq, &sel);
     fclose(fp);
-    TEST_ASSERT_EQUAL_INT_MESSAGE((int)sel.rule, (int)CHOSEN_RULE, "CHOSEN_RULE != final_selected.rule");
-    TEST_ASSERT_TRUE_MESSAGE(memcmp(&sel.T, &CHOSEN_T, 4) == 0, "CHOSEN_T != final_selected.T");
-    TEST_ASSERT_EQUAL_INT_MESSAGE((int)sel.use_raw, (int)CHOSEN_USE_RAW, "CHOSEN_USE_RAW != final_selected.use_raw");
-    TEST_ASSERT_EQUAL_INT_MESSAGE((int)sel.k, (int)CHOSEN_DEBOUNCE, "CHOSEN_DEBOUNCE != final_selected.k");
+    TEST_ASSERT_EQUAL_INT_MESSAGE((int)sel.rule, (int)CHOSEN_RULE, "CHOSEN_RULE != selected rule");
+    TEST_ASSERT_EQUAL_INT_MESSAGE((int)'f', (int)CHOSEN_RULE, "the deployed rule is f (Phase C1 decision)");
+    TEST_ASSERT_TRUE_MESSAGE(memcmp(&sel.T, &CHOSEN_T, 4) == 0, "CHOSEN_T != selected T");
+    TEST_ASSERT_TRUE_MESSAGE(memcmp(&sel.T, &CHOSEN_T_AE, 4) == 0, "CHOSEN_T_AE != selected T (the AE threshold)");
+    TEST_ASSERT_TRUE_MESSAGE(memcmp(&sel.T_b, &CHOSEN_T_B, 4) == 0, "CHOSEN_T_B != selected T_b");
+    TEST_ASSERT_TRUE_MESSAGE(memcmp(&sel.gate, &CHOSEN_AE_GATE, 4) == 0, "CHOSEN_AE_GATE != noise_gate_counts");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, (int)sel.gated, "the AE flag is gated");
+    TEST_ASSERT_TRUE_MESSAGE(memcmp(&f.config().T_b, &sel.T_b, 4) == 0 && memcmp(&f.config().gate, &sel.gate, 4) == 0, "config T_b / gate");
+    TEST_ASSERT_EQUAL_INT_MESSAGE((int)sel.use_raw, (int)CHOSEN_USE_RAW, "CHOSEN_USE_RAW != selected use_raw");
+    TEST_ASSERT_EQUAL_INT_MESSAGE((int)sel.k, (int)CHOSEN_DEBOUNCE, "CHOSEN_DEBOUNCE != selected k");
     TEST_ASSERT_EQUAL_INT_MESSAGE((int)sel.comm_n, (int)COMMISSION_WINDOWS, "COMMISSION_WINDOWS != commissioning_windows");
     TEST_ASSERT_EQUAL_UINT32_MESSAGE(sel.status_every, STATUS_EVERY_SF, "STATUS_EVERY_SF != reference");
     TEST_ASSERT_EQUAL_UINT32_MESSAGE(sel.max_catchup, MAX_CATCHUP_SF, "MAX_CATCHUP_SF != reference");
@@ -669,7 +705,8 @@ static void test_trace_source() {
 
 // ------------------------------------------------------------------ parity vectors
 #pragma pack(push, 1)
-struct OpRec { uint8_t type, slave, fb; uint32_t sf; float f0; uint32_t t_ms; };
+struct OpRec { uint8_t type, slave, fb; uint32_t sf; float f0; float ae; uint32_t t_ms; };   // fb: raw | state << 2 | ae_ready << 4
+struct SeqHdr { uint8_t rule, use_raw, comm_n, k; uint32_t status_every; float T, T_b, gate; uint32_t n_ops, n_dec, n_rec; };
 struct DecRec { uint32_t sf; uint8_t cls, slave, deg, pad; float r1, r2; };
 struct EvRec { uint8_t kind, cls, slave, deg; uint32_t sf, t_ms; float r1, r2, b1, b2; uint8_t alive, p0, p1, p2; uint32_t closed, nev; };
 #pragma pack(pop)
@@ -859,6 +896,8 @@ static Event mk_event(uint8_t kind, uint8_t cls) {
     memset(&e, 0, sizeof e);
     e.kind = kind;
     e.cls = cls;
+    e.ae[0] = e.ae[1] = -1.0f;             // unknown
+    e.f1[0] = e.f1[1] = e.drop[0] = e.drop[1] = NAN;
     return e;
 }
 
@@ -872,8 +911,8 @@ static void test_json_meta_line() {
     m.epoch = 2866824256u;
     m.samples = true;
     size_t n = J::meta_line(b, sizeof b, m);
-    const char *want = "{\"type\":\"meta\",\"schema\":2,\"source\":\"netsim\",\"rule\":\"b\",\"T\":3,\"use_raw\":false,\"debounce\":1,"
-                       "\"commission_windows\":20,\"status_every_sf\":64,\"superframe_s\":1.4,\"floors\":[5,10],\"epoch\":2866824256,\"samples\":true}\n";
+    const char *want = "{\"type\":\"meta\",\"schema\":3,\"source\":\"netsim\",\"rule\":\"f\",\"T\":6,\"T_b\":3,\"gate\":92.12,\"use_raw\":false,\"debounce\":1,"
+                       "\"commission_windows\":20,\"status_every_sf\":64,\"dmg_delta\":0.02,\"dmg_p\":32,\"superframe_s\":1.4,\"floors\":[5,10],\"epoch\":2866824256,\"samples\":true}\n";
     TEST_ASSERT_EQUAL_STRING(want, b);
     TEST_ASSERT_EQUAL_UINT32(strlen(want), n);
     // unknown epoch -> null, escaped source, samples off, other rule/T/raw, negative floor
@@ -883,8 +922,8 @@ static void test_json_meta_line() {
     m.cfg = cfg('d', 2.5f, true, 12, 32, 3);
     m.floor1 = -1;
     n = J::meta_line(b, sizeof b, m);
-    want = "{\"type\":\"meta\",\"schema\":2,\"source\":\"a\\\"b\\\\\",\"rule\":\"d\",\"T\":2.5,\"use_raw\":true,\"debounce\":3,"
-           "\"commission_windows\":12,\"status_every_sf\":32,\"superframe_s\":1.4,\"floors\":[-1,10],\"epoch\":null,\"samples\":false}\n";
+    want = "{\"type\":\"meta\",\"schema\":3,\"source\":\"a\\\"b\\\\\",\"rule\":\"d\",\"T\":2.5,\"use_raw\":true,\"debounce\":3,"
+           "\"commission_windows\":12,\"status_every_sf\":32,\"dmg_delta\":0.02,\"dmg_p\":32,\"superframe_s\":1.4,\"floors\":[-1,10],\"epoch\":null,\"samples\":false}\n";
     TEST_ASSERT_EQUAL_STRING(want, b);
     TEST_ASSERT_EQUAL_UINT32(strlen(want), n);
 }
@@ -903,8 +942,13 @@ static void test_json_event_lines() {
     e.closed = 46;
     e.n_events = 3;
     e.commission_n[0] = e.commission_n[1] = 20;
+    e.ae[0] = 12.5f;                // AE ratio of slave 1, slave 2 has none
+    e.f1[0] = 5.375f;
+    e.drop[0] = 0.0125f;
+    e.dmg = 1;
     size_t n = J::event_line(b, sizeof b, e);
     const char *want = "{\"type\":\"begin\",\"t_us\":64329824,\"sf\":45,\"class\":\"LOCAL\",\"slave\":1,\"degraded_alive\":0,\"r1\":9.5,\"r2\":null,"
+                       "\"ae\":[12.5,null],\"f1\":[5.375,null],\"drop\":[0.0125,null],\"dmg\":1,"
                        "\"base1\":75.2,\"base2\":102.6,\"alive\":[true,true],\"closed\":46,\"events\":3,\"commission_n\":[20,20]}\n";
     TEST_ASSERT_EQUAL_STRING(want, b);
     TEST_ASSERT_EQUAL_UINT32(strlen(want), n);
@@ -921,7 +965,7 @@ static void test_json_event_lines() {
     e.commission_n[1] = 0;
     J::event_line(b, sizeof b, e);
     want = "{\"type\":\"change\",\"t_us\":1329818,\"sf\":0,\"class\":\"COMMISSIONING\",\"slave\":0,\"degraded_alive\":2,\"r1\":null,\"r2\":null,"
-           "\"base1\":0,\"base2\":0,\"alive\":[false,true],\"closed\":1,\"events\":1,\"commission_n\":[1,0]}\n";
+           "\"ae\":[null,null],\"f1\":[null,null],\"drop\":[null,null],\"dmg\":0,\"base1\":0,\"base2\":0,\"alive\":[false,true],\"closed\":1,\"events\":1,\"commission_n\":[1,0]}\n";
     TEST_ASSERT_EQUAL_STRING(want, b);
     // status, BUILDING, ratio exactly 0
     e = mk_event(EV_STATUS, BUILDING);
@@ -935,7 +979,7 @@ static void test_json_event_lines() {
     e.n_events = 8;
     J::event_line(b, sizeof b, e);
     want = "{\"type\":\"status\",\"t_us\":92101531,\"sf\":63,\"class\":\"BUILDING\",\"slave\":0,\"degraded_alive\":0,\"r1\":0,\"r2\":3,"
-           "\"base1\":100,\"base2\":100,\"alive\":[false,false],\"closed\":64,\"events\":8,\"commission_n\":[0,0]}\n";
+           "\"ae\":[null,null],\"f1\":[null,null],\"drop\":[null,null],\"dmg\":0,\"base1\":100,\"base2\":100,\"alive\":[false,false],\"closed\":64,\"events\":8,\"commission_n\":[0,0]}\n";
     TEST_ASSERT_EQUAL_STRING(want, b);
     e.cls = NO_DATA;
     J::event_line(b, sizeof b, e);
@@ -957,9 +1001,16 @@ static void test_json_sample_and_restart_lines() {
     s.age_sf[0] = -1;
     s.age_sf[1] = 0;
     s.commission_n[0] = s.commission_n[1] = 20;
+    s.ae[0] = -1.0f;
+    s.ae[1] = 12.5f;
+    s.f1[0] = NAN;
+    s.f1[1] = 5.4f;
+    s.drop[0] = NAN;
+    s.drop[1] = 0.0123f;
+    s.dmg = 0;
     size_t n = J::sample_line(b, sizeof b, s);
     const char *want = "{\"type\":\"sample\",\"t_us\":1400,\"sf\":7,\"class\":\"LOCAL\",\"slave\":2,\"degraded_alive\":0,\"r1\":0.25,\"r2\":4.5,"
-                       "\"alive\":[false,true],\"age\":[null,0],\"commission_n\":[20,20],\"closed\":8}\n";
+                       "\"ae\":[null,12.5],\"f1\":[null,5.4],\"drop\":[null,0.0123],\"dmg\":0,\"alive\":[false,true],\"age\":[null,0],\"commission_n\":[20,20],\"closed\":8}\n";
     TEST_ASSERT_EQUAL_STRING(want, b);
     TEST_ASSERT_EQUAL_UINT32(strlen(want), n);
     s.cls = AMBIENT;
@@ -969,9 +1020,13 @@ static void test_json_sample_and_restart_lines() {
     s.alive_mask = 1;
     s.age_sf[0] = 0;
     s.age_sf[1] = 12;
+    s.ae[1] = 3.9e18f;                 // an absurd ratio is shown capped at 1e9
+    s.f1[0] = 11.99f;
+    s.drop[0] = -0.2f;
+    s.dmg = 1;
     J::sample_line(b, sizeof b, s);
     want = "{\"type\":\"sample\",\"t_us\":1400,\"sf\":7,\"class\":\"AMBIENT\",\"slave\":0,\"degraded_alive\":1,\"r1\":0.25,\"r2\":null,"
-           "\"alive\":[true,false],\"age\":[0,12],\"commission_n\":[20,20],\"closed\":8}\n";
+           "\"ae\":[null,1000000000],\"f1\":[11.99,5.4],\"drop\":[-0.2,0.0123],\"dmg\":1,\"alive\":[true,false],\"age\":[0,12],\"commission_n\":[20,20],\"closed\":8}\n";
     TEST_ASSERT_EQUAL_STRING(want, b);
 
     n = J::restart_line(b, sizeof b, 5, 7, 0);
@@ -1097,24 +1152,396 @@ static void test_json_sink_counts_and_drops() {
     TEST_ASSERT_EQUAL_UINT32(1, sh.overflow);
 }
 
+
+// ------------------------------------------------------------------ rule f (b OR e), Phase C2a
+static void test_rule_f_or_of_separately_smoothed_flags() {
+    Rig r(cfgf(6.0f, 3.0f));
+    r.commission();
+    // AE alone (ratio 6 exactly, ready): the AE flag needs its own 2-of-3
+    expect(r.bothx(100, 100, 6.0f, 0.5f), AMBIENT);
+    expect(r.bothx(100, 100, 6.0f, 0.5f), LOCAL, 1);
+    r.bothx(100, 100, 0.5f, 0.5f);
+    r.bothx(100, 100, 0.5f, 0.5f);
+    expect(r.bothx(100, 100, 0.5f, 0.5f), AMBIENT);
+    // b alone (az_std 3 x the baseline): the b flag as in rule b
+    r.bothx(300, 100, 0.5f, 0.5f);
+    expect(r.bothx(300, 100, 0.5f, 0.5f), LOCAL, 1);
+    for (int i = 0; i < 3; i++) r.bothx(100, 100, 0.5f, 0.5f);
+    // the two flags are smoothed SEPARATELY: b-only, AE-only, quiet, b-only, ... reaches 2 of 3 in neither history (one flag
+    // smoothed after the OR would see 1,1,0,1,1,0 and fire)
+    for (int i = 0; i < 9; i++) {
+        const Decision &d = (i % 3 == 0) ? r.bothx(300, 100, 0.5f, 0.5f) : (i % 3 == 1) ? r.bothx(100, 100, 6.0f, 0.5f) : r.bothx(100, 100, 0.5f, 0.5f);
+        expect(d, AMBIENT);
+    }
+    for (int i = 0; i < 3; i++) r.bothx(100, 100, 0.5f, 0.5f);
+    // slave 1 by b, slave 2 by the AE: both e = BUILDING (OR per slave, then the b decision)
+    r.bothx(300, 100, 0.5f, 6.0f);
+    expect(r.bothx(300, 100, 0.5f, 6.0f), BUILDING);
+    // the report keeps its ratio: r = az_std / baseline, not the AE value
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, r.col.dec.back().r[0]);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, r.col.dec.back().r[1]);
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, r.col.dec.back().ae[0]);
+    TEST_ASSERT_EQUAL_FLOAT(6.0f, r.col.dec.back().ae[1]);
+}
+
+static void test_rule_f_threshold_gate_and_ready_edges() {
+    // AE ratio exactly T and one ulp either side
+    {
+        float T = 6.0f, below = nextafterf(T, 0.0f), above = nextafterf(T, 1e9f);
+        Rig a(cfgf(T)); a.commission(); a.bothx(100, 100, below, 0.5f);
+        expect(a.bothx(100, 100, below, 0.5f), AMBIENT);
+        Rig b(cfgf(T)); b.commission(); b.bothx(100, 100, T, 0.5f);
+        expect(b.bothx(100, 100, T, 0.5f), LOCAL, 1);
+        Rig c(cfgf(T)); c.commission(); c.bothx(100, 100, 0.5f, above);
+        expect(c.bothx(100, 100, 0.5f, above), LOCAL, 2);
+    }
+    // gate: az_std one ulp below 92.12 silences the AE flag, exactly the gate (and above) does not
+    {
+        float g = CHOSEN_AE_GATE, below = nextafterf(g, 0.0f), above = nextafterf(g, 1e9f);
+        Rig a(cfgf(6.0f)); a.commission(100.0f, 100.0f); a.bothx(below, 100, 100.0f, 0.5f);
+        expect(a.bothx(below, 100, 100.0f, 0.5f), AMBIENT);
+        Rig b(cfgf(6.0f)); b.commission(100.0f, 100.0f); b.bothx(g, 100, 100.0f, 0.5f);
+        expect(b.bothx(g, 100, 100.0f, 0.5f), LOCAL, 1);
+        Rig c(cfgf(6.0f)); c.commission(100.0f, 100.0f); c.bothx(above, 100, 100.0f, 0.5f);
+        expect(c.bothx(above, 100, 100.0f, 0.5f), LOCAL, 1);
+    }
+    // AE_READY: not ready = flag false (ratio ignored, history advances with 0), ready from then on
+    {
+        Rig r(cfgf(6.0f));
+        r.commission();
+        r.bothx(100, 100, 100.0f, 100.0f, false, false);
+        expect(r.bothx(100, 100, 100.0f, 100.0f, false, false), AMBIENT);
+        r.bothx(100, 100, 100.0f, 100.0f, true, true);
+        expect(r.bothx(100, 100, 100.0f, 100.0f, true, true), BUILDING);
+        // ready on one slave only
+        Rig q(cfgf(6.0f));
+        q.commission();
+        q.bothx(100, 100, 100.0f, 100.0f, true, false);
+        expect(q.bothx(100, 100, 100.0f, 100.0f, true, false), LOCAL, 1);
+    }
+    // the other rules ignore the AE completely
+    Rig o(cfg('b', 3.0f, false));
+    o.commission();
+    o.bothx(100, 100, 1000.0f, 1000.0f);
+    expect(o.bothx(100, 100, 1000.0f, 1000.0f), AMBIENT);
+}
+
+static void test_rule_f_degraded_dead_alive_and_restart() {
+    Rig r(cfgf(6.0f));
+    r.commission();
+    // only slave 2 reports (degraded): LOCAL(2) iff its (b OR e)
+    r.f.advance(r.sf, true, r.t() - 1000); r.onex(2, 100, 6.0f, true); r.f.advance(r.sf, false, r.t() + 1000); r.sf++;
+    expect(r.col.dec.back(), AMBIENT, 0, 2);
+    r.f.advance(r.sf, true, r.t() - 1000); r.onex(2, 100, 6.0f, true); r.f.advance(r.sf, false, r.t() + 1000); r.sf++;
+    expect(r.col.dec.back(), LOCAL, 2, 2);
+    r.f.advance(r.sf, true, r.t() - 1000); r.onex(2, 300, 0.5f, true); r.f.advance(r.sf, false, r.t() + 1000); r.sf++;
+    expect(r.col.dec.back(), LOCAL, 2, 2);               // the b flag joins by OR (AE history 1,1,0 holds, b history 0,0,1)
+    // slave 1 missing: its two histories are held; slave 2 DEAD then ALIVE clears BOTH of slave 2's
+    Rig h(cfgf(6.0f));
+    h.commission();
+    h.bothx(300, 100, 0.5f, 6.0f);                        // slave 1: b history 1; slave 2: AE history 1
+    h.f.on_status(2, false, h.t());
+    h.f.on_status(2, true, h.t());                        // cleared
+    h.onex(1, 300, 0.5f, true); h.onex(2, 100, 6.0f, true); h.sf++;
+    expect(h.col.dec.back(), LOCAL, 1);                   // slave 1 held its history (b: 1,1 -> on), slave 2's AE restarted (1 of 3: not yet)
+    // master restart (superframe numbering back to 0) clears the histories too
+    Rig q(cfgf(6.0f));
+    q.commission();
+    q.bothx(100, 100, 6.0f, 0.5f);
+    q.sf = 0;
+    q.bothx(100, 100, 6.0f, 0.5f);
+    expect(q.col.dec.back(), AMBIENT);
+    expect(q.bothx(100, 100, 6.0f, 0.5f), LOCAL, 1);
+    // both slaves missing: NO_DATA, histories held
+    Rig n(cfgf(6.0f));
+    n.commission();
+    n.bothx(100, 100, 6.0f, 0.5f);
+    expect(n.none(), NO_DATA);
+    expect(n.bothx(100, 100, 6.0f, 0.5f), LOCAL, 1);
+}
+
+static void test_report_pkt_optional_fields_sanitised() {
+    // A report straight from the wire (ReportPkt): non-finite ae / f1 with their flag set -> that field unavailable, the report
+    // (and rule b's az_std) is KEPT. Fusion sanitises again, so a direct caller cannot feed it garbage either.
+    Col col;
+    Fusion f(&col, cfgf(6.0f));
+    net::ReportPkt p;
+    memset(&p, 0, sizeof p);
+    p.f[0] = 100.0f;
+    for (uint32_t sf = 0; sf < 3; sf++)
+        for (int s = 1; s <= 2; s++) { p.sf = sf; f.on_report((uint8_t)s, p, sf * 1400000ull); }
+    TEST_ASSERT_TRUE(f.commissioned());
+    p.sf = 3;
+    p.f[0] = 400.0f;                                       // 4 x the baseline: b flag on slave 1
+    p.flags = net::FLAG_AE_READY | net::FLAG_F1_VALID | net::FLAG_F1_COMMISSIONED;
+    p.ae_ratio = NAN;
+    p.f1_est = INFINITY;
+    p.f1_drop = NAN;
+    f.on_report(1, p, 4000000ull);
+    p.f[0] = 100.0f;
+    f.on_report(2, p, 4000001ull);
+    TEST_ASSERT_EQUAL_UINT32(4, f.stats().rejected_reports + f.stats().ae_bad + f.stats().f1_bad + 0u);   // ae 2, f1 2 + 2 more below (slave 2)
+    TEST_ASSERT_EQUAL_UINT32(0, f.stats().rejected_reports);
+    TEST_ASSERT_TRUE(f.stats().ae_bad >= 2 && f.stats().f1_bad >= 2);
+    TEST_ASSERT_EQUAL_UINT32(4, f.closed());
+    expect(col.dec.back(), AMBIENT);                       // b needs 2 of 3 on slave 1
+    p.sf = 4;
+    p.f[0] = 400.0f;
+    f.on_report(1, p, 5000000ull);
+    p.f[0] = 100.0f;
+    f.on_report(2, p, 5000001ull);
+    expect(col.dec.back(), LOCAL, 1);                      // rule b still works on those reports
+    TEST_ASSERT_EQUAL_FLOAT(-1.0f, col.dec.back().ae[0]);  // AE shown as unknown
+    TEST_ASSERT_TRUE(col.dec.back().f1[0] != col.dec.back().f1[0]);   // NAN
+    TEST_ASSERT_FALSE(f.damage_active());
+}
+
+// ------------------------------------------------------------------ DAMAGE channel on the master
+struct DCol : SampCol {
+    std::vector<DamageEvent> dmg;
+    void on_damage(const DamageEvent &d) override { dmg.push_back(d); }
+};
+struct DRig {
+    DCol col;
+    Fusion f;
+    uint32_t sf;
+    explicit DRig(const Config &c) : f(&col, c), sf(0) {}
+    uint64_t t() const { return (uint64_t)sf * 1400000ull + 1320000ull; }
+    void onex(int slave, float f1, float drop) {
+        SlaveIn in;
+        in.raw = in.state = 0;
+        in.f0 = 100.0f;
+        in.xflags = (uint8_t)(net::FLAG_AE_READY | (f1 == f1 ? net::FLAG_F1_VALID : 0) | ((f1 == f1 && drop == drop) ? net::FLAG_F1_COMMISSIONED : 0));
+        in.ae = 0.5f;
+        in.f1_est = f1;
+        in.f1_drop = drop;
+        f.on_report_ex((uint8_t)slave, sf, in, t());
+    }
+    void both(float d1, float d2) {   // f1_0 = 5 and 6 Hz
+        onex(1, 5.0f * (1.0f - d1), d1);
+        onex(2, 6.0f * (1.0f - d2), d2);
+        sf++;
+    }
+};
+
+static void test_damage_begin_end_and_pooling() {
+    DRig r(cfgf(6.0f));
+    for (int i = 0; i < 3; i++) r.both(0.0f, 0.0f);   // fusion commissioning: the damage channel is already fed
+    TEST_ASSERT_TRUE(r.f.commissioned());
+    TEST_ASSERT_FALSE(r.f.damage_active());
+    // pooled drop = (0.04 + 0) / 2 = 0.02 = DMG_DELTA exactly (inclusive): BEGIN after exactly DMG_P consecutive superframes
+    for (int i = 0; i < DMG_P - 1; i++) r.both(0.04f, 0.0f);
+    TEST_ASSERT_EQUAL_UINT32(0, (uint32_t)r.col.dmg.size());
+    TEST_ASSERT_FALSE(r.f.damage_active());
+    r.both(0.04f, 0.0f);
+    TEST_ASSERT_EQUAL_UINT32(1, (uint32_t)r.col.dmg.size());
+    TEST_ASSERT_TRUE(r.f.damage_active());
+    const DamageEvent &b = r.col.dmg[0];
+    TEST_ASSERT_TRUE(b.begin);
+    TEST_ASSERT_EQUAL_UINT32(r.sf - 1, b.sf);
+    TEST_ASSERT_EQUAL_FLOAT(0.02f, b.drop);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f * (1.0f - 0.04f), b.f1[0]);
+    TEST_ASSERT_EQUAL_FLOAT(6.0f, b.f1[1]);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 5.0f, b.f1_0[0]);     // f1_0 = f1 / (1 - drop), derived on the master
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 6.0f, b.f1_0[1]);
+    TEST_ASSERT_TRUE(b.t_us == r.col.smp.back().t_us);
+    TEST_ASSERT_EQUAL_INT(1, r.col.smp.back().dmg);       // the sample of that superframe already shows the state
+    TEST_ASSERT_EQUAL_INT(0, r.col.smp[r.col.smp.size() - 2].dmg);
+    // the damage channel does not change the class decision (rule f stays AMBIENT)
+    TEST_ASSERT_EQUAL_INT(AMBIENT, r.col.dec.back().cls);
+    TEST_ASSERT_EQUAL_FLOAT(0.04f, r.col.smp.back().drop[0]);
+    // hysteresis: pooled between delta/2 and delta does not end it; END after DMG_P below delta/2 = 0.01
+    for (int i = 0; i < 40; i++) r.both(0.015f, 0.015f);
+    TEST_ASSERT_TRUE(r.f.damage_active());
+    for (int i = 0; i < DMG_P - 1; i++) r.both(0.0f, 0.005f);
+    TEST_ASSERT_TRUE(r.f.damage_active());
+    r.both(0.0f, 0.005f);
+    TEST_ASSERT_FALSE(r.f.damage_active());
+    TEST_ASSERT_EQUAL_UINT32(2, (uint32_t)r.col.dmg.size());
+    TEST_ASSERT_FALSE(r.col.dmg[1].begin);
+    TEST_ASSERT_EQUAL_UINT32(1, r.f.stats().dmg_begins);
+    TEST_ASSERT_EQUAL_UINT32(1, r.f.stats().dmg_ends);
+}
+
+static void test_damage_missing_slave_and_no_report_hold() {
+    DRig r(cfgf(6.0f));
+    for (int i = 0; i < 3; i++) r.both(0.0f, 0.0f);
+    // slave 2 reports nothing for a stretch (its superframes are closed by the master finishing its polling): only slave 1 pools
+    for (int i = 0; i < DMG_P; i++) {
+        r.f.advance(r.sf, true, r.t() - 1000);
+        r.onex(1, 5.0f * 0.97f, 0.03f);
+        r.f.advance(r.sf, false, r.t() + 1000);
+        r.sf++;
+    }
+    TEST_ASSERT_TRUE(r.f.damage_active());                // pooled over slave 1 alone: 0.03
+    TEST_ASSERT_EQUAL_UINT32(1, (uint32_t)r.col.dmg.size());
+    TEST_ASSERT_TRUE(r.col.dmg[0].f1[1] != r.col.dmg[0].f1[1]);   // slave 2: no usable estimate -> null in the log
+    // silence from both: state AND run counters are held (no END however long)
+    for (int i = 0; i < 100; i++) {
+        r.f.advance(r.sf, true, r.t() - 1000);
+        r.f.advance(r.sf, false, r.t() + 1000);
+        r.sf++;
+    }
+    TEST_ASSERT_TRUE(r.f.damage_active());
+    TEST_ASSERT_EQUAL_UINT32(1, (uint32_t)r.col.dmg.size());
+    // a report whose f1 is not valid, or not commissioned, contributes nothing (neither up nor down)
+    for (int i = 0; i < 100; i++) {
+        r.onex(1, NAN, NAN);                               // F1_VALID clear
+        r.onex(2, 6.0f * 0.9f, NAN);                       // valid estimate but no commissioned drop
+        r.sf++;
+    }
+    TEST_ASSERT_TRUE(r.f.damage_active());
+    // slave 1's DEAD slot does not count either; back with a low drop: END after P
+    for (int i = 0; i < DMG_P; i++) {
+        r.f.advance(r.sf, true, r.t() - 1000);
+        r.onex(2, 6.0f, 0.0f);
+        r.f.advance(r.sf, false, r.t() + 1000);
+        r.sf++;
+    }
+    TEST_ASSERT_FALSE(r.f.damage_active());
+    TEST_ASSERT_EQUAL_UINT32(2, (uint32_t)r.col.dmg.size());
+    // fresh start without any commissioned slave: nothing ever happens
+    DRig q(cfgf(6.0f));
+    for (int i = 0; i < 200; i++) { q.onex(1, 5.0f, NAN); q.onex(2, 5.0f, NAN); q.sf++; }
+    TEST_ASSERT_EQUAL_UINT32(0, (uint32_t)q.col.dmg.size());
+}
+
+static void test_damage_survives_stream_restart_and_status() {
+    DRig r(cfgf(6.0f));
+    for (int i = 0; i < 3; i++) r.both(0.0f, 0.0f);
+    for (int i = 0; i < DMG_P; i++) r.both(0.05f, 0.05f);
+    TEST_ASSERT_TRUE(r.f.damage_active());
+    r.sf = 0;                                              // master restart: numbering restarts, the structure is still damaged
+    r.both(0.05f, 0.05f);
+    TEST_ASSERT_EQUAL_UINT32(1, r.f.stats().restarts);
+    TEST_ASSERT_TRUE(r.f.damage_active());
+    TEST_ASSERT_EQUAL_INT(1, r.col.smp.back().dmg);
+    // events carry the state too
+    TEST_ASSERT_TRUE(r.col.ev.size() > 0);
+}
+
+// ------------------------------------------------------------------ schema 3: damage line, sink order, widths
+static void test_json_damage_line_and_sink_order() {
+    char b[J::JSON_LINE_MAX];
+    DamageEvent d;
+    d.t_us = 64329824ull;
+    d.sf = 45;
+    d.begin = true;
+    d.drop = 0.0205f;
+    d.f1[0] = 5.25f;
+    d.f1[1] = NAN;
+    d.f1_0[0] = 5.5f;
+    d.f1_0[1] = 6.0f;
+    size_t n = J::damage_line(b, sizeof b, d);
+    const char *want = "{\"type\":\"damage\",\"t_us\":64329824,\"sf\":45,\"state\":\"BEGIN\",\"drop\":0.0205,\"f1\":[5.25,null],\"f1_0\":[5.5,6]}\n";
+    TEST_ASSERT_EQUAL_STRING(want, b);
+    TEST_ASSERT_EQUAL_UINT32(strlen(want), n);
+    d.begin = false;
+    d.drop = NAN;
+    d.f1_0[1] = NAN;
+    J::damage_line(b, sizeof b, d);
+    TEST_ASSERT_EQUAL_STRING("{\"type\":\"damage\",\"t_us\":64329824,\"sf\":45,\"state\":\"END\",\"drop\":null,\"f1\":[5.25,null],\"f1_0\":[5.5,null]}\n", b);
+    // through the sink: the damage line comes after the sample and before the class event of its superframe, as a non-sample line
+    StubJson sj;
+    DRig r(cfgf(6.0f));
+    r.f.set_sink(&sj);
+    for (int i = 0; i < 3; i++) r.both(0.0f, 0.0f);
+    for (int i = 0; i < DMG_P; i++) r.both(0.03f, 0.03f);
+    int di = -1;
+    for (size_t i = 0; i < sj.out.size(); i++)
+        if (sj.out[i].find("\"type\":\"damage\"") != std::string::npos) di = (int)i;
+    TEST_ASSERT_TRUE(di > 0);
+    TEST_ASSERT_NOT_NULL(strstr(sj.out[di - 1].c_str(), "\"type\":\"sample\""));
+    TEST_ASSERT_NOT_NULL(strstr(sj.out[di - 1].c_str(), "\"dmg\":1"));
+    TEST_ASSERT_EQUAL_INT(0, sj.is_s[di]);
+    TEST_ASSERT_NOT_NULL(strstr(sj.out[di].c_str(), "\"state\":\"BEGIN\""));
+    TEST_ASSERT_NOT_NULL(strstr(sj.out[di].c_str(), "\"drop\":0.03"));
+}
+
+static void test_json_schema3_worst_case_widths() {
+    char b[J::JSON_LINE_MAX];
+    // everything at its widest PLAUSIBLE value (what a Master lets through: f1 <= 100 Hz, |drop| <= 1, ae capped at 1e9 in the log)
+    Event w = mk_event(EV_CHANGE, COMMISSIONING);
+    w.slave = 2; w.degraded = 2; w.sf = 4294967295u; w.t_us = 18446744073709551615ull;
+    w.r[0] = w.r[1] = 3999999999.123456f;
+    w.base[0] = w.base[1] = 3.9e18f;
+    w.alive_mask = 0; w.closed = w.n_events = 4294967295u;
+    w.commission_n[0] = w.commission_n[1] = 255;
+    w.ae[0] = w.ae[1] = 3.9e18f;
+    w.f1[0] = w.f1[1] = 99.99999f;
+    w.drop[0] = w.drop[1] = -0.9999999f;
+    w.dmg = 1;
+    size_t ne = J::event_line(b, sizeof b, w);
+    Sample s;
+    memset(&s, 0, sizeof s);
+    s.t_us = 18446744073709551615ull; s.sf = s.closed = 4294967295u; s.cls = COMMISSIONING; s.slave = 2; s.degraded = 2;
+    s.r[0] = s.r[1] = 3.9e18f; s.age_sf[0] = s.age_sf[1] = 2147483647; s.commission_n[0] = s.commission_n[1] = 255;
+    s.ae[0] = s.ae[1] = 3.9e18f; s.f1[0] = s.f1[1] = 99.99999f; s.drop[0] = s.drop[1] = -0.9999999f; s.dmg = 1;
+    size_t ns = J::sample_line(b, sizeof b, s);
+    DamageEvent d;
+    d.t_us = 18446744073709551615ull; d.sf = 4294967295u; d.begin = true; d.drop = -0.9999999f;
+    d.f1[0] = d.f1[1] = d.f1_0[0] = d.f1_0[1] = 99.99999f;
+    size_t nd = J::damage_line(b, sizeof b, d);
+    J::Meta m;
+    m.source = "wokwi_demo"; m.cfg = chosen_config(); m.floor1 = -2147483647; m.floor2 = 2147483647; m.epoch = 4294967295u; m.samples = true;
+    size_t nm = J::meta_line(b, sizeof b, m);
+    printf("schema-3 widest lines: event %u, sample %u, damage %u, meta %u (limit %u)\n", (unsigned)ne, (unsigned)ns, (unsigned)nd, (unsigned)nm, (unsigned)J::JSON_LINE_MAX);
+    TEST_ASSERT_TRUE(ne > 0 && ne < J::JSON_LINE_MAX);
+    TEST_ASSERT_TRUE(ns > 0 && ns < J::JSON_LINE_MAX);
+    TEST_ASSERT_TRUE(nd > 0 && nd < J::JSON_LINE_MAX);
+    TEST_ASSERT_TRUE(nm > 0 && nm < J::JSON_LINE_MAX);
+    // and the absolute worst a hostile struct could carry (f1 / drop = 3.9e18, never produced by a Master) still fits
+    w.f1[0] = w.f1[1] = w.drop[0] = w.drop[1] = 3.9e18f;
+    s.f1[0] = s.f1[1] = s.drop[0] = s.drop[1] = 3.9e18f;
+    d.drop = d.f1[0] = d.f1[1] = d.f1_0[0] = d.f1_0[1] = 3.9e18f;
+    TEST_ASSERT_TRUE(J::event_line(b, sizeof b, w) > 0);
+    TEST_ASSERT_TRUE(J::sample_line(b, sizeof b, s) > 0);
+    TEST_ASSERT_TRUE(J::damage_line(b, sizeof b, d) > 0);
+}
+
+// ------------------------------------------------------------------ Master -> Fusion with the version-3 report (netsim)
+static void test_netsim_rule_f_end_to_end() {
+    netsim::SimConfig c;
+    c.superframes = 60;
+    c.quiet = true;
+    netsim::Sim sim(c);      // analytics on: the slaves run the AE and the f1 tracker
+    DCol col;
+    Fusion f(&col);          // the deployed configuration (rule f)
+    FusionListener tap(&f, &sim);
+    sim.master().set_listener(&tap);
+    sim.master_hook = [&](const net::Master &m, uint64_t now) { tap.service(m, now); };
+    sim.run();
+    f.flush(60ull * net::SUPERFRAME_US);
+    TEST_ASSERT_EQUAL_INT('f', f.config().rule);
+    TEST_ASSERT_TRUE(f.commissioned());
+    TEST_ASSERT_EQUAL_UINT32(0, f.stats().ae_bad + f.stats().f1_bad);
+    TEST_ASSERT_EQUAL_UINT32(0, sim.master().stats().rx_ae_bad + sim.master().stats().rx_f1_bad + sim.master().stats().rx_bad_field);
+    // the slave AE is ready from its 21st window; before that the AE field is unknown in the log
+    TEST_ASSERT_TRUE(col.smp.size() >= 55);
+    TEST_ASSERT_EQUAL_FLOAT(-1.0f, col.smp[10].ae[0]);
+    TEST_ASSERT_TRUE(col.smp[30].ae[0] >= 0.0f);
+    TEST_ASSERT_TRUE(col.smp[30].ae[1] >= 0.0f);
+    // the synthetic windows are loud sines: f1 shows up once the zoom ring has 32 windows and stays inside the grid
+    TEST_ASSERT_TRUE(col.smp[10].f1[0] != col.smp[10].f1[0]);
+    TEST_ASSERT_TRUE(col.smp[50].f1[0] >= 3.0f && col.smp[50].f1[0] <= 12.0f);
+}
+
 static void test_parity_vectors() {
     FILE *fp = fopen(FUSION_BIN, "rb");
     TEST_ASSERT_NOT_NULL(fp);
     uint32_t nseq = 0;
     SelRec sel;
     read_vectors_header(fp, &nseq, &sel);
-    TEST_ASSERT_TRUE(nseq >= 69);   // 63 candidates + 4 rule-c r_other edge sequences + 2 long chosen-config sequences
-    const float Ts[3] = {1.5f, 2.0f, 3.0f};
-    uint32_t total_dec = 0, total_rec = 0, mism = 0;
+    TEST_ASSERT_TRUE(nseq >= 89);   // 63 rule a-d candidates + 4 rule-c edges + 18 rule-f candidates + 1 rule-f edge sequence + 3 long chosen-config sequences
+    uint32_t total_dec = 0, total_rec = 0, mism = 0, f_seq = 0;
     for (uint32_t s = 0; s < nseq; s++) {
-        uint8_t h8[8];
-        uint32_t h32[4];
-        TEST_ASSERT_EQUAL_INT(8, (int)fread(h8, 1, 8, fp));
-        TEST_ASSERT_EQUAL_INT(4, (int)fread(h32, 4, 4, fp));
-        Config c = {(char)h8[0], Ts[h8[1]], h8[2] != 0, h8[3], h32[0], h8[4]};
-        std::vector<OpRec> ops(h32[1]);
-        std::vector<DecRec> dec(h32[2]);
-        std::vector<EvRec> rec(h32[3]);
+        SeqHdr h;
+        TEST_ASSERT_EQUAL_INT(1, (int)fread(&h, sizeof h, 1, fp));
+        Config c = {(char)h.rule, h.T, h.use_raw != 0, h.comm_n, h.status_every, h.k, h.T_b, h.gate};
+        f_seq += c.rule == 'f';
+        std::vector<OpRec> ops(h.n_ops);
+        std::vector<DecRec> dec(h.n_dec);
+        std::vector<EvRec> rec(h.n_rec);
         TEST_ASSERT_EQUAL_INT((int)ops.size(), (int)fread(ops.data(), sizeof(OpRec), ops.size(), fp));
         TEST_ASSERT_EQUAL_INT((int)dec.size(), (int)fread(dec.data(), sizeof(DecRec), dec.size(), fp));
         TEST_ASSERT_EQUAL_INT((int)rec.size(), (int)fread(rec.data(), sizeof(EvRec), rec.size(), fp));
@@ -1123,7 +1550,16 @@ static void test_parity_vectors() {
         for (size_t i = 0; i < ops.size(); i++) {
             const OpRec &o = ops[i];
             uint64_t t = (uint64_t)o.t_ms * 1000ull;
-            if (o.type == 1) f.on_report_raw(o.slave, o.sf, o.fb & 3, o.fb >> 2, o.f0, t);
+            if (o.type == 1) {
+                SlaveIn in;
+                in.raw = o.fb & 3;
+                in.state = (o.fb >> 2) & 3;
+                in.f0 = o.f0;
+                in.xflags = (o.fb & 16) ? net::FLAG_AE_READY : 0;
+                in.ae = o.ae;
+                in.f1_est = in.f1_drop = NAN;
+                f.on_report_ex(o.slave, o.sf, in, t);
+            }
             else if (o.type == 2) f.on_status(o.slave, o.fb != 0, t);
             else if (o.type == 3) f.advance(o.sf, o.fb != 0, t);
             else f.flush(t);
@@ -1159,8 +1595,9 @@ static void test_parity_vectors() {
         total_rec += (uint32_t)rec.size();
     }
     fclose(fp);
-    printf("fusion parity: %u sequences, %u decisions, %u events/statuses, %u mismatches\n", nseq, total_dec, total_rec, mism);
+    printf("fusion parity: %u sequences (%u rule f), %u decisions, %u events/statuses, %u mismatches\n", nseq, f_seq, total_dec, total_rec, mism);
     TEST_ASSERT_EQUAL_UINT32(0, mism);
+    TEST_ASSERT_TRUE(f_seq >= 22);
     TEST_ASSERT_TRUE(total_dec > 1000);
 }
 
@@ -1204,6 +1641,16 @@ int main(int, char **) {
     RUN_TEST(test_json_node_line);
     RUN_TEST(test_json_overflow_and_worst_case);
     RUN_TEST(test_json_sink_counts_and_drops);
+    RUN_TEST(test_rule_f_or_of_separately_smoothed_flags);
+    RUN_TEST(test_rule_f_threshold_gate_and_ready_edges);
+    RUN_TEST(test_rule_f_degraded_dead_alive_and_restart);
+    RUN_TEST(test_report_pkt_optional_fields_sanitised);
+    RUN_TEST(test_damage_begin_end_and_pooling);
+    RUN_TEST(test_damage_missing_slave_and_no_report_hold);
+    RUN_TEST(test_damage_survives_stream_restart_and_status);
+    RUN_TEST(test_json_damage_line_and_sink_order);
+    RUN_TEST(test_json_schema3_worst_case_widths);
+    RUN_TEST(test_netsim_rule_f_end_to_end);
     RUN_TEST(test_parity_vectors);
     return UNITY_END();
 }

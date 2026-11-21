@@ -222,6 +222,7 @@ int main(int argc, char **argv) {
     if (!c.quiet)
         for (size_t i = 0; i < sim.res.log.size(); i++) printf("%s\n", sim.res.log[i].c_str());
     printf("%s", sim.res.summary().c_str());
+    printf("%s", sim.res.host_summary().c_str());
     if (use_fusion) {
         for (size_t i = 0; i < fout.lines_txt.size(); i++) printf("%s\n", fout.lines_txt[i].c_str());
         const fusion::Stats &st = fus.stats();
