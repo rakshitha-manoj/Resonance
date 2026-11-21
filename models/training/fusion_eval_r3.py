@@ -306,7 +306,7 @@ def render_test_md(R):
     hours = R["primary"]["rules"][0]["report"]["monitoring_hours"]
     md = ["# R3 fresh-block scoring (test block, scored once)", "",
           f"Block: seeds {R['block']}, {R['n_buildings']} buildings, {hours:.1f} h of healthy + noise monitoring. Pre-registration: `r3_test_preregistration.md`. "
-          "95% intervals by bootstrapping buildings (2000 resamples, as R2b); paired differences use the same resamples. Simulation only.", "",
+          f"95% intervals by bootstrapping buildings ({R['n_boot']} resamples, as R2b); paired differences use the same resamples. Simulation only.", "",
           f"Candidate (read from `{R['candidate_source']}`): **{R['candidate']['name']}**. Incumbent: **{R['incumbent']['name']}**. For information: "
           + ", ".join(f"{f}: {n}" for f, n in R["info_configs"].items()) + " (dev-selected, not a selection).", "",
           "## Decision", "", f"**Deploy rule {R['decision']['deploy']}.** {R['decision']['reason']}", ""]
@@ -354,7 +354,7 @@ def run_test(small=False, cache_dir=None, out_dir=None, write=True, config=None,
     nb = D["comm_b20"].shape[0]
     W = r2b.boot_weights(nb, 200 if small else r2b.N_BOOT)
     roles = [("candidate", cand), ("incumbent", INCUMBENT)] + [("info " + f, info[f]) for f in "emg"]
-    R = {"round": "R3 test", "block": list(BLOCKS3[tag]), "small_mode": small, "n_buildings": int(nb), "candidate": cand, "incumbent": INCUMBENT,
+    R = {"round": "R3 test", "block": list(BLOCKS3[tag]), "small_mode": small, "n_boot": int(W.shape[0]), "n_buildings": int(nb), "candidate": cand, "incumbent": INCUMBENT,
          "candidate_source": cfg_file.name, "info_configs": {f: info[f]["name"] for f in "emg"}}
     for pk, pair in zip(("primary", "secondary"), PAIRS):
         v = build_view(D, ae, mh, pair)
