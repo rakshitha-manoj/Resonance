@@ -16,6 +16,13 @@ void tearDown(void) {}
 
 static f1t_t T;  /* ~23 KB: static, not on the test stack */
 
+/* init with the commissioning consistency / band gates opened: the older tests use widely spread synthetic estimates */
+static int initR(f1t_t *t, int m, int c) {
+    int r = f1t_init(t, m, c);
+    f1t_set_limits(t, 1e9f, 1e9f);
+    return r;
+}
+
 /* Spectrum with a delta-like peak at grid index i (symmetric neighbours => parabolic offset 0 => exactly f0 + i*df). */
 static void sym_peak(float *z, int i) {
     for (int j = 0; j < F1T_NZ; j++) z[j] = 0.01f;
@@ -61,7 +68,7 @@ static void synth(float *z, double f_hz) {
 
 void test_ring_average_vs_double(void) {
     for (int M : {16, 32}) {
-        TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, M, 8));
+        TEST_ASSERT_EQUAL_INT(0, initR(&T, M, 8));
         std::vector<std::vector<float> > hist;
         double max_err = 0;
         int checked = 0;
@@ -93,7 +100,7 @@ void test_no_drift_over_many_windows(void) {
     /* a constant spectrum fed 200000 times must give the SAME estimate as after M windows (no running-sum drift) */
     float z[F1T_NZ];
     synth(z, 7.3);
-    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 16, 4));
+    TEST_ASSERT_EQUAL_INT(0, initR(&T, 16, 4));
     float first = NAN;
     for (int w = 0; w < 200000; w++) {
         f1t_update(&T, z);
@@ -106,7 +113,7 @@ void test_no_drift_over_many_windows(void) {
 
 void test_edge_invalid_and_warmup(void) {
     float z[F1T_NZ];
-    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 1, 2));
+    TEST_ASSERT_EQUAL_INT(0, initR(&T, 1, 2));
     sym_peak(z, 0);
     TEST_ASSERT_EQUAL_INT(0, f1t_update(&T, z));
     TEST_ASSERT_EQUAL_INT(0, T.valid);
@@ -125,7 +132,7 @@ void test_edge_invalid_and_warmup(void) {
     for (int j = 0; j < F1T_NZ; j++) z[j] = NAN;
     TEST_ASSERT_EQUAL_INT(0, f1t_update(&T, z));
     /* an edge spectrum inside an averaging window invalidates the mean only if the mean peak is at the edge */
-    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 4, 2));
+    TEST_ASSERT_EQUAL_INT(0, initR(&T, 4, 2));
     for (int w = 0; w < 3; w++) {
         sym_peak(z, 50);
         TEST_ASSERT_EQUAL_INT(0, f1t_update(&T, z));  /* warm-up: M-1 windows never valid */
@@ -139,7 +146,7 @@ void test_median_commissioning(void) {
     float z[F1T_NZ];
     /* odd count C=5: estimates 6.0, 4.0, 8.0, 5.0, 7.0 (grid 60,20,100,40,80) interleaved with invalid edge windows */
     int idx5[5] = {60, 20, 100, 40, 80};
-    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 1, 5));
+    TEST_ASSERT_EQUAL_INT(0, initR(&T, 1, 5));
     for (int i = 0; i < 5; i++) {
         sym_peak(z, 0);
         f1t_update(&T, z);  /* invalid: ignored */
@@ -155,7 +162,7 @@ void test_median_commissioning(void) {
     TEST_ASSERT_TRUE(fabsf(T.f1_0 - 6.0f) < 1e-5f);
     /* even count C=4: 6, 4, 8, 5 -> sorted 4 5 6 8 -> (5+6)/2 = 5.5 */
     int idx4[4] = {60, 20, 100, 40};
-    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 1, 4));
+    TEST_ASSERT_EQUAL_INT(0, initR(&T, 1, 4));
     for (int i = 0; i < 4; i++) {
         TEST_ASSERT_EQUAL_INT(0, T.commissioned);
         sym_peak(z, idx4[i]);
@@ -164,18 +171,18 @@ void test_median_commissioning(void) {
     TEST_ASSERT_EQUAL_INT(1, T.commissioned);
     TEST_ASSERT_TRUE(fabsf(T.f1_0 - 5.5f) < 1e-5f);
     /* C=2 and C=1 */
-    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 1, 2));
+    TEST_ASSERT_EQUAL_INT(0, initR(&T, 1, 2));
     sym_peak(z, 20);
     f1t_update(&T, z);
     sym_peak(z, 60);
     f1t_update(&T, z);
     TEST_ASSERT_TRUE(fabsf(T.f1_0 - 5.0f) < 1e-5f);
-    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 1, 1));
+    TEST_ASSERT_EQUAL_INT(0, initR(&T, 1, 1));
     sym_peak(z, 80);
     f1t_update(&T, z);
     TEST_ASSERT_TRUE(fabsf(T.f1_0 - 7.0f) < 1e-5f);
     /* commissioning starts only after M windows: M=3, C=1: first estimate at the 3rd window */
-    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 3, 1));
+    TEST_ASSERT_EQUAL_INT(0, initR(&T, 3, 1));
     sym_peak(z, 80);
     f1t_update(&T, z);
     f1t_update(&T, z);
@@ -186,7 +193,7 @@ void test_median_commissioning(void) {
 
 void test_drop_sign_and_validity(void) {
     float z[F1T_NZ];
-    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 1, 1));
+    TEST_ASSERT_EQUAL_INT(0, initR(&T, 1, 1));
     sym_peak(z, 60);  /* 6.0 Hz */
     TEST_ASSERT_TRUE(isnan(f1t_drop(&T)));  /* not commissioned */
     f1t_update(&T, z);
@@ -205,14 +212,14 @@ void test_drop_sign_and_validity(void) {
 }
 
 void test_init_limits(void) {
-    TEST_ASSERT_EQUAL_INT(-1, f1t_init(&T, 0, 4));
-    TEST_ASSERT_EQUAL_INT(-1, f1t_init(&T, 33, 4));
-    TEST_ASSERT_EQUAL_INT(-1, f1t_init(&T, 16, 0));
-    TEST_ASSERT_EQUAL_INT(-1, f1t_init(&T, 16, 129));
+    TEST_ASSERT_EQUAL_INT(-1, initR(&T, 0, 4));
+    TEST_ASSERT_EQUAL_INT(-1, initR(&T, 33, 4));
+    TEST_ASSERT_EQUAL_INT(-1, initR(&T, 16, 0));
+    TEST_ASSERT_EQUAL_INT(-1, initR(&T, 16, 129));
     float z[F1T_NZ];
     sym_peak(z, 60);
     TEST_ASSERT_EQUAL_INT(0, f1t_update(&T, z));  /* inert after a bad init */
-    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 32, 128));
+    TEST_ASSERT_EQUAL_INT(0, initR(&T, 32, 128));
     TEST_ASSERT_EQUAL_INT(0, f1t_init_default(&T));
     TEST_ASSERT_EQUAL_INT(F1T_M, T.m);
     TEST_ASSERT_EQUAL_INT(F1T_C, T.c);
@@ -353,7 +360,7 @@ void test_tracker_into_detector(void) {
     /* end to end on synthetic spectra: a slave commissions at 6.0 Hz, then f1 falls to 5.7 Hz (5%) */
     float z[F1T_NZ];
     f1t_t *t = &T;
-    TEST_ASSERT_EQUAL_INT(0, f1t_init(t, 4, 6));
+    TEST_ASSERT_EQUAL_INT(0, initR(t, 4, 6));
     dmg_t d;
     dmg_init(&d, 0.03f, 5);
     int begin_at = -1;
@@ -366,6 +373,139 @@ void test_tracker_into_detector(void) {
     }
     printf("DAMAGE begin at window %d (f1 fell at window 30, M=4, P=5)\n", begin_at);
     TEST_ASSERT_TRUE(begin_at >= 30 + 4 && begin_at <= 30 + 4 + 5);
+}
+
+/* ------------------------------------------------------------------ robustness gates (post-hoc fix) */
+void test_mode_jump_never_damage(void) {
+    /* verifier input: C windows peaked at index 170 (11.5 Hz) then index 20 (4 Hz): commissions at 11.5, the 4 Hz
+       estimates are out of band = invalid, the master sees no drop and must never raise DAMAGE */
+    float z[F1T_NZ];
+    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 1, 8));
+    dmg_t d;
+    dmg_init(&d, 0.02f, 3);
+    int began = 0;
+    for (int w = 0; w < 200; w++) {
+        sym_peak(z, w < 8 ? 170 : 20);
+        f1t_update(&T, z);
+        uint8_t ok = T.commissioned && T.valid;
+        float dr = f1t_drop(&T);
+        if (dmg_update(&d, 1, &ok, &dr) == DMG_EV_BEGIN) began = 1;
+    }
+    TEST_ASSERT_EQUAL_INT(0, began);
+    TEST_ASSERT_EQUAL_INT(1, T.commissioned);
+    TEST_ASSERT_TRUE(fabsf(T.f1_0 - grid_f(170)) < 1e-4f);
+    TEST_ASSERT_EQUAL_INT(0, T.valid);
+    TEST_ASSERT_TRUE(isnan(f1t_drop(&T)));
+    TEST_ASSERT_EQUAL_INT(192, T.n_rejected);
+    /* the other way round: 4 Hz commissioning, then a jump to 11.5 Hz: no negative drop of -1.9 either */
+    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 1, 8));
+    dmg_init(&d, 0.02f, 3);
+    for (int w = 0; w < 60; w++) {
+        sym_peak(z, w < 8 ? 20 : 170);
+        f1t_update(&T, z);
+        uint8_t ok = T.commissioned && T.valid;
+        float dr = f1t_drop(&T);
+        dmg_update(&d, 1, &ok, &dr);
+    }
+    TEST_ASSERT_EQUAL_INT(0, d.active);
+    TEST_ASSERT_EQUAL_INT(0, d.n_pooled);
+}
+
+void test_multimodal_commissioning_refused(void) {
+    float z[F1T_NZ];
+    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 1, 8));
+    for (int w = 0; w < 40; w++) {  /* alternating mode 1 / mode 2 */
+        sym_peak(z, (w & 1) ? 170 : 20);
+        f1t_update(&T, z);
+        TEST_ASSERT_EQUAL_INT(0, T.commissioned);
+        TEST_ASSERT_TRUE(isnan(f1t_drop(&T)));
+    }
+    TEST_ASSERT_EQUAL_INT(1, f1t_not_commissioned(&T));  /* 40 >= 1 + 4 * 8 */
+    /* three windows at the low mode, five at the high mode: the sorted p10/p90 still straddle the modes */
+    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 1, 8));
+    for (int w = 0; w < 8; w++) {
+        sym_peak(z, w < 3 ? 20 : 170);
+        f1t_update(&T, z);
+    }
+    TEST_ASSERT_EQUAL_INT(0, T.commissioned);
+    /* the buffer slides: once the last 8 valid estimates agree, commissioning succeeds (here on the low mode) */
+    for (int w = 0; w < 8; w++) {
+        sym_peak(z, 20);
+        f1t_update(&T, z);
+    }
+    TEST_ASSERT_EQUAL_INT(1, T.commissioned);
+    TEST_ASSERT_TRUE(fabsf(T.f1_0 - grid_f(20)) < 1e-4f);
+    TEST_ASSERT_EQUAL_INT(0, f1t_not_commissioned(&T));
+    /* an unmodal-but-noisy set within the bound commissions at the median: 4 Hz +- 2% */
+    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 1, 6));
+    int idx[6] = {20, 21, 19, 20, 21, 19};  /* 4.0, 4.05, 3.95 Hz: spread 0.1/4 = 2.5% */
+    for (int i = 0; i < 6; i++) {
+        sym_peak(z, idx[i]);
+        f1t_update(&T, z);
+    }
+    TEST_ASSERT_EQUAL_INT(1, T.commissioned);
+}
+
+void test_band_gate(void) {
+    float z[F1T_NZ];
+    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 1, 2));
+    sym_peak(z, 60);  /* 6.0 Hz */
+    f1t_update(&T, z);
+    f1t_update(&T, z);
+    TEST_ASSERT_EQUAL_INT(1, T.commissioned);
+    sym_peak(z, 54);  /* 5.7 Hz = -5%: damage-sized, valid */
+    TEST_ASSERT_EQUAL_INT(1, f1t_update(&T, z));
+    TEST_ASSERT_TRUE(fabsf(f1t_drop(&T) - 0.05f) < 1e-4f);
+    sym_peak(z, 40);  /* 5.0 Hz = -16.7%: inside the +-20% band */
+    TEST_ASSERT_EQUAL_INT(1, f1t_update(&T, z));
+    sym_peak(z, 36);  /* 4.8 Hz = exactly -20% is not outside; 4.75 Hz is */
+    f1t_update(&T, z);
+    sym_peak(z, 35);
+    TEST_ASSERT_EQUAL_INT(0, f1t_update(&T, z));
+    TEST_ASSERT_EQUAL_INT(1, T.raw_valid);  /* the raw estimate is still there */
+    TEST_ASSERT_TRUE(T.f1_raw < 5.0f);
+    TEST_ASSERT_TRUE(isnan(T.f1_est));
+    sym_peak(z, 90);  /* 7.5 Hz = +25% */
+    TEST_ASSERT_EQUAL_INT(0, f1t_update(&T, z));
+    TEST_ASSERT_TRUE(T.n_rejected >= 2);
+}
+
+void test_never_commissions_outside_range(void) {
+    float z[F1T_NZ];
+    TEST_ASSERT_EQUAL_INT(0, f1t_init(&T, 4, 8));
+    for (int w = 0; w < 4 + 4 * 8 + 5; w++) {
+        sym_peak(z, w & 1 ? 0 : F1T_NZ - 1);  /* peaks on the grid edges: f1 outside 3..12 Hz */
+        f1t_update(&T, z);
+    }
+    TEST_ASSERT_EQUAL_INT(0, T.commissioned);
+    TEST_ASSERT_EQUAL_INT(1, f1t_not_commissioned(&T));
+    TEST_ASSERT_EQUAL_INT(0, T.valid);
+    TEST_ASSERT_EQUAL_INT(0, f1t_not_commissioned(&T) && T.commissioned);
+}
+
+/* The header constants must be the configuration selected in models/selected/validation/freq_tracking.json. */
+static double json_sel(const char *txt, const char *key) {
+    const char *sel = strstr(txt, "\"selected\"");
+    TEST_ASSERT_NOT_NULL(sel);
+    char pat[32];
+    snprintf(pat, sizeof pat, "\"%s\":", key);
+    const char *p = strstr(sel, pat);
+    TEST_ASSERT_NOT_NULL(p);
+    return strtod(p + strlen(pat), NULL);
+}
+
+void test_chosen_constants(void) {
+    FILE *fp = fopen(FREQ_JSON, "rb");
+    TEST_ASSERT_NOT_NULL(fp);
+    std::vector<char> buf(1 << 22);
+    size_t n = fread(buf.data(), 1, buf.size() - 1, fp);
+    fclose(fp);
+    buf[n] = 0;
+    TEST_ASSERT_EQUAL_INT(F1T_M, (int)json_sel(buf.data(), "M"));
+    TEST_ASSERT_EQUAL_INT(F1T_C, (int)json_sel(buf.data(), "C"));
+    TEST_ASSERT_EQUAL_INT(DMG_P, (int)json_sel(buf.data(), "P"));
+    TEST_ASSERT_TRUE(fabs(json_sel(buf.data(), "delta") - (double)DMG_DELTA) < 1e-6);
+    printf("selected M=%d C=%d delta=%.4f P=%d == header defaults\n", F1T_M, F1T_C, DMG_DELTA, DMG_P);
 }
 
 int main(int, char **) {
@@ -382,5 +522,10 @@ int main(int, char **) {
     RUN_TEST(test_dmg_pooled_mean);
     RUN_TEST(test_dmg_nonfinite_rejected);
     RUN_TEST(test_tracker_into_detector);
+    RUN_TEST(test_mode_jump_never_damage);
+    RUN_TEST(test_multimodal_commissioning_refused);
+    RUN_TEST(test_band_gate);
+    RUN_TEST(test_never_commissions_outside_range);
+    RUN_TEST(test_chosen_constants);
     return UNITY_END();
 }

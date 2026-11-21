@@ -15,13 +15,38 @@
 /* Run one tracker (new f1t_t) over n windows of zoom spectra (n*181). Per window: est (NAN if invalid), valid, drop
    (NAN unless commissioned and valid). Final f1_0 (NAN if never commissioned) and the window index at which
    commissioning completed (-1 if never). Returns 0, or -1 for bad m / c. Any output pointer may be NULL. */
-SHM_API int shm_track(int m, int c, int n, const float *z, float *est, uint8_t *valid, float *drop, float *f10, int *wcomm) {
+SHM_API int shm_track(int m, int c, int n, const float *z, float *est, uint8_t *valid, float *drop, float *f10, int *wcomm,
+                      float *est_raw, uint8_t *valid_raw) {
     static f1t_t t;
     if (f1t_init(&t, m, c) != 0) return -1;
     int wc = -1;
     for (int w = 0; w < n; w++) {
         int was = t.commissioned;
         f1t_update(&t, z + (long)w * F1T_NZ);
+        if (!was && t.commissioned) wc = w;
+        if (est_raw) est_raw[w] = t.f1_raw;
+        if (valid_raw) valid_raw[w] = (uint8_t)t.raw_valid;
+        if (est) est[w] = t.f1_est;
+        if (valid) valid[w] = (uint8_t)t.valid;
+        if (drop) drop[w] = f1t_drop(&t);
+    }
+    if (f10) *f10 = t.f1_0;
+    if (wcomm) *wcomm = wc;
+    return 0;
+}
+
+/* Commissioning + gating only, on stored RAW estimates (what the cache holds): the same f1t_feed the tracker calls.
+   spread/band < 0 keep the firmware defaults. Outputs as shm_track. */
+SHM_API int shm_gate(int c, float spread, float band, int n, const float *est_raw, const uint8_t *valid_raw, float *est,
+                     uint8_t *valid, float *drop, float *f10, int *wcomm) {
+    static f1t_t t;
+    if (f1t_init(&t, 1, c) != 0) return -1;
+    if (spread >= 0.0f) t.spread_max = spread;
+    if (band >= 0.0f) t.band = band;
+    int wc = -1;
+    for (int w = 0; w < n; w++) {
+        int was = t.commissioned;
+        f1t_feed(&t, valid_raw[w], est_raw[w]);
         if (!was && t.commissioned) wc = w;
         if (est) est[w] = t.f1_est;
         if (valid) valid[w] = (uint8_t)t.valid;

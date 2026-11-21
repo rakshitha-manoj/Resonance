@@ -232,13 +232,12 @@ def _chunk_job(seeds, batch):
 def chunk_key(seeds):
     h = hashlib.sha256()
     h.update(Path(bs.__file__).read_bytes())
-    for f in ("f1track.h", "spectrum.h", "spectrum_tables.h"):
+    for f in ("spectrum.h", "spectrum_tables.h"):
         h.update((frontend.FW / "include" / f).read_bytes())
-    h.update(shm.SRC.read_bytes())
     for fn in (simulate_chunk, track_floor, az_floors, eps_of, level_mult, scaled, cells_for):
         h.update(inspect.getsource(fn).encode())
     h.update(json.dumps({"seeds": [int(s) for s in seeds], "ms": MS, "cs": CS, "a": A_ENV, "env": T_ENV, "comm": COMM_NW, "seg": SEG_NW,
-                         "nseg": N_SEG, "dmg": DMG_NW, "tdmg": T_DMG, "cells": CELLS, "sec": CELLS_SECONDARY, "floors": FLOORS,
+                         "nseg": N_SEG, "dmg": DMG_NW, "raw_estimator": "f1t-raw-v1", "tdmg": T_DMG, "cells": CELLS, "sec": CELLS_SECONDARY, "floors": FLOORS,
                          "version": 1}, sort_keys=True).encode())
     return h.hexdigest()
 
@@ -347,6 +346,44 @@ class Cond:
                 "lat": np.where(det, fbd - COMM_NW, np.nan).astype(float), "active_at_start": act.reshape(nb, ncell)}
 
 
+class GCond(Cond):
+    """Same series as Cond but through the GATED tracker (post-hoc robustness fix): commissioning consistency + band gate,
+    run by the firmware's f1t_feed (shm.gate) on the cached RAW estimates (cache raw estimate == f1_raw of the new tracker,
+    checked bit-exactly on a spot simulation)."""
+
+    def __init__(self, D, ia, im, ic, pair):
+        self.ia, self.im, self.ic, self.pair = ia, im, ic, pair
+        self.cells = cells_for(ia)
+        idx = pair_idx(pair)
+        c = CS[ic]
+        nb = D["h_est"].shape[1]
+        self.nb = nb
+        hd = np.full((nb, HEALTHY_NW, 2), np.nan, np.float32)
+        wcs = np.full((nb, 2), -1)
+        dd = np.full((nb, len(self.cells), COMM_NW + DMG_NW, 2), np.nan, np.float32)
+        self.gate_stats = {"slave_floors": nb * 2, "not_commissioned_in_segment": 0, "rejected_healthy_windows": 0, "valid_healthy_windows": 0}
+        for b in range(nb):
+            for k, f in enumerate(idx):
+                est, val = D["h_est"][ia][b, f, im], D["h_valid"][ia][b, f, im]
+                r = shm.gate(est, val, c)
+                hd[b, :, k] = r["drop"]
+                wcs[b, k] = r["wcomm"]
+                if r["wcomm"] < 0 or r["wcomm"] >= COMM_NW:
+                    self.gate_stats["not_commissioned_in_segment"] += 1
+                self.gate_stats["rejected_healthy_windows"] += int((val.astype(bool) & ~r["valid"]).sum())
+                self.gate_stats["valid_healthy_windows"] += int(r["valid"].sum())
+                for j, cell in enumerate(self.cells):
+                    e2 = np.concatenate([est[:COMM_NW], D["d_est"][ia][b, f, im, cell]])
+                    v2 = np.concatenate([val[:COMM_NW], D["d_valid"][ia][b, f, im, cell]])
+                    dd[b, j, :, k] = shm.gate(e2, v2, c)["drop"]
+        self.hok = np.isfinite(hd)
+        self.hd = hd
+        self.dd = dd
+        self.dok = np.isfinite(dd)
+        first = np.where(wcs >= 0, wcs, HEALTHY_NW).min(1)
+        self.n_eval = HEALTHY_NW - first
+
+
 def agg(x, W):
     return x.sum(0) if W is None else np.tensordot(W, x, axes=(1, 0))
 
@@ -412,7 +449,7 @@ def vci(point, boot):
     return {"value": None if point is None or not np.isfinite(point) else float(point), "ci95": ci(boot)}
 
 
-def score(D, cfg, B, with_example=False):
+def score(D, cfg, B, with_example=False, gated=False):
     """Selected config on a block, every A and both pairs."""
     im, ic = MS.index(cfg["M"]), CS.index(cfg["C"])
     nb = D["h_est"].shape[1]
@@ -421,13 +458,15 @@ def score(D, cfg, B, with_example=False):
     ex = None
     for ia, a_env in enumerate(A_ENV):
         for pn, pair in PAIRS.items():
-            cond = Cond(D, ia, im, ic, pair)
+            cond = (GCond if gated else Cond)(D, ia, im, ic, pair)
             r = cond.run(cfg["delta"], cfg["P"])
             pt, bt = metrics(r), metrics(r, W)
             cells = cond.cells
             rr = {"false_begins": int(r["begins"].sum()), "monitoring_hours": float(pt["hours"]),
                   "fa_per_24h": vci(pt["fa_per_24h"], bt["fa_per_24h"]), "det_mean": vci(pt["det_mean"], bt["det_mean"]),
-                  "cells": {}, "by_loss": {}, "by_storey": {}}
+                  "cells": {}, "by_loss": {}, "by_storey": {}, "det_mean_n_cells": len(cells)}
+            if gated:
+                rr["gate_stats"] = cond.gate_stats
             for j, k in enumerate(cells):
                 rr["cells"][cell_label(k)] = {"storey": CELLS[k][0], "loss": CELLS[k][1], "det": vci(pt["det_cell"][j], bt["det_cell"][:, j]),
                                               "latency_sf": vci(pt["lat_cell"][j], bt["lat_cell"][:, j]),
@@ -451,7 +490,7 @@ def score(D, cfg, B, with_example=False):
 
 
 def example(D, cond, cfg, j):
-    """Series for the figure: building 0, cell (storey 3, 20%), primary pair, A = 0.5%: per-slave f1 estimates, pooled drop, state."""
+    """Series for the figure: building 0, cell EX_CELL, primary pair, A = 0.5%: per-slave f1 estimates, pooled drop, state."""
     b = 0
     dd, dok = cond.dd[b, j], cond.dok[b, j]
     nbg, fb, act, st = shm.detect(dd[None], dok[None], cfg["delta"], cfg["P"], COMM_NW, want_state=True)
@@ -580,11 +619,13 @@ def run(small=False, cache_dir=None, out_dir=None, write=True, prime=None, worke
     log(f"== chosen {chosen}")
     top = sorted(rows, key=lambda r: (r["eligible"], ) + key(r), reverse=True)[:25]
     dev_rep, _ = score(Dd, chosen, B)
+    post = {"dev": score(Dd, chosen, B, gated=True)[0]}
     coarse = coarse_grid_study(seeds_of(dn)[:24 if not small else 6], batch)
     t = time.time()
     Dt = load_block(seeds_of(tn), cache_dir, tn, workers, batch, chunk)
     tm["test_block_s"] = time.time() - t
     test_rep, ex = score(Dt, chosen, B, with_example=True)
+    post["test"] = score(Dt, chosen, B, gated=True)[0]
     out = {
         "phase": "A", "small_mode": small,
         "seed_blocks": {k: {"start": a, "n": n} for k, (a, n) in BLOCKS.items() if k in (dn, tn)}, "earlier_max_seed": prior,
@@ -594,7 +635,7 @@ def run(small=False, cache_dir=None, out_dir=None, write=True, prime=None, worke
                   "cells_full_A": len(CELLS), "cells_other_A": len(CELLS_SECONDARY), "pairs": PAIRS, "M": MS, "C": CS, "delta": DELTAS, "P": PS,
                   "fa_budget_per_24h": FA_BUDGET_24H, "superframe_s": SF, "bootstrap_resamples": B, "buildings_per_block": len(seeds_of(dn))},
         "dev_table_primary": rows, "dev_table_top": top, "selected": chosen,
-        "dev_scored_selected": dev_rep, "test": test_rep, "test_estimation_error": estimation_error(Dt), "dev_estimation_error": estimation_error(Dd),
+        "dev_scored_selected": dev_rep, "test": test_rep, "post_hoc_gated": post, "test_estimation_error": estimation_error(Dt), "dev_estimation_error": estimation_error(Dd),
         "physics_curve": physics_curve(seeds_of(dn)), "est_vs_true_test": est_vs_true(Dt, chosen), "coarse_grid_study_dev": coarse, "example": ex,
         "runtime_s": dict(tm, total=time.time() - t0),
     }
@@ -660,7 +701,7 @@ def render_md(R):
         for tag in ("primary_pair", "secondary_pair"):
             e = v[tag]
             md.append(f"| {k} {tag[:3]} | {e['bias_hz']:+.3f} | {e['per_building_bias_sd_hz']:.3f} | {e['mean_abs_hz']:.3f} | {e['abs_q50']:.3f} | {e['abs_q95']:.3f} | {e['abs_q99']:.3f} | {e['abs_max']:.3f} | {e['within_building_sd_hz']:.3f} |")
-    md += ["", "(`pri` = floors 5/10, `sec` = floors 3/7; `A*` = drift amplitude %, `M*` = averaged windows; truth = eigen f1 of the current stiffness, so the drift is NOT counted as error. Large maxima on the secondary pair: on a low floor of a low-f1 building the first mode is weak and the peak jumps to mode 2 (about 3 f1) - see the JSON per-floor window counts.)", ""]
+    md += ["", "(`pri` = floors 5/10, `sec` = floors 3/7; `A*` = drift amplitude %, `M*` = averaged windows; truth = eigen f1 of the current stiffness, so the drift is NOT counted as error. Large maxima on the secondary pair: on a low floor of a low-f1 building the first mode is weak and the peak jumps to mode 2 (about 3 f1).)", ""]
     md += ["## (ii) Physics: eigen f1 drop vs storey stiffness loss (no estimator involved)", "",
            "For a uniform shear building the relative drop is independent of f1 (asserted over 20 buildings). Drop in % of f1:", "", "| storey | " + " | ".join(f"{100 * d:.0f}%" for d in pc["loss"]) + " |", "|---|" + "---|" * len(pc["loss"])]
     for s in range(1, 11):
@@ -675,6 +716,27 @@ def render_md(R):
         if k == "note":
             continue
         md.append(f"| {k[5:]} | {v['n_bins']} | {v['relative_cost_of_zoom']:.2f} | {v['mean_abs_err_hz']:.4f} | {v['p95_abs_err_hz']:.4f} | {v['max_abs_err_hz']:.4f} | {v['bias_hz']:+.4f} | {v['within_building_sd_hz']:.4f} |")
+    ph = R.get("post_hoc_gated")
+    if ph:
+        md += ["", "## Post-hoc robustness fix (NOT a selection): gated tracker, same M=32 / C=64 / delta=2% / P=32", "",
+               "Found by independent verification AFTER the TEST block had been scored: on a low floor of a low-f1 building the first mode is weak and the peak jumps to mode 2 (about 3 f1); such estimates were counted valid, the median of a two-mode commissioning set was meaningless, and the pooled drop was swamped (a spot check with the hardware default floors 1/2 sat in false DAMAGE 17-79% of the time). The fix (in `f1track.h`, run here by the same C code on the cached RAW estimates, no re-simulation): (a) commissioning only if the last C valid estimates are unimodal ((p90-p10)/median <= 0.10, else keep sliding); (b) after commissioning an estimate outside f1_0 x (1 +- 0.20) is invalid; (c) the master already ignores invalid. The configuration was NOT re-selected. OLD = the ungated rows above (scored once); NEW = gated, on dev and on test (test numbers are therefore not a clean one-shot any more).", "",
+               "| condition | pair | OLD dev false/24 h | NEW dev | OLD test false/24 h | NEW test | OLD test det (cells) | NEW test det |", "|---|---|---|---|---|---|---|---|"]
+        for a in S["A_env"]:
+            for pn in ("primary", "secondary"):
+                k = f"A{a * 100:g}_{pn}"
+                o_d, n_d, o_t, n_t = R["dev_scored_selected"][k], ph["dev"][k], R["test"][k], ph["test"][k]
+                md.append(f"| A={a * 100:g}% | {pn} | {fv(o_d['fa_per_24h'], 2)} | {fv(n_d['fa_per_24h'], 2)} | {fv(o_t['fa_per_24h'], 2)} | {fv(n_t['fa_per_24h'], 2)} | "
+                          f"{fv(o_t['det_mean'])} ({o_t['det_mean_n_cells']}) | {fv(n_t['det_mean'])} ({n_t['det_mean_n_cells']}) |")
+        gt = ph["test"]["A0.5_primary"]
+        md += ["", f"NEW test, A = 0.5%, primary pair: by loss " + ", ".join(f"{float(k) * 100:g}%: {fv(v, 2)}" for k, v in gt["by_loss"].items())
+               + "; by storey " + ", ".join(f"s{k}: {fv(v, 2)}" for k, v in gt["by_storey"].items()) + ".",
+               "On the cached blocks the gates change little (the cached mode-2 floors mostly commissioned consistently on mode 2). One-building spot checks with the hardware default floors 1/2 (700 healthy windows, M=32, C=64, delta 2%, P=32): seed 7900176 false DAMAGE active 30.7% of the time with the old tracker (2 begins) vs 0% gated; seed 7900015 21.1% (3 begins) vs 0%. Caveat: on floor 1 (and floor 2 of 7900015) of these f1 = 4.0-4.1 Hz buildings the tracker commissions ONTO MODE 2 (about 11.6 Hz) consistently, so it then tracks mode 2, not the first natural frequency; low floors of low-f1 buildings are poor sensors for this method.", "Gate statistics (test, A = 0.5%): " + "; ".join(f"{pn}: {ph['test'][f'A0.5_{pn}']['gate_stats']}" for pn in ('primary', 'secondary')) + ".", ""]
+    md += ["## Evaluation design caveats (disclosed, not re-simulated)", "",
+           "- The damage recordings are effectively DRIFT-FREE at every A_env: the damaged segment's mid-time (1940 s) is about 1.003 drift periods (1800 s) after the commissioning mid-time, so eps there equals eps at commissioning to within 2e-4 in stiffness. The stability of the common-9 detection table across A_env is therefore an artifact; A_env only affects the FALSE-alarm side. Real drift between commissioning and a damage event is arbitrary, so detection under drift is NOT tested here. 'A_env 0.5%' means +-0.5% stiffness = +-0.25% in f1 (f1 scales with sqrt(1+eps)).",
+           "- The selected configuration sits on the grid edge (M = 32 and P = 32 are both the largest values tried); the runner-up (M=32, C=128, delta 2%, P=32) is practically tied (0.215 vs 0.219 dev mean detection, 1 vs 4 false begins). Dev had 4 false begins in 118 h against a budget of about 4.9, so the selection is noisy and may not carry the budget to other data (test: 2 begins at A = 0.5%, 11 at 1%).",
+           "- The example figure cell was switched from (storey 3, 20% loss) to (storey 3, 30% loss) AFTER seeing the test example, because the 20% example showed no onset in 200 windows. Presentation only; nothing was selected on it. The figure caption says so.",
+           "- `det_mean` for A = 0 and A = 1% averages only the 9 reduced cells (see `det_mean_n_cells`); compare conditions on the common-9 column, not on `det_mean`.",
+           "- The '~15-20 ms' per-window `spec_zoom` figure in the project notes is an UNMEASURED assumption (23k MACs; the verifier estimates about 1 ms on silicon, Wokwi is slower); measure it on hardware before relying on the slave timing budget.", ""]
     md += ["", R["coarse_grid_study_dev"]["note"], "", "## Runtimes", "", f"This run (cache hits): {R['runtime_s']}.", "", "Simulation of the two full blocks (120 buildings x 3 A_env x (2624 healthy + 25/9/9 x 200 damaged windows)) ran in parallel with 3 workers each on a shared, heavily loaded 12-core PC: about 12-25 min of wall time per round of 3 chunks of 12 buildings (about 730 s of CPU per chunk, 10 chunks per block); on an idle machine expect roughly 40 min per block with 3 workers. Evaluation (selection of 300 configs, bootstrap, tables) from the cache: about 20 s.", ""]
     md += ["## Limitations (honest)", "",
            "- Uniform shear building, f1 only; one mode, stationary excitation with a flat band (2-12 Hz); real ambient excitation is not white and has narrowband components (machinery, traffic) that sit on the spectrum and bias a peak-picker.",
@@ -682,7 +744,7 @@ def render_md(R):
            "- Damage is a stiffness loss in one storey at once, in a building with no initial nonuniformity; the commissioned f1_0 is assumed to be taken on an undamaged structure.",
            "- The estimator bias is per building (about +-0.1 Hz); the detector works on the relative drop, so it only sees CHANGES; a slow damage that develops during the 1.02 h healthy window would be absorbed only if it happens before commissioning completes.",
            "- Packet loss is not modelled here (every slave reports every superframe); the detector holds its state with no report, and pools whatever slaves report.",
-           "- The 'one window per superframe' timing assumes the ~15-20 ms spec_zoom fits the slave's ~50 ms first-poll limit; measure on hardware (docs/hardware_bringup.md).", ""]
+           "- Slave timing: spec_zoom per-window cost is unmeasured (see the caveats); `f1t_t` is 23.4 KB and must be static/global.", ""]
     return chr(10).join(md) + chr(10)
 
 

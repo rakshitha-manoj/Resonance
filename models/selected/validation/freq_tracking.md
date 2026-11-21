@@ -84,7 +84,7 @@ Per-cell tables for the other conditions are in the JSON (`test.A*_{primary,seco
 | A1_M32 pri | -0.010 | 0.006 | 0.031 | 0.025 | 0.082 | 0.120 | 0.323 | 0.037 |
 | A1_M32 sec | -0.022 | 0.025 | 0.043 | 0.031 | 0.104 | 0.150 | 7.797 | 0.056 |
 
-(`pri` = floors 5/10, `sec` = floors 3/7; `A*` = drift amplitude %, `M*` = averaged windows; truth = eigen f1 of the current stiffness, so the drift is NOT counted as error. Large maxima on the secondary pair: on a low floor of a low-f1 building the first mode is weak and the peak jumps to mode 2 (about 3 f1) - see the JSON per-floor window counts.)
+(`pri` = floors 5/10, `sec` = floors 3/7; `A*` = drift amplitude %, `M*` = averaged windows; truth = eigen f1 of the current stiffness, so the drift is NOT counted as error. Large maxima on the secondary pair: on a low floor of a low-f1 building the first mode is weak and the peak jumps to mode 2 (about 3 f1).)
 
 ## (ii) Physics: eigen f1 drop vs storey stiffness loss (no estimator involved)
 
@@ -146,11 +146,37 @@ Damage near the top barely moves f1 (the first mode has little strain energy in 
 | 0.30Hz | 31 | 0.17 | 0.0422 | 0.1113 | 0.2476 | -0.0084 | 0.0489 |
 | 0.50Hz | 19 | 0.10 | 0.0423 | 0.1113 | 0.2457 | -0.0092 | 0.0488 |
 
+## Post-hoc robustness fix (NOT a selection): gated tracker, same M=32 / C=64 / delta=2% / P=32
+
+Found by independent verification AFTER the TEST block had been scored: on a low floor of a low-f1 building the first mode is weak and the peak jumps to mode 2 (about 3 f1); such estimates were counted valid, the median of a two-mode commissioning set was meaningless, and the pooled drop was swamped (a spot check with the hardware default floors 1/2 sat in false DAMAGE 17-79% of the time). The fix (in `f1track.h`, run here by the same C code on the cached RAW estimates, no re-simulation): (a) commissioning only if the last C valid estimates are unimodal ((p90-p10)/median <= 0.10, else keep sliding); (b) after commissioning an estimate outside f1_0 x (1 +- 0.20) is invalid; (c) the master already ignores invalid. The configuration was NOT re-selected. OLD = the ungated rows above (scored once); NEW = gated, on dev and on test (test numbers are therefore not a clean one-shot any more).
+
+| condition | pair | OLD dev false/24 h | NEW dev | OLD test false/24 h | NEW test | OLD test det (cells) | NEW test det |
+|---|---|---|---|---|---|---|---|
+| A=0% | primary | 0.20 [0.00, 0.61] | 0.20 [0.00, 0.61] | 0.20 [0.00, 0.61] | 0.20 [0.00, 0.61] | 0.336 [0.319, 0.354] (9) | 0.336 [0.319, 0.354] (9) |
+| A=0% | secondary | 0.41 [0.00, 1.02] | 0.41 [0.00, 1.02] | 0.20 [0.00, 0.61] | 0.20 [0.00, 0.61] | 0.337 [0.319, 0.355] (9) | 0.341 [0.323, 0.358] (9) |
+| A=0.5% | primary | 0.81 [0.00, 1.83] | 0.81 [0.00, 1.83] | 0.41 [0.00, 1.22] | 0.41 [0.00, 1.22] | 0.217 [0.204, 0.232] (25) | 0.217 [0.204, 0.232] (25) |
+| A=0.5% | secondary | 1.02 [0.20, 2.03] | 1.02 [0.20, 2.03] | 0.81 [0.00, 2.24] | 0.81 [0.00, 2.24] | 0.217 [0.204, 0.230] (25) | 0.218 [0.205, 0.233] (25) |
+| A=1% | primary | 2.44 [0.81, 4.27] | 2.44 [0.81, 4.27] | 2.24 [0.81, 4.07] | 2.24 [0.81, 4.07] | 0.343 [0.325, 0.360] (9) | 0.343 [0.325, 0.360] (9) |
+| A=1% | secondary | 2.85 [1.22, 5.08] | 2.85 [1.22, 5.08] | 2.03 [0.61, 3.86] | 2.24 [0.61, 4.27] | 0.339 [0.322, 0.357] (9) | 0.342 [0.325, 0.359] (9) |
+
+NEW test, A = 0.5%, primary pair: by loss 5%: 0.01 [0.00, 0.02], 10%: 0.03 [0.01, 0.04], 15%: 0.11 [0.08, 0.14], 20%: 0.36 [0.33, 0.39], 30%: 0.59 [0.57, 0.60]; by storey s1: 0.45 [0.42, 0.48], s3: 0.39 [0.36, 0.41], s5: 0.24 [0.22, 0.27], s8: 0.01 [0.00, 0.02], s10: 0.00 [0.00, 0.00].
+On the cached blocks the gates change little (the cached mode-2 floors mostly commissioned consistently on mode 2). One-building spot checks with the hardware default floors 1/2 (700 healthy windows, M=32, C=64, delta 2%, P=32): seed 7900176 false DAMAGE active 30.7% of the time with the old tracker (2 begins) vs 0% gated; seed 7900015 21.1% (3 begins) vs 0%. Caveat: on floor 1 (and floor 2 of 7900015) of these f1 = 4.0-4.1 Hz buildings the tracker commissions ONTO MODE 2 (about 11.6 Hz) consistently, so it then tracks mode 2, not the first natural frequency; low floors of low-f1 buildings are poor sensors for this method.
+Gate statistics (test, A = 0.5%): primary: {'slave_floors': 240, 'not_commissioned_in_segment': 0, 'rejected_healthy_windows': 0, 'valid_healthy_windows': 622320}; secondary: {'slave_floors': 240, 'not_commissioned_in_segment': 0, 'rejected_healthy_windows': 214, 'valid_healthy_windows': 622106}.
+
+## Evaluation design caveats (disclosed, not re-simulated)
+
+- The damage recordings are effectively DRIFT-FREE at every A_env: the damaged segment's mid-time (1940 s) is about 1.003 drift periods (1800 s) after the commissioning mid-time, so eps there equals eps at commissioning to within 2e-4 in stiffness. The stability of the common-9 detection table across A_env is therefore an artifact; A_env only affects the FALSE-alarm side. Real drift between commissioning and a damage event is arbitrary, so detection under drift is NOT tested here. 'A_env 0.5%' means +-0.5% stiffness = +-0.25% in f1 (f1 scales with sqrt(1+eps)).
+- The selected configuration sits on the grid edge (M = 32 and P = 32 are both the largest values tried); the runner-up (M=32, C=128, delta 2%, P=32) is practically tied (0.215 vs 0.219 dev mean detection, 1 vs 4 false begins). Dev had 4 false begins in 118 h against a budget of about 4.9, so the selection is noisy and may not carry the budget to other data (test: 2 begins at A = 0.5%, 11 at 1%).
+- The example figure cell was switched from (storey 3, 20% loss) to (storey 3, 30% loss) AFTER seeing the test example, because the 20% example showed no onset in 200 windows. Presentation only; nothing was selected on it. The figure caption says so.
+- `det_mean` for A = 0 and A = 1% averages only the 9 reduced cells (see `det_mean_n_cells`); compare conditions on the common-9 column, not on `det_mean`.
+- The '~15-20 ms' per-window `spec_zoom` figure in the project notes is an UNMEASURED assumption (23k MACs; the verifier estimates about 1 ms on silicon, Wokwi is slower); measure it on hardware before relying on the slave timing budget.
+
+
 24 dev buildings x floors 5/10 x 12 averages of 16 windows; error vs eigen f1 (includes the per-building bias; the within-building sd is what a relative drop sees)
 
 ## Runtimes
 
-This run (cache hits): {'dev_block_s': 0.2757894992828369, 'test_block_s': 0.21701478958129883, 'total': 22.794106006622314}.
+This run (cache hits): {'dev_block_s': 0.3082568645477295, 'test_block_s': 0.23553991317749023, 'total': 24.290157556533813}.
 
 Simulation of the two full blocks (120 buildings x 3 A_env x (2624 healthy + 25/9/9 x 200 damaged windows)) ran in parallel with 3 workers each on a shared, heavily loaded 12-core PC: about 12-25 min of wall time per round of 3 chunks of 12 buildings (about 730 s of CPU per chunk, 10 chunks per block); on an idle machine expect roughly 40 min per block with 3 workers. Evaluation (selection of 300 configs, bootstrap, tables) from the cache: about 20 s.
 
@@ -161,5 +187,5 @@ Simulation of the two full blocks (120 buildings x 3 A_env x (2624 healthy + 25/
 - Damage is a stiffness loss in one storey at once, in a building with no initial nonuniformity; the commissioned f1_0 is assumed to be taken on an undamaged structure.
 - The estimator bias is per building (about +-0.1 Hz); the detector works on the relative drop, so it only sees CHANGES; a slow damage that develops during the 1.02 h healthy window would be absorbed only if it happens before commissioning completes.
 - Packet loss is not modelled here (every slave reports every superframe); the detector holds its state with no report, and pools whatever slaves report.
-- The 'one window per superframe' timing assumes the ~15-20 ms spec_zoom fits the slave's ~50 ms first-poll limit; measure on hardware (docs/hardware_bringup.md).
+- Slave timing: spec_zoom per-window cost is unmeasured (see the caveats); `f1t_t` is 23.4 KB and must be static/global.
 

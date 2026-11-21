@@ -81,6 +81,7 @@ def fig_example(R, out):
     a1.axhline(e["f1_true_damaged"], color=INK, lw=0.8, ls="--", label="true f1 (damaged)")
     a1.set_ylabel("f1 (Hz)")
     a1.legend(fontsize=8, frameon=False)
+    fig.text(0.01, 0.005, "Example cell switched from (storey 3, 20%) to (storey 3, 30%) after the test example was seen (no onset at 20%): presentation only.", fontsize=7, color=INK)
     a1.set_title(f"Example: building {e['seed']}, storey {e['storey']} loses {100 * e['loss']:.0f}% at the dashed line (M={e['M']}, C={e['C']})", fontsize=10, color=INK)
     d = e["delta"]
     a2.axhspan(d / 2, d, color=COL[1], alpha=0.15, lw=0, label="hysteresis band (delta/2 .. delta)")
@@ -96,7 +97,7 @@ def fig_example(R, out):
     a2.set_ylabel("relative f1 drop")
     a2.set_xlabel("time (min, one window per 1.4 s superframe)")
     a2.legend(fontsize=8, frameon=False, loc="upper left")
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.02, 1, 1))
     fig.savefig(out / "f1_timeseries_example.png", dpi=150)
     plt.close(fig)
 

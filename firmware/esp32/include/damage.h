@@ -12,10 +12,10 @@
 #include <math.h>
 
 #ifndef DMG_DELTA
-#define DMG_DELTA 0.010f  /* relative f1 drop, set from the evaluation */
+#define DMG_DELTA 0.020f  /* relative f1 drop = selection in models/selected/validation/freq_tracking.json (test_shm checks) */
 #endif
 #ifndef DMG_P
-#define DMG_P 8           /* consecutive superframes (1.4 s each) */
+#define DMG_P 32          /* consecutive superframes (1.4 s each), same source */
 #endif
 
 #define DMG_EV_NONE 0

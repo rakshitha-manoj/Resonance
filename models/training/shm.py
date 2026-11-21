@@ -1,6 +1,7 @@
 """ctypes bridge to the firmware's SHM tracker and detector (firmware/esp32/tools/shm_lib.c, which includes
 f1track.h + damage.h + spectrum.h), built with frontend.build_lib (firmware flags, hash-named DLL).
   track(z, m, c) -> dict(est, valid, drop, f1_0, wcomm)   z: (n, 181) float32 zoom spectra of ONE slave, in time order
+  gate(est_raw, valid_raw, c) -> same dict, on stored raw estimates (commissioning consistency + band gate)
   detect(drop, ok, delta, p, start) -> (n_begin, first_begin, active_at_start, state)
         drop/ok: (nseq, n, ns) pooled-over-ns-slaves inputs of dmg_update, per superframe
   peak_grid(z, f0, df) -> spec_peak on an arbitrary grid (coarser-grid study)
@@ -24,8 +25,10 @@ def _load():
     if _lib is None:
         lib = ctypes.CDLL(str(frontend.build_lib(SRC, "shm")))
         vp = ctypes.c_void_p
-        lib.shm_track.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, vp, vp, vp, vp, vp, vp]
+        lib.shm_track.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, vp, vp, vp, vp, vp, vp, vp, vp]
         lib.shm_track.restype = ctypes.c_int
+        lib.shm_gate.argtypes = [ctypes.c_int, ctypes.c_float, ctypes.c_float, ctypes.c_int, vp, vp, vp, vp, vp, vp, vp]
+        lib.shm_gate.restype = ctypes.c_int
         lib.shm_detect.argtypes = [ctypes.c_float, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, vp, vp,
                                    ctypes.c_int, vp, vp, vp, vp]
         lib.shm_detect.restype = None
@@ -55,8 +58,26 @@ def track(z, m, c):
     drop = np.empty(n, np.float32)
     f10 = np.zeros(1, np.float32)
     wc = np.zeros(1, np.int32)
-    if _load().shm_track(int(m), int(c), n, _p(z), _p(est), _p(valid), _p(drop), _p(f10), _p(wc)) != 0:
+    est_raw = np.empty(n, np.float32)
+    valid_raw = np.zeros(n, np.uint8)
+    if _load().shm_track(int(m), int(c), n, _p(z), _p(est), _p(valid), _p(drop), _p(f10), _p(wc), _p(est_raw), _p(valid_raw)) != 0:
         raise ValueError(f"bad tracker size m={m} c={c}")
+    return {"est": est, "valid": valid.astype(bool), "drop": drop, "f1_0": float(f10[0]), "wcomm": int(wc[0]),
+            "est_raw": est_raw, "valid_raw": valid_raw.astype(bool)}
+
+
+def gate(est_raw, valid_raw, c, spread=-1.0, band=-1.0):
+    """Commissioning + band gating (f1t_feed) on stored raw estimates of ONE slave. Same outputs as track()."""
+    est_raw = np.ascontiguousarray(est_raw, dtype=np.float32)
+    valid_raw = np.ascontiguousarray(valid_raw, dtype=np.uint8)
+    n = est_raw.shape[0]
+    est = np.empty(n, np.float32)
+    valid = np.zeros(n, np.uint8)
+    drop = np.empty(n, np.float32)
+    f10 = np.zeros(1, np.float32)
+    wc = np.zeros(1, np.int32)
+    if _load().shm_gate(int(c), float(spread), float(band), n, _p(est_raw), _p(valid_raw), _p(est), _p(valid), _p(drop), _p(f10), _p(wc)) != 0:
+        raise ValueError(f"bad commissioning size c={c}")
     return {"est": est, "valid": valid.astype(bool), "drop": drop, "f1_0": float(f10[0]), "wcomm": int(wc[0])}
 
 
