@@ -89,6 +89,7 @@ class Alerter:
         self.secrets = secrets
         self.floors = None
         self.prev_key = None
+        self.meta_epoch = None
         self.alive = {}
         self.sent = self.failed = self.printed = 0
 
@@ -101,6 +102,8 @@ class Alerter:
         """Returns (key, text) for a line that deserves an alert, else None."""
         t = o.get("type")
         if t == "meta":
+            self.prev_key = None            # a new run / reboot: the first event of it is compared with nothing
+            self.meta_epoch = o.get("epoch") if isinstance(o.get("epoch"), int) else None
             fl = o.get("floors")
             if isinstance(fl, list) and len(fl) == 2:
                 self.floors = fl
@@ -125,6 +128,7 @@ class Alerter:
             st = o.get("state")
             return ("node:%s:%s" % (o.get("slave"), st), "%s is %s (superframe %s)" % (self.floor(o.get("slave")).capitalize(), "OFFLINE (no valid report for 3 superframes)" if st == "DEAD" else "back ONLINE", o.get("sf")))
         if t == "restart":
+            self.prev_key = None
             return ("restart", "The master restarted (new epoch %s); baselines are re-learned" % o.get("epoch"))
         if t == "damage":
             rest = {k: v for k, v in o.items() if k != "type"}
@@ -132,9 +136,12 @@ class Alerter:
         return None
 
     def status(self, payload, retained):
-        if retained:
+        state, epoch = rm.parse_status(payload)
+        if retained or state is None:
             return None
-        return ("status:" + payload, "The master went OFFLINE (last will)" if payload == "offline" else "The master is ONLINE")
+        if rm.offline_is_stale(state, epoch, self.meta_epoch):
+            return None   # the will of an earlier boot's half-open session, fired after the new boot said "online"
+        return ("status:" + state, "The master went OFFLINE (last will)" if state == "offline" else "The master is ONLINE")
 
     def emit(self, key, text, site):
         ok, suppressed = self.limiter.allow(key)
@@ -185,8 +192,8 @@ def main():
         text = msg.payload.decode("utf-8", "replace")
         r = None
         if leaf == "status":
-            r = al.status(text, msg.retain)
-        elif leaf not in ("state",):
+            r = al.status(msg.payload, msg.retain)
+        elif leaf not in ("state", "damage_state"):
             try:
                 o = json.loads(text)
             except ValueError:

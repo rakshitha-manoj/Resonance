@@ -21,8 +21,27 @@
 #define WIFI_CHANNEL_HINT 0     // 0 = scan; Wokwi-GUEST is on channel 6 (a hint only makes joining faster)
 #endif
 
+// Default broker = the free public HiveMQ one, over TLS (port 8883, certificate verified with the committed root CA in
+// hivemq_public_ca.h; needs the wall clock, the uplink gets it from SNTP before connecting). Wokwi's gateway does not pass plain
+// MQTT on 1883 reliably, 8883 works. -DMQTT_PUBLIC_TLS=0 falls back to plain 1883 (no encryption, no server check).
+// Any MQTT_HOST of your own is used as given: set MQTT_PORT / MQTT_TLS / MQTT_CA_PEM with it (secrets.h).
 #ifndef MQTT_HOST
-#define MQTT_HOST "broker.hivemq.com"   // free public broker: anybody can read every topic. Demo/simulator data only!
+#define MQTT_HOST "broker.hivemq.com"   // anybody can read every topic of this broker. Demo/simulator data only!
+#  ifndef MQTT_PUBLIC_TLS
+#  define MQTT_PUBLIC_TLS 1
+#  endif
+#  if MQTT_PUBLIC_TLS
+#    ifndef MQTT_PORT
+#    define MQTT_PORT 8883
+#    endif
+#    ifndef MQTT_TLS
+#    define MQTT_TLS 1
+#    endif
+#    ifndef MQTT_CA_PEM
+#    include "hivemq_public_ca.h"
+#    define MQTT_CA_PEM HIVEMQ_PUBLIC_CA_PEM
+#    endif
+#  endif
 #endif
 #ifndef MQTT_PORT
 #define MQTT_PORT 1883                  // 1883 plain, 8883 TLS
@@ -51,4 +70,11 @@
 // Hand-off queue from the poll loop to the uplink task (FreeRTOS queue of complete lines).
 #ifndef MQTT_HANDOFF_DEPTH
 #define MQTT_HANDOFF_DEPTH 12
+#endif
+// Of those slots this many are kept for non-sample lines (events, node, meta, restart, damage): samples are refused first.
+#ifndef MQTT_HANDOFF_RESERVE
+#define MQTT_HANDOFF_RESERVE 4
+#endif
+#if MQTT_HANDOFF_RESERVE >= MQTT_HANDOFF_DEPTH
+#error "MQTT_HANDOFF_RESERVE must be below MQTT_HANDOFF_DEPTH"
 #endif

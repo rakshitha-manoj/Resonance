@@ -104,6 +104,9 @@ const snap = (S) => JSON.stringify({ ev: S.ev, sm: S.sm, nl: S.nl, rs: S.rs.map(
   const st = S();
   console.log(`page: received ${st.mqRecv} messages, ${st.ev.length} events, ${st.sm.length} samples, ${st.nl.length} node lines, ${st.rs.length} restarts; dup skipped ${st.mqDup}; counts text: "${w.document.getElementById("mqCounts").textContent}"`);
   check(st.mode === "live" && st.kind === "mqtt", "page is in live/mqtt mode");
+  const ps = R.parseStatus;
+  check(JSON.stringify(ps('{"state":"offline","epoch":5}')) === '{"state":"offline","epoch":5}' && ps("online").state === "online" && ps("junk").state === null, "status payload parser (JSON with epoch, legacy text, junk)");
+  check(st.mqMaster === "offline" && st.meta && Number.isInteger(st.meta.epoch), "master status from the retained {state,epoch} message: " + st.mqMaster + ", meta epoch " + (st.meta && st.meta.epoch));
   check(st.stats.bad === 0 && st.stats.capped === 0, "no malformed or dropped lines (bad " + st.stats.bad + ", capped " + st.stats.capped + ")");
   check(st.sm.length === rs.sm.length && st.ev.length === rs.ev.length && st.nl.length === rs.nl.length && st.rs.length === rs.rs.length,
     `same counts as the replayed file (events ${st.ev.length}/${rs.ev.length}, samples ${st.sm.length}/${rs.sm.length}, node ${st.nl.length}/${rs.nl.length}, restarts ${st.rs.length}/${rs.rs.length})`);

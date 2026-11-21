@@ -48,9 +48,11 @@ void test_topic_mapping_known_types() {
 void test_topic_unknown_future_type_routes_by_name() {
     TEST_ASSERT_EQUAL_STRING("resonance/rsn-0123abcd/damage", topic(DAMAGE).c_str());
     Route r = route_of(LINE(DAMAGE));
-    TEST_ASSERT_EQUAL(K_UNKNOWN_TYPE, r.kind);
+    TEST_ASSERT_EQUAL(K_DAMAGE, r.kind);
     TEST_ASSERT_FALSE(r.to_state);
+    TEST_ASSERT_TRUE(r.to_damage_state);   // latest damage line is kept on .../damage_state
     TEST_ASSERT_FALSE(r.retain);
+    TEST_ASSERT_EQUAL(K_UNKNOWN_TYPE, route_of(LINE("{\"type\":\"freq_track-2\"}")).kind);
     TEST_ASSERT_EQUAL_STRING("resonance/rsn-0123abcd/freq_track-2",
                              topic("{\"type\":\"freq_track-2\",\"x\":1}").c_str());
 }
@@ -178,7 +180,7 @@ void test_queue_all_non_samples_full() {
     TEST_ASSERT_EQUAL(1, q.stats().dropped_samples);
     TEST_ASSERT_EQUAL(4, q.size());
     // a new non-sample evicts the OLDEST line (meta), counted as dropped_other
-    TEST_ASSERT_TRUE(q.push(LINE(DAMAGE), K_UNKNOWN_TYPE));
+    TEST_ASSERT_TRUE(q.push(LINE(DAMAGE), K_DAMAGE));
     TEST_ASSERT_EQUAL(1, q.stats().dropped_other);
     std::vector<std::string> v = drain(q);
     TEST_ASSERT_EQUAL_STRING(RESTART, v[0].c_str());
@@ -407,14 +409,14 @@ void test_bridge_publishes_in_order_with_state_and_online() {
     TEST_ASSERT_TRUE(b.on_connected(io));
     TEST_ASSERT_EQUAL(1, io.pubs.size());   // online only: meta is queued, not duplicated
     TEST_ASSERT_EQUAL_STRING("resonance/rsn-0123abcd/status", io.pubs[0].topic.c_str());
-    TEST_ASSERT_EQUAL_STRING("online", io.pubs[0].payload.c_str());
+    TEST_ASSERT_EQUAL_STRING("{\"state\":\"online\",\"epoch\":null}", io.pubs[0].payload.c_str());   // no epoch set
     TEST_ASSERT_TRUE(io.pubs[0].retain);
     TEST_ASSERT_TRUE(b.pump(io, 100));
     TEST_ASSERT_TRUE(b.queue().empty());
     // main stream byte-identical and in order (skipping the retained state copies and status)
     std::vector<std::string> main_payloads, main_topics;
     for (size_t i = 1; i < io.pubs.size(); i++) {
-        if (io.pubs[i].topic == "resonance/rsn-0123abcd/state") continue;
+        if (io.pubs[i].topic == "resonance/rsn-0123abcd/state" || io.pubs[i].topic == "resonance/rsn-0123abcd/damage_state") continue;
         main_payloads.push_back(io.pubs[i].payload);
         main_topics.push_back(io.pubs[i].topic);
     }
@@ -434,6 +436,91 @@ void test_bridge_publishes_in_order_with_state_and_online() {
     TEST_ASSERT_TRUE(only(io.pubs, "meta")[0].retain);
     TEST_ASSERT_FALSE(only(io.pubs, "sample")[0].retain);
     TEST_ASSERT_EQUAL(7, b.stats().published);
+}
+
+void test_bridge_status_carries_boot_epoch() {
+    Bridge<8> &b = *make_bridge();
+    b.set_epoch(2866824256u);
+    char pl[64];
+    TEST_ASSERT_TRUE(b.status_payload(pl, sizeof pl, true) > 0);
+    TEST_ASSERT_EQUAL_STRING("{\"state\":\"online\",\"epoch\":2866824256}", pl);
+    TEST_ASSERT_TRUE(b.status_payload(pl, sizeof pl, false) > 0);
+    TEST_ASSERT_EQUAL_STRING("{\"state\":\"offline\",\"epoch\":2866824256}", pl);   // the last will text the host registers
+    TEST_ASSERT_EQUAL(0, b.status_payload(pl, 10, true));                                  // too small: refused
+    FakeIo io;
+    TEST_ASSERT_TRUE(b.on_connected(io));
+    TEST_ASSERT_EQUAL_STRING("{\"state\":\"online\",\"epoch\":2866824256}", io.pubs[0].payload.c_str());
+    TEST_ASSERT_TRUE(b.publish_status(io));   // periodic re-publish
+    TEST_ASSERT_EQUAL(2, io.pubs.size());
+    TEST_ASSERT_TRUE(io.pubs[1].retain);
+    TEST_ASSERT_EQUAL(2, b.stats().status_published);
+}
+
+void test_bridge_damage_state_and_no_duplicate_after_partial_failure() {
+    Bridge<8> &b = *make_bridge();
+    b.push(LINE(DAMAGE));
+    FakeIo io;
+    io.fail_after = 1;   // the line itself goes out, its retained damage_state copy fails
+    TEST_ASSERT_FALSE(b.pump(io));
+    TEST_ASSERT_EQUAL(1, io.pubs.size());
+    TEST_ASSERT_EQUAL_STRING("resonance/rsn-0123abcd/damage", io.pubs[0].topic.c_str());
+    TEST_ASSERT_EQUAL(1, b.queue().size());
+    FakeIo io2;   // reconnected: only the missing copy is sent, the line is NOT published twice
+    TEST_ASSERT_TRUE(b.pump(io2));
+    TEST_ASSERT_EQUAL(1, io2.pubs.size());
+    TEST_ASSERT_EQUAL_STRING("resonance/rsn-0123abcd/damage_state", io2.pubs[0].topic.c_str());
+    TEST_ASSERT_TRUE(io2.pubs[0].retain);
+    TEST_ASSERT_EQUAL_STRING(DAMAGE, io2.pubs[0].payload.c_str());
+    TEST_ASSERT_TRUE(b.queue().empty());
+    // same for a decision line whose state copy fails
+    std::string s1 = sample(1);
+    b.push(s1.c_str(), s1.size());
+    FakeIo io3;
+    io3.fail_after = 1;
+    TEST_ASSERT_FALSE(b.pump(io3));
+    FakeIo io4;
+    TEST_ASSERT_TRUE(b.pump(io4));
+    TEST_ASSERT_EQUAL(1, io4.pubs.size());
+    TEST_ASSERT_EQUAL_STRING("resonance/rsn-0123abcd/state", io4.pubs[0].topic.c_str());
+}
+
+void test_damage_is_not_evicted_before_samples_and_reserved_leaf() {
+    LineQueue<4> q;
+    q.push(LINE(DAMAGE), K_DAMAGE);
+    std::string s1 = sample(1), s2 = sample(2), s3 = sample(3), s4 = sample(4);
+    q.push(s1.c_str(), s1.size(), K_SAMPLE);
+    q.push(s2.c_str(), s2.size(), K_SAMPLE);
+    q.push(s3.c_str(), s3.size(), K_SAMPLE);
+    q.push(s4.c_str(), s4.size(), K_SAMPLE);   // evicts the oldest SAMPLE, never the damage line
+    std::vector<std::string> v = drain(q);
+    TEST_ASSERT_EQUAL_STRING(DAMAGE, v[0].c_str());
+    TEST_ASSERT_EQUAL(4, v.size());
+    TEST_ASSERT_EQUAL_STRING("resonance/rsn-0123abcd/damage_state_line", topic("{\"type\":\"damage_state\"}").c_str());
+}
+
+void test_handoff_policy_reserves_slots_for_non_samples() {
+    // 12-slot hand-off queue, 4 reserved: samples are refused at 4 or fewer free slots, everything else until 0
+    TEST_ASSERT_TRUE(handoff_accepts(K_SAMPLE, 12, 4));
+    TEST_ASSERT_TRUE(handoff_accepts(K_SAMPLE, 5, 4));
+    TEST_ASSERT_FALSE(handoff_accepts(K_SAMPLE, 4, 4));
+    TEST_ASSERT_FALSE(handoff_accepts(K_SAMPLE, 1, 4));
+    TEST_ASSERT_TRUE(handoff_accepts(K_EVENT, 4, 4));
+    TEST_ASSERT_TRUE(handoff_accepts(K_NODE, 1, 4));
+    TEST_ASSERT_TRUE(handoff_accepts(K_META, 1, 4));
+    TEST_ASSERT_TRUE(handoff_accepts(K_DAMAGE, 1, 4));
+    TEST_ASSERT_FALSE(handoff_accepts(K_EVENT, 0, 4));
+    TEST_ASSERT_FALSE(handoff_accepts(K_SAMPLE, 0, 0));
+}
+
+void test_link_wifi_backoff_is_configurable_slow() {
+    Link l(30000, 300000);
+    TEST_ASSERT_EQUAL(ACT_WIFI_BEGIN, l.poll(0, false, false));
+    TEST_ASSERT_EQUAL(ACT_NONE, l.poll(20000, false, false));    // join timeout -> failure
+    TEST_ASSERT_EQUAL(ACT_NONE, l.poll(49999, false, false));    // 30 s back-off, no scan storm
+    TEST_ASSERT_EQUAL(ACT_WIFI_BEGIN, l.poll(50000, false, false));
+    TEST_ASSERT_EQUAL(ACT_NONE, l.poll(70000, false, false));    // fails again: 60 s
+    TEST_ASSERT_EQUAL(ACT_NONE, l.poll(129999, false, false));
+    TEST_ASSERT_EQUAL(ACT_WIFI_BEGIN, l.poll(130000, false, false));
 }
 
 void test_bridge_meta_republished_after_reconnect() {
@@ -576,6 +663,11 @@ int main(int, char **) {
     RUN_TEST(test_bridge_strips_line_terminator);
     RUN_TEST(test_bridge_no_meta_yet_no_republish);
     RUN_TEST(test_bridge_publish_failure_keeps_line_for_retry);
+    RUN_TEST(test_bridge_status_carries_boot_epoch);
+    RUN_TEST(test_bridge_damage_state_and_no_duplicate_after_partial_failure);
+    RUN_TEST(test_damage_is_not_evicted_before_samples_and_reserved_leaf);
+    RUN_TEST(test_handoff_policy_reserves_slots_for_non_samples);
+    RUN_TEST(test_link_wifi_backoff_is_configurable_slow);
     RUN_TEST(test_bridge_pump_respects_max_lines);
     RUN_TEST(test_bridge_bad_site_publishes_nothing);
     RUN_TEST(test_bridge_status_topic_for_lwt);

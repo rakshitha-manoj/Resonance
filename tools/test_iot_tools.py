@@ -23,7 +23,7 @@ def test(f):
 def topic_mapping_matches_firmware_vectors():
     # the same vectors as firmware/esp32/test/test_mqtt_logic (mqtt_logic.h)
     T = rm.route
-    assert T('{"type":"meta","schema":2}') == ("meta", "meta", True, False)
+    assert T('{"type":"meta","schema":2}') == ("meta", "meta", True, False, False)
     assert T('{"type":"restart","t_us":5}').leaf == "restart" and not T('{"type":"restart"}').to_state
     s = T('{"type":"sample","t_us":1}')
     assert s.leaf == "sample" and s.to_state and not s.retain
@@ -32,7 +32,8 @@ def topic_mapping_matches_firmware_vectors():
     assert T('{"type":"status","t_us":1}').leaf == "status_line" and T('{"type":"status"}').to_state   # never the LWT topic
     assert T('{"type":"state"}').leaf == "state_line"
     d = T('{"type":"damage","ae":0.3}')
-    assert d.leaf == "damage" and not d.to_state and d.kind == "damage"
+    assert d.leaf == "damage" and not d.to_state and d.kind == "damage" and d.to_damage_state and not d.retain
+    assert T('{"type":"damage_state"}').leaf == "damage_state_line"
     for bad in ("R,1,2,3", '{"x":1}', '{"type":""}', '{"type":"a/b"}', '{"type":"a+b"}', '{"type":"#"}', '{"type":"unterminated', "",
                 '{"type":"%s"}' % ("a" * 25)):
         assert T(bad).leaf == "other", bad
@@ -45,6 +46,36 @@ def topic_mapping_matches_firmware_vectors():
             raise AssertionError("accepted " + bad)
         except ValueError:
             pass
+
+
+@test
+def status_payload_epoch_and_stale_offline():
+    assert rm.status_payload(True, 2866824256) == b'{"state":"online","epoch":2866824256}'   # byte-identical to mqtt_logic.h
+    assert rm.status_payload(False) == b'{"state":"offline","epoch":null}'
+    assert rm.parse_status(b'{"state":"offline","epoch":5}') == ("offline", 5)
+    assert rm.parse_status(b"online") == ("online", None)           # legacy text
+    assert rm.parse_status(b"garbage") == (None, None)
+    assert rm.offline_is_stale("offline", 4, 5)                      # the will of an older boot
+    assert not rm.offline_is_stale("offline", 5, 5) and not rm.offline_is_stale("offline", None, 5)
+    assert not rm.offline_is_stale("offline", 4, None) and not rm.offline_is_stale("online", 4, 5)
+    a = al.Alerter(None, al.RateLimiter(0, 100), out=lambda x: None)
+    a.classify({"type": "meta", "epoch": 7, "floors": [1, 2]})
+    assert a.status(rm.status_payload(False, 6), False) is None      # stale will from epoch 6 after the boot with epoch 7
+    assert a.status(rm.status_payload(False, 7), False)[1].startswith("The master went OFFLINE")
+    assert a.status(b"offline", False) is not None                   # legacy text without epoch is accepted
+    assert a.status(rm.status_payload(False, 7), True) is None       # retained copies never alert
+
+
+@test
+def alerter_forgets_previous_event_on_new_meta_or_restart():
+    a = al.Alerter(None, al.RateLimiter(0, 100), out=lambda x: None)
+    ev = {"type": "begin", "class": "BUILDING", "slave": 0, "sf": 3}
+    assert a.classify(ev) is not None
+    assert a.classify(dict(ev, type="change")) is None               # same key again: nothing new
+    a.classify({"type": "restart", "epoch": 9})
+    assert a.classify(dict(ev, type="change")) is not None           # after a restart the same event is news again
+    a.classify({"type": "meta", "epoch": 10})
+    assert a.prev_key is None
 
 
 @test

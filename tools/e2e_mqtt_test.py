@@ -11,6 +11,7 @@ and kept apart. Exit code 0 = all checks passed.
     python tools/e2e_mqtt_test.py [--site rsn-822298ab] [--speed 0] [--jsonl FILE]
 """
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -66,7 +67,7 @@ def main():
                 state_msgs.append((leaf, payload, False))
             else:
                 got.append((leaf, payload, False))
-            if status_msgs and status_msgs[-1][0] == b"offline" and not status_msgs[-1][1]:
+            if status_msgs and rm.parse_status(status_msgs[-1][0])[0] == "offline" and not status_msgs[-1][1]:
                 done.set()
 
     c.on_connect = on_connect
@@ -142,7 +143,10 @@ def main():
     check(len(state_msgs) == n_decision, "retained state updated for every decision line (%d of %d)" % (len(state_msgs), n_decision))
     last_decision = [ln for ln in expected if rm.route(ln).to_state][-1].encode("utf-8")
     check(state_msgs and state_msgs[-1][1] == last_decision, "last .../state message is the last decision line")
-    check(any(s[0] == b"online" for s in status_msgs) and status_msgs and status_msgs[-1][0] == b"offline", "status online ... offline (%s)" % [s[0].decode() for s in status_msgs])
+    meta_epoch = json.loads([ln for ln in expected if rm.route(ln).kind == "meta"][-1]).get("epoch")
+    sts = [rm.parse_status(s[0]) for s in status_msgs]
+    check(any(x[0] == "online" for x in sts) and sts and sts[-1][0] == "offline", "status online ... offline (%s)" % sts)
+    check(sts and all(x[1] == meta_epoch for x in sts), "every status payload (and the last will text) carries the boot epoch = meta.epoch (%s)" % meta_epoch)
 
     # a fresh late subscriber must get the retained meta, state and status immediately
     late = {}
@@ -164,7 +168,8 @@ def main():
     meta_exp = [ln for ln in expected if rm.route(ln).kind == "meta"][-1].encode("utf-8")
     check(late.get("meta") == (meta_exp, True), "late subscriber receives the retained meta")
     check(late.get("state") == (last_decision, True), "late subscriber receives the retained state (latest decision)")
-    check(late.get("status") == (b"offline", True), "late subscriber receives the retained status (offline)")
+    ls = late.get("status")
+    check(ls is not None and ls[1] and rm.parse_status(ls[0]) == ("offline", meta_epoch), "late subscriber receives the retained status (offline, epoch %s)" % meta_epoch)
     print("SUMMARY lines sent %d, received %d, mismatches %d, publish time %.1f s -> %s" % (len(expected), len(live), mism, pub_s, "OK" if ok else "FAILED"))
     sys.exit(0 if ok else 1)
 

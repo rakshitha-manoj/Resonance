@@ -25,6 +25,7 @@ The only Wokwi project that talks to the internet. Nothing is measured: two `Sla
 1. `pio run -e master_wokwi_cloud` (generates `include/demo_traces.h` first), select `wokwi/master_cloud/wokwi.toml`, start the simulator.
 2. The serial monitor shows `wifi: connected ssid=Wokwi-GUEST channel=6`, `mqtt: connected`, the JSON lines and `S,mqtt,...` statistics.
 3. Open `dashboard/index.html` in a browser, source **MQTT live**, site id `rsn-822298ab` (the default in `include/mqtt_config.h`), Connect. Or run `tools/alerter.py` / any MQTT client on `resonance/rsn-822298ab/#` at `broker.hivemq.com`.
+Wokwi for VS Code reaches the internet through its Private IoT Gateway (your computer's network). Plain MQTT on port 1883 can open the TCP connection and still get no CONNACK there, so the demo (and `master_mqtt`) default to TLS on port 8883 with the committed root CA (`include/hivemq_public_ca.h`, Amazon Root CA 1, valid to 2038; the broker's leaf certificate expires 2027-01-31 and is renewed by HiveMQ). TLS needs the wall clock: the firmware sets it by SNTP after joining Wi-Fi before the first connect. Build with `-DMQTT_PUBLIC_TLS=0` for plain 1883.
 The topics are public: anybody who knows the site id can read them, so this is for simulated data only. Change `MQTT_SITE` for your own runs. The cloud demo was built but NOT run in Wokwi here; the same virtual-slave code is verified on the PC (`pio test -e cloud_demo`: its lines equal the netsim output of the same traces).
 
 ## Wiring of the real 3-board system

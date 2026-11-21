@@ -209,13 +209,14 @@ static void print_stats() {
     Serial.printf("S,rtt_late,after_retry=%u,over_timeout=%u,unmatched=%u,rx_stale_after_close=%u\r\n",
                   (unsigned)g_rtt.after_retry, (unsigned)g_rtt.over_timeout, (unsigned)g_rtt.unmatched, (unsigned)s.rx_stale);
 #ifdef MQTT_ENABLED
-    // wifi/mqtt = link state now, channel = Wi-Fi (= ESP-NOW) channel, enq = lines handed to the uplink, handoff_drop = poll
-    // loop could not hand over (never blocks), queued/q_drop_* = waiting in the uplink while offline (samples go first),
+    // wifi/mqtt = link state now, channel = Wi-Fi (= ESP-NOW) channel, enq = lines handed to the uplink, handoff_drop(_samples) = poll
+    // loop could not hand over (never blocks; samples are refused first), joins = Wi-Fi join attempts / of them fast (no scan), queued/q_drop_* = waiting in the uplink while offline (samples go first),
     // pub_fail = publish errors, published = lines delivered to the broker, connects/drops = broker sessions.
     const mqtt::QueueStats &qs = g_mqtt.queue_stats();
-    Serial.printf("S,mqtt,wifi=%d,mqtt=%d,channel=%u,enq=%u,handoff_drop=%u,queued=%u,q_drop_samples=%u,q_drop_other=%u,pub_fail=%u,published=%u,connects=%u,drops=%u\r\n",
+    Serial.printf("S,mqtt,wifi=%d,mqtt=%d,channel=%u,enq=%u,handoff_drop=%u,handoff_drop_samples=%u,joins=%u/%u,queued=%u,q_drop_samples=%u,q_drop_other=%u,pub_fail=%u,published=%u,connects=%u,drops=%u\r\n",
                   (int)g_mqtt.wifi_up(), (int)g_mqtt.mqtt_up(), (unsigned)g_mqtt.wifi_channel(), (unsigned)g_mqtt.enqueued(),
-                  (unsigned)g_mqtt.handoff_dropped(), (unsigned)g_mqtt.queued(), (unsigned)qs.dropped_samples,
+                  (unsigned)g_mqtt.handoff_dropped(), (unsigned)g_mqtt.handoff_dropped_samples(), (unsigned)g_mqtt.wifi_joins(),
+                  (unsigned)g_mqtt.fast_joins(), (unsigned)g_mqtt.queued(), (unsigned)qs.dropped_samples,
                   (unsigned)qs.dropped_other, (unsigned)g_mqtt.bridge_stats().publish_fail, (unsigned)g_mqtt.bridge_stats().published,
                   (unsigned)g_mqtt.connects(), (unsigned)g_mqtt.drops());
 #endif
@@ -246,12 +247,14 @@ void setup() {
 #else
     Serial.println("WOKWI_CLOUD_DEMO: no radio, two virtual slaves replay test/data/demo_traces.bin (looping)");
 #endif
-#ifdef MQTT_ENABLED
-    // Wi-Fi + MQTT on core 0. Never blocks the poll schedule: the join / connect happen in the task, the first beacon is 1 s away.
-    g_mqtt.begin();
-#endif
     uint32_t epoch;
     do { epoch = esp_random(); } while (epoch == 0);  // after Wi-Fi start: true random source
+#ifdef MQTT_ENABLED
+    // Wi-Fi + MQTT on core 0. The boot-time join happens BEFORE the master schedules its first beacon (at most 8 s), so the
+    // radio is already on the access point's channel and a channel scan cannot overlap the first beacons; the poll loop never
+    // waits for Wi-Fi after that. The epoch goes into the retained status / last will (stale-offline detection).
+    if (g_mqtt.begin(epoch)) g_mqtt.wait_wifi(8000);
+#endif
     g_master.reset(now_us() + 1000000, epoch);        // first beacon 1 s from now
     Serial.printf("master epoch=%08x\r\n", (unsigned)epoch);
     // JSON log, schema 2: the meta line, then a restart line (the host cannot tell a first boot from a reboot, so

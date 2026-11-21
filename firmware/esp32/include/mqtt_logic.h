@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
 
 namespace mqtt {
 
@@ -60,7 +61,7 @@ static inline bool json_type(const char *line, size_t len, char *out, size_t cap
     return false;
 }
 
-enum Kind : uint8_t { K_OTHER = 0, K_META, K_RESTART, K_SAMPLE, K_EVENT, K_NODE, K_UNKNOWN_TYPE };
+enum Kind : uint8_t { K_OTHER = 0, K_META, K_RESTART, K_SAMPLE, K_EVENT, K_NODE, K_UNKNOWN_TYPE, K_DAMAGE };
 
 static inline Kind kind_of(const char *type) {
     if (!strcmp(type, "meta")) return K_META;
@@ -68,15 +69,24 @@ static inline Kind kind_of(const char *type) {
     if (!strcmp(type, "sample")) return K_SAMPLE;
     if (!strcmp(type, "begin") || !strcmp(type, "change") || !strcmp(type, "status")) return K_EVENT;
     if (!strcmp(type, "node")) return K_NODE;
+    if (!strcmp(type, "damage")) return K_DAMAGE;   // schema 3 (next phase); like events it is never evicted before a sample
     return K_UNKNOWN_TYPE;
 }
 
 struct Route {
     char leaf[TYPE_MAX + 8];  // topic leaf name
     Kind kind;
-    bool retain;       // the line itself is published retained (meta)
-    bool to_state;     // also publish retained to .../state (the decision lines)
+    bool retain;          // the line itself is published retained (meta)
+    bool to_state;        // also publish retained to .../state (the decision lines)
+    bool to_damage_state; // also publish retained to .../damage_state (the latest damage begin/end line)
 };
+
+// Hand-off policy of the producer side (the poll loop -> uplink task FreeRTOS queue): a sample is refused when no more than
+// `reserve` slots are free, so a burst of samples can never take the slots events / node / meta / restart / damage need.
+static inline bool handoff_accepts(Kind k, size_t free_slots, size_t reserve) {
+    if (free_slots == 0) return false;
+    return k != K_SAMPLE || free_slots > reserve;
+}
 
 // Classifies a line. Never fails: unusable lines get leaf "other".
 static inline Route route_of(const char *line, size_t len) {
@@ -85,14 +95,15 @@ static inline Route route_of(const char *line, size_t len) {
     if (!json_type(line, len, type, sizeof type)) {
         strcpy(r.leaf, "other");
         r.kind = K_OTHER;
-        r.retain = r.to_state = false;
+        r.retain = r.to_state = r.to_damage_state = false;
         return r;
     }
     r.kind = kind_of(type);
     r.retain = r.kind == K_META;
     r.to_state = r.kind == K_SAMPLE || (r.kind == K_EVENT);
+    r.to_damage_state = r.kind == K_DAMAGE;
     strcpy(r.leaf, type);
-    if (!strcmp(type, "state") || !strcmp(type, "status")) strcat(r.leaf, "_line");
+    if (!strcmp(type, "state") || !strcmp(type, "status") || !strcmp(type, "damage_state")) strcat(r.leaf, "_line");
     return r;
 }
 
@@ -247,7 +258,10 @@ enum Action : uint8_t { ACT_NONE = 0, ACT_WIFI_BEGIN, ACT_MQTT_CONNECT };
 
 class Link {
 public:
-    Link() : was_up_(false), wifi_waiting_(false), wifi_deadline_(0), connects_(0), drops_(0) {}
+    // wifi_base_ms / wifi_cap_ms: back-off of Wi-Fi (re)join attempts. The master firmware uses 30 s .. 300 s: every join attempt
+    // can make the radio scan other channels, which is the channel ESP-NOW (the local network) also runs on.
+    explicit Link(uint32_t wifi_base_ms = BACKOFF_BASE_MS, uint32_t wifi_cap_ms = BACKOFF_CAP_MS)
+        : wifi_(wifi_base_ms, wifi_cap_ms), was_up_(false), wifi_waiting_(false), wifi_deadline_(0), connects_(0), drops_(0) {}
     uint32_t connects() const { return connects_; }   // successful MQTT connects
     uint32_t drops() const { return drops_; }          // connections lost after being up
     uint32_t mqtt_fails() const { return mqtt_.fails(); }
@@ -288,7 +302,7 @@ public:
     }
 
 private:
-    Backoff mqtt_, wifi_;
+    Backoff mqtt_, wifi_;   // (constructed in this order: mqtt_ default, wifi_ from the ctor arguments)
     bool was_up_, wifi_waiting_;
     uint32_t wifi_deadline_, connects_, drops_;
 };
@@ -307,12 +321,13 @@ struct BridgeStats {
     uint32_t meta_republished;
     uint32_t publish_fail;
     uint32_t bad_site;
+    uint32_t status_published;
 };
 
 template <size_t DEPTH>
 class Bridge {
 public:
-    Bridge() : meta_len_(0), have_meta_(false) { site_[0] = 0; memset(&st_, 0, sizeof(st_)); }
+    Bridge() : meta_len_(0), have_meta_(false), epoch_(0), head_stage_(0) { site_[0] = 0; memset(&st_, 0, sizeof(st_)); }
 
     bool set_site(const char *site) {
         if (!site_ok(site)) return false;
@@ -320,6 +335,27 @@ public:
         return true;
     }
     const char *site() const { return site_; }
+    // Boot epoch of the master (0 = unknown). It is part of the status payloads: {"state":"online","epoch":E}; the same text
+    // with "offline" is the last will. A consumer ignores an "offline" whose epoch differs from the latest meta epoch: that is
+    // the half-open session of an earlier boot timing out AFTER the new boot published "online".
+    void set_epoch(uint32_t e) { epoch_ = e; }
+    uint32_t epoch() const { return epoch_; }
+    size_t status_payload(char *out, size_t cap, bool online) const {
+        char num[16];
+        if (epoch_) snprintf(num, sizeof num, "%lu", (unsigned long)epoch_);
+        else strcpy(num, "null");
+        int n = snprintf(out, cap, "{\"state\":\"%s\",\"epoch\":%s}", online ? "online" : "offline", num);
+        return (n > 0 && (size_t)n < cap) ? (size_t)n : 0;
+    }
+    // Retained "online" with the boot epoch; the host repeats it periodically (a restarted broker or a lost retained copy heals).
+    bool publish_status(Io &io) {
+        char t[TOPIC_MAX], pl[64];
+        if (!make_topic(t, sizeof t, site_, "status")) { st_.bad_site++; return false; }
+        size_t n = status_payload(pl, sizeof pl, true);
+        if (!n || !io.publish(t, (const uint8_t *)pl, n, true)) { st_.publish_fail++; return false; }
+        st_.status_published++;
+        return true;
+    }
     LineQueue<DEPTH> &queue() { return q_; }
     const LineQueue<DEPTH> &queue() const { return q_; }
     const BridgeStats &stats() const { return st_; }
@@ -334,18 +370,17 @@ public:
             meta_len_ = (uint16_t)len;
             have_meta_ = true;
         }
+        if (q_.size() == q_.capacity()) head_stage_ = 0;   // the head may be evicted by this push: its progress no longer applies
         return q_.push(line, len, r.kind);
     }
 
     // Call right after (re)connecting: publishes "online" (retained) and, if no meta is waiting in the queue,
     // the last meta again, so a subscriber that joins later (or a fresh broker) learns the configuration.
     bool on_connected(Io &io) {
-        char t[TOPIC_MAX];
-        if (!make_topic(t, sizeof t, site_, "status")) { st_.bad_site++; return false; }
-        static const uint8_t on[] = {'o', 'n', 'l', 'i', 'n', 'e'};
-        if (!io.publish(t, on, sizeof on, true)) { st_.publish_fail++; return false; }
+        if (!publish_status(io)) return false;
         if (have_meta_ && !q_.contains(K_META)) {
-            if (!publish_line(io, meta_, meta_len_, route_of(meta_, meta_len_))) return false;
+            uint8_t stage = 0;
+            if (!publish_line(io, meta_, meta_len_, route_of(meta_, meta_len_), stage)) return false;
             st_.meta_republished++;
         }
         return true;
@@ -360,7 +395,8 @@ public:
             Kind k;
             if (!q_.peek(&line, &len, &k)) return true;
             Route r = route_of(line, len);
-            if (!publish_line(io, line, len, r)) return false;
+            if (!publish_line(io, line, len, r, head_stage_)) return false;   // a failed retained copy does not re-send the line itself
+            head_stage_ = 0;
             q_.pop();
             st_.published++;
         }
@@ -371,15 +407,29 @@ public:
     bool status_topic(char *out, size_t cap) const { return make_topic(out, cap, site_, "status") != 0; }
 
 private:
-    bool publish_line(Io &io, const char *line, size_t len, const Route &r) {
+    // Publishes the line itself (stage 0), its retained .../state copy (stage 1) and its retained .../damage_state copy (stage 2).
+    // `stage` = steps already delivered: after a failure the next call continues at the failed step, so nothing is sent twice.
+    bool publish_line(Io &io, const char *line, size_t len, const Route &r, uint8_t &stage) {
         char t[TOPIC_MAX];
-        if (!make_topic(t, sizeof t, site_, r.leaf)) { st_.bad_site++; return false; }
-        if (!io.publish(t, (const uint8_t *)line, len, r.retain)) { st_.publish_fail++; return false; }
-        if (r.to_state) {
-            char ts[TOPIC_MAX];
-            make_topic(ts, sizeof ts, site_, "state");
-            if (!io.publish(ts, (const uint8_t *)line, len, true)) { st_.publish_fail++; return false; }
-            st_.state_published++;
+        if (stage == 0) {
+            if (!make_topic(t, sizeof t, site_, r.leaf)) { st_.bad_site++; return false; }
+            if (!io.publish(t, (const uint8_t *)line, len, r.retain)) { st_.publish_fail++; return false; }
+            stage = 1;
+        }
+        if (stage == 1) {
+            if (r.to_state) {
+                make_topic(t, sizeof t, site_, "state");
+                if (!io.publish(t, (const uint8_t *)line, len, true)) { st_.publish_fail++; return false; }
+                st_.state_published++;
+            }
+            stage = 2;
+        }
+        if (stage == 2) {
+            if (r.to_damage_state) {
+                make_topic(t, sizeof t, site_, "damage_state");
+                if (!io.publish(t, (const uint8_t *)line, len, true)) { st_.publish_fail++; return false; }
+            }
+            stage = 3;
         }
         return true;
     }
@@ -389,6 +439,8 @@ private:
     char meta_[LINE_CAP];
     uint16_t meta_len_;
     bool have_meta_;
+    uint32_t epoch_;
+    uint8_t head_stage_;
     BridgeStats st_;
 };
 

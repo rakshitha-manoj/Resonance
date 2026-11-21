@@ -52,6 +52,7 @@ def validate(path):
     last_t = -1
     meta = None
     last_epoch = None
+    meta_n = -10   # line number of the last meta line
     last_closed = 0
     last_events = 0
     first_event_closed = None
@@ -115,6 +116,7 @@ def validate(path):
             if not is_num(o.get("superframe_s")) or o["superframe_s"] <= 0:
                 err(n, "superframe_s")
             meta = o
+            meta_n = n
             continue
         if ty == "restart":
             stats["restart"] += 1
@@ -132,7 +134,10 @@ def validate(path):
                 err(n, "restart prev_epoch")
             if o.get("prev_epoch") is not None and last_epoch is not None and o["prev_epoch"] != last_epoch:
                 err(n, f"prev_epoch {o['prev_epoch']} != previous epoch {last_epoch}")
-            if o.get("epoch") == last_epoch:
+            # The firmware's boot pattern is allowed: right after its meta line it prints restart with the SAME epoch and
+            # prev_epoch null (the host cannot tell a first boot from a reboot). Anywhere else an unchanged epoch is an error.
+            boot_pattern = (n == meta_n + 1 and o.get("prev_epoch") is None)
+            if o.get("epoch") == last_epoch and not boot_pattern:
                 err(n, "restart with unchanged epoch")
             last_epoch = o.get("epoch")
             node_state = {1: True, 2: True}

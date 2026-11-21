@@ -3,11 +3,16 @@
 Topic scheme (mirrors firmware/esp32/include/mqtt_logic.h, which is unit tested on the PC; keep the two in step):
     resonance/<site>/<type>   one JSON line per message, routed by the line's own "type" (unknown future types too)
     resonance/<site>/state    retained: the latest decision line (sample / begin / change / status)
-    resonance/<site>/status   retained: "online" (published after every connect) / "offline" (last will)
-    meta is published retained; the leaf names "state" and "status" are reserved, so a line of that type goes to
-    "<type>_line" (the fusion `status` line lands on .../status_line).
+    resonance/<site>/status   retained: {"state":"online"|"offline","epoch":E} (online after every connect and every 60 s,
+                              offline = the last will). E = the master's boot epoch = meta.epoch. An "offline" whose epoch differs
+                              from the latest meta epoch is the will of an OLD half-open session: stale, ignore it.
+                              (a bare "online" / "offline" text is still understood, it carries no epoch)
+    resonance/<site>/damage_state  retained: the latest `damage` line (schema 3, next phase)
+    meta is published retained; the leaf names "state", "status" and "damage_state" are reserved, so a line of that type
+    goes to "<type>_line" (the fusion `status` line lands on .../status_line).
 The payload is the JSON line WITHOUT its trailing newline, byte for byte what the formatter wrote.
 """
+import json
 import os
 import re
 import ssl
@@ -23,7 +28,7 @@ TYPE_RE = re.compile(r"^[A-Za-z0-9_-]{1,24}$")
 DECISION_TYPES = ("sample", "begin", "change", "status")
 EVENT_TYPES = ("begin", "change", "status")
 
-Route = namedtuple("Route", "leaf kind retain to_state")
+Route = namedtuple("Route", "leaf kind retain to_state to_damage_state")
 
 
 def site_ok(site):
@@ -48,15 +53,39 @@ def json_type(line):
 def route(line):
     t = json_type(line)
     if t is None:
-        return Route("other", "other", False, False)
-    leaf = t + "_line" if t in ("state", "status") else t
-    return Route(leaf, t, t == "meta", t in DECISION_TYPES)
+        return Route("other", "other", False, False, False)
+    leaf = t + "_line" if t in ("state", "status", "damage_state") else t
+    return Route(leaf, t, t == "meta", t in DECISION_TYPES, t == "damage")
 
 
 def topic(site, leaf):
     if not site_ok(site):
         raise ValueError("bad site id %r (a-z 0-9 - _, max 32)" % (site,))
     return "resonance/%s/%s" % (site, leaf)
+
+
+def status_payload(online, epoch=None):
+    """The retained status text the firmware publishes (byte for byte: no spaces)."""
+    return ('{"state":"%s","epoch":%s}' % ("online" if online else "offline", "null" if not epoch else int(epoch))).encode()
+
+
+def parse_status(payload):
+    """(state, epoch) of a status payload; epoch None if absent. Plain 'online'/'offline' text is accepted."""
+    t = payload.decode("utf-8", "replace").strip() if isinstance(payload, (bytes, bytearray)) else str(payload).strip()
+    if t in ("online", "offline"):
+        return t, None
+    try:
+        o = json.loads(t)
+        st = o.get("state")
+        ep = o.get("epoch")
+        return (st if st in ("online", "offline") else None), (ep if isinstance(ep, int) and not isinstance(ep, bool) else None)
+    except (ValueError, AttributeError):
+        return None, None
+
+
+def offline_is_stale(state, epoch, meta_epoch):
+    """True for an 'offline' that belongs to an older boot than the latest meta (known epochs that differ)."""
+    return state == "offline" and epoch is not None and meta_epoch is not None and epoch != meta_epoch
 
 
 def add_connection_args(ap):
@@ -72,7 +101,7 @@ def add_connection_args(ap):
     g.add_argument("--ws-path", default="/mqtt")
 
 
-def make_client(args, client_id=None, will_site=None):
+def make_client(args, client_id=None, will_site=None, will_epoch=None):
     """paho client (v2 callback API) configured from add_connection_args(); optional retained last will on .../status."""
     import paho.mqtt.client as mqtt
     if not site_ok(args.site):
@@ -85,7 +114,7 @@ def make_client(args, client_id=None, will_site=None):
     if args.tls:
         c.tls_set(cert_reqs=ssl.CERT_REQUIRED)  # system CA store
     if will_site:
-        c.will_set(topic(will_site, "status"), b"offline", qos=1, retain=True)
+        c.will_set(topic(will_site, "status"), status_payload(False, will_epoch), qos=1, retain=True)
     return c
 
 

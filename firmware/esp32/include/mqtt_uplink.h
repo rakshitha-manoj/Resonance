@@ -1,26 +1,36 @@
 #pragma once
 // MQTT uplink of the master (ESP32 Arduino only, -DMQTT_ENABLED): Wi-Fi station + PubSubClient on a FreeRTOS task
 // pinned to core 0, fed by a FreeRTOS queue of complete JSON lines. The decisions (topics, queue policy, back-off,
-// meta re-publish) are in mqtt_logic.h and unit tested on the PC; this file is only the I/O around them.
+// meta re-publish, status payloads) are in mqtt_logic.h and unit tested on the PC; this file is only the I/O around them.
 //   * enqueue() is what the poll loop (core 1) calls: a non-blocking xQueueSend of one line; a full queue drops the
-//     line and counts it (handoff_dropped), exactly like SerialJson. It never waits for Wi-Fi or the broker.
-//   * The task drains that queue into mqtt::Bridge (drop-oldest-sample-first while offline), joins Wi-Fi, connects
-//     to the broker (exponential back-off), publishes, and re-publishes meta after every connect.
-//   * ESP-NOW shares the Wi-Fi radio: it runs on whatever channel the access point uses. After the station
-//     connects, the channel is read and reported by poll_events() (called from loop(), so all printing stays on the
-//     poll loop's thread); a mismatch with ESPNOW_CHANNEL prints a warning (slaves scan the channels to find the master).
+//     line and counts it, exactly like SerialJson. Samples are refused first (MQTT_HANDOFF_RESERVE slots stay free for
+//     events / node / meta / restart / damage lines). It never waits for Wi-Fi or the broker.
+//   * The task drains that queue into mqtt::Bridge (drop-oldest-sample-first while offline), joins Wi-Fi, connects to the
+//     broker (exponential back-off), publishes, and re-publishes meta after every connect.
+//   * Status: retained {"state":"online","epoch":E} after every connect and every 60 s; the last will is the same text with
+//     "offline". E = the master's boot epoch (the same number as meta.epoch), so a consumer can tell the will of an OLD
+//     half-open session (it fires ~45 s after an unclean reboot, after the new boot already said "online") from a real
+//     outage: an "offline" whose epoch differs from the latest meta epoch is stale.
+//   * ESP-NOW shares the Wi-Fi radio: it runs on whatever channel the access point uses. The radio must NOT wander: the
+//     Arduino auto-reconnect is switched off (it rescans all channels forever when the router is gone, and every scan
+//     takes the radio off the ESP-NOW channel), joins are driven by mqtt::Link with a slow back-off (30 s .. 5 min), and after
+//     the first successful join every re-join uses the remembered channel + BSSID (no scan; after 3 such failures a full
+//     scan is allowed again, the AP may have moved). The boot-time join is done by wait_wifi() BEFORE the master starts
+//     beaconing. Residual risk: while the router is away, each attempt keeps the radio on the old channel (fine for ESP-NOW);
+//     if the router comes back on ANOTHER channel the master follows it and the slaves must rescan (ChannelScan, up to ~20 s).
 #include <Arduino.h>
 #include <WiFi.h>
+#include <time.h>
 #include <esp_wifi.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
+#include "node_config.h"
+#include "mqtt_config.h"   // before the first use of MQTT_TLS
 #include <PubSubClient.h>
 #if MQTT_TLS
 #include <WiFiClientSecure.h>
 #endif
-#include "node_config.h"
-#include "mqtt_config.h"
 #include "mqtt_logic.h"
 
 namespace net {
@@ -28,7 +38,8 @@ namespace net {
 class MqttUplink {
 public:
     // Starts the task. Returns false (and the uplink stays off) without a Wi-Fi SSID or if allocation fails.
-    bool begin() {
+    // epoch = the master's boot epoch (non-zero), carried in the status payloads.
+    bool begin(uint32_t epoch) {
         if (!mqtt::site_ok(MQTT_SITE) || !bridge_.set_site(MQTT_SITE)) {
             Serial.println("mqtt: invalid MQTT_SITE (a-z 0-9 - _, max 32): uplink off");
             return false;
@@ -37,8 +48,13 @@ public:
             Serial.println("mqtt: no WIFI_SSID configured (include/secrets.h): uplink off");
             return false;
         }
+        bridge_.set_epoch(epoch);
         q_ = xQueueCreate(MQTT_HANDOFF_DEPTH, sizeof(Item));
         if (!q_) { Serial.println("mqtt: queue alloc failed"); return false; }
+        WiFi.persistent(false);
+        WiFi.setSleep(false);
+        WiFi.setAutoReconnect(false);   // joins are ours (mqtt::Link): the stack's own retries scan every channel, see above
+        WiFi.mode(WIFI_STA);
 #if MQTT_TLS
 #  ifdef MQTT_CA_PEM
         net_.setCACert(MQTT_CA_PEM);
@@ -53,7 +69,7 @@ public:
         client_.setSocketTimeout(5);
         Serial.printf("mqtt: uplink on core 0, broker %s:%d%s, site %s, topics resonance/%s/<type>\r\n", MQTT_HOST, (int)MQTT_PORT,
                       MQTT_TLS ? " (TLS)" : "", MQTT_SITE, MQTT_SITE);
-        if (!MQTT_TLS && MQTT_PORT == 1883) Serial.println("mqtt: plain TCP, no authentication: simulator/demo data only");
+        if (!MQTT_TLS) Serial.println("mqtt: plain TCP, no encryption or authentication: simulator/demo data only");
         BaseType_t ok = xTaskCreatePinnedToCore(&MqttUplink::task_entry, "mqtt", MQTT_TLS ? 12288 : 8192, this, 1, nullptr, 0);
         if (ok != pdPASS) { Serial.println("mqtt: task create failed"); return false; }
         running_ = true;
@@ -61,13 +77,32 @@ public:
     }
     bool running() const { return running_; }
 
+    // Boot-time join: waits up to timeout_ms for the first Wi-Fi connection, so that the radio sits on the access point's
+    // channel BEFORE the master sends its first beacon (a scan that overlaps the first beacons would lose them). Returns
+    // true if joined. Not joined = carry on; the task retries slowly in the background.
+    bool wait_wifi(uint32_t timeout_ms) {
+        uint32_t t0 = millis();
+        while (running_ && !wifi_up_ && millis() - t0 < timeout_ms) delay(50);
+        return wifi_up_;
+    }
+
     // Poll loop side: never blocks. Takes one complete JSON line (with or without the trailing newline).
     bool enqueue(const char *line, size_t len) {
         if (!running_) return false;
         if (len == 0 || len > mqtt::LINE_CAP) { handoff_dropped_++; return false; }
+        mqtt::Kind k = mqtt::route_of(line, len).kind;
+        if (!mqtt::handoff_accepts(k, (size_t)uxQueueSpacesAvailable(q_), MQTT_HANDOFF_RESERVE)) {
+            if (k == mqtt::K_SAMPLE) handoff_dropped_samples_++;
+            else handoff_dropped_++;
+            return false;
+        }
         scratch_.len = (uint16_t)len;
         memcpy(scratch_.data, line, len);
-        if (xQueueSend(q_, &scratch_, 0) != pdTRUE) { handoff_dropped_++; return false; }
+        if (xQueueSend(q_, &scratch_, 0) != pdTRUE) {
+            if (k == mqtt::K_SAMPLE) handoff_dropped_samples_++;
+            else handoff_dropped_++;
+            return false;
+        }
         enqueued_++;
         return true;
     }
@@ -86,12 +121,16 @@ public:
                                   "slaves must scan to find it (or build all boards with -DESPNOW_CHANNEL=%u)\r\n",
                                   (unsigned)ch, (int)ESPNOW_CHANNEL, (unsigned)ch, (unsigned)ch);
             } else {
-                Serial.println("wifi: disconnected");
+                Serial.println("wifi: disconnected (no automatic rescan; slow re-join on the known channel)");
             }
         }
         if (m != last_mqtt_) {
             last_mqtt_ = m;
             Serial.println(m ? "mqtt: connected" : "mqtt: disconnected");
+        }
+        if (time_ok_ != last_time_ok_) {
+            last_time_ok_ = time_ok_;
+            if (time_ok_) Serial.println("mqtt: wall clock set (SNTP), TLS certificate dates can be checked");
         }
     }
 
@@ -99,12 +138,15 @@ public:
     bool mqtt_up() const { return mqtt_up_; }
     uint8_t wifi_channel() const { return wifi_channel_; }
     uint32_t enqueued() const { return enqueued_; }
-    uint32_t handoff_dropped() const { return handoff_dropped_; }
+    uint32_t handoff_dropped() const { return handoff_dropped_; }                 // non-sample lines refused (hand-off queue full)
+    uint32_t handoff_dropped_samples() const { return handoff_dropped_samples_; } // samples refused (reserve or full)
     const mqtt::BridgeStats &bridge_stats() const { return bridge_.stats(); }
     const mqtt::QueueStats &queue_stats() const { return bridge_.queue().stats(); }
     uint32_t queued() const { return (uint32_t)bridge_.queue().size(); }
     uint32_t connects() const { return link_.connects(); }
     uint32_t drops() const { return link_.drops(); }
+    uint32_t wifi_joins() const { return wifi_joins_; }
+    uint32_t fast_joins() const { return fast_joins_; }
 
 private:
     struct Item {
@@ -118,14 +160,34 @@ private:
 
     static void task_entry(void *self) { static_cast<MqttUplink *>(self)->run(); }
 
+    // Drops the connection WITHOUT an MQTT DISCONNECT packet (PubSubClient::disconnect() would send one, and a clean disconnect
+    // cancels the last will): the broker then publishes the will, the same as for a real network failure.
+    void drop_connection() { net_.stop(); }
+
+    void join_wifi() {
+        WiFi.disconnect(false, false);  // end any attempt still running
+        wifi_joins_++;
+        if (have_ap_ && fast_fails_ < 3) {
+            if (wifi_attempt_open_) fast_fails_++;
+            WiFi.begin(WIFI_SSID, WIFI_PASSWORD, saved_channel_, saved_bssid_, true);   // known channel + BSSID: no scan
+            fast_joins_++;
+        } else {
+            if (have_ap_) { have_ap_ = false; fast_fails_ = 0; }                         // the AP moved? allow a full scan again
+            WiFi.begin(WIFI_SSID, WIFI_PASSWORD, WIFI_CHANNEL_HINT);
+        }
+        wifi_attempt_open_ = true;
+    }
+
     void run() {
         PsIo io;
         io.c = &client_;
-        char will_topic[mqtt::TOPIC_MAX];
+        char will_topic[mqtt::TOPIC_MAX], will_payload[64];
         bridge_.status_topic(will_topic, sizeof will_topic);
+        bridge_.status_payload(will_payload, sizeof will_payload, false);   // {"state":"offline","epoch":E}
         char client_id[48];
         snprintf(client_id, sizeof client_id, "resonance-%s-%04x", MQTT_SITE, (unsigned)(esp_random() & 0xFFFF));
         Item it;
+        uint32_t last_status_ms = 0;
         for (;;) {
             // 1. hand-off queue -> bridge queue (drop policy lives there); the first wait paces the loop
             TickType_t wait = pdMS_TO_TICKS(20);
@@ -139,27 +201,47 @@ private:
             uint32_t now = millis();
             mqtt::Action a = link_.poll(now, wifi, mq, (uint16_t)(esp_random() & 0xFFFF));
             if (a == mqtt::ACT_WIFI_BEGIN) {
-                WiFi.begin(WIFI_SSID, WIFI_PASSWORD, WIFI_CHANNEL_HINT);
+                join_wifi();
             } else if (a == mqtt::ACT_MQTT_CONNECT) {
-                const char *user = strlen(MQTT_USER) ? MQTT_USER : nullptr;
-                const char *pass = strlen(MQTT_USER) ? MQTT_PASSWORD : nullptr;
-                bool ok = client_.connect(client_id, user, pass, will_topic, 1, true, "offline", true);
-                link_.mqtt_result(millis(), ok, (uint16_t)(esp_random() & 0xFFFF));
-                if (ok) {
-                    mq = true;
-                    if (!bridge_.on_connected(io)) { client_.disconnect(); mq = false; }
+#if MQTT_TLS
+                if (!time_ok_) {   // certificate dates need the wall clock
+                    time_t t = time(nullptr);
+                    if (t > 1700000000) time_ok_ = true;
+                }
+#endif
+                if (time_ok_) {
+                    const char *user = strlen(MQTT_USER) ? MQTT_USER : nullptr;
+                    const char *pass = strlen(MQTT_USER) ? MQTT_PASSWORD : nullptr;
+                    bool ok = client_.connect(client_id, user, pass, will_topic, 1, true, will_payload, true);
+                    link_.mqtt_result(millis(), ok, (uint16_t)(esp_random() & 0xFFFF));
+                    if (ok) {
+                        mq = true;
+                        last_status_ms = millis();
+                        if (!bridge_.on_connected(io)) { drop_connection(); mq = false; }
+                    }
                 }
             }
             if (wifi && !wifi_up_) {
                 esp_wifi_set_ps(WIFI_PS_NONE);  // modem sleep would add ESP-NOW receive latency
                 wifi_channel_ = (uint8_t)WiFi.channel();
+                const uint8_t *b = WiFi.BSSID();
+                if (b) { memcpy(saved_bssid_, b, 6); saved_channel_ = wifi_channel_; have_ap_ = true; }
+                fast_fails_ = 0;
+                wifi_attempt_open_ = false;
+#if MQTT_TLS
+                configTime(0, 0, "pool.ntp.org", "time.google.com");   // SNTP, for the certificate validity check
+#endif
             }
             wifi_up_ = wifi;
             mqtt_up_ = mq;
             // 3. publish
             if (mq) {
                 client_.loop();
-                if (!bridge_.pump(io, 8)) client_.disconnect();  // the failed line stays queued for the next connection
+                if (!bridge_.pump(io, 8)) { drop_connection(); }   // the failed line stays queued for the next connection
+                else if (millis() - last_status_ms >= 60000) {     // heal a lost retained status / restarted broker
+                    last_status_ms = millis();
+                    if (!bridge_.publish_status(io)) drop_connection();
+                }
             }
         }
     }
@@ -171,13 +253,15 @@ private:
 #endif
     PubSubClient client_{net_};
     mqtt::Bridge<MQTT_QUEUE_DEPTH> bridge_;
-    mqtt::Link link_;
+    mqtt::Link link_{30000, 300000};   // Wi-Fi join attempts: first at once, then 30 s, 60 s, ... 5 min apart
     QueueHandle_t q_ = nullptr;
     Item scratch_;
-    volatile bool running_ = false, wifi_up_ = false, mqtt_up_ = false;
+    volatile bool running_ = false, wifi_up_ = false, mqtt_up_ = false, time_ok_ = !MQTT_TLS;
     volatile uint8_t wifi_channel_ = 0;
-    bool last_wifi_ = false, last_mqtt_ = false;
-    volatile uint32_t enqueued_ = 0, handoff_dropped_ = 0;
+    bool last_wifi_ = false, last_mqtt_ = false, last_time_ok_ = !MQTT_TLS;
+    bool have_ap_ = false, wifi_attempt_open_ = false;
+    uint8_t saved_bssid_[6] = {0}, saved_channel_ = 0, fast_fails_ = 0;
+    volatile uint32_t enqueued_ = 0, handoff_dropped_ = 0, handoff_dropped_samples_ = 0, wifi_joins_ = 0, fast_joins_ = 0;
 };
 
 }  // namespace net

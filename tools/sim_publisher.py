@@ -103,10 +103,12 @@ def line_t_us(line):
 
 
 class Publisher:
-    def __init__(self, args):
+    def __init__(self, args, epoch=None):
         self.args = args
         self.site = args.site
-        self.client = rm.make_client(args, will_site=self.site)
+        self.epoch = epoch                 # boot epoch of the source (meta.epoch): part of the status payloads and the last will
+        self.last_meta = None
+        self.client = rm.make_client(args, will_site=self.site, will_epoch=epoch)
         self.client.max_inflight_messages_set(500)
         self.client.max_queued_messages_set(0)
         self.connected = False
@@ -118,9 +120,16 @@ class Publisher:
         c = self.client
 
         def on_connect(cl, ud, flags, rc, props=None):
-            self.connected = (rc == 0) if isinstance(rc, int) else not rc.is_failure
-            if not self.connected:
+            # runs on the first connect AND after every automatic reconnect: a late subscriber or a restarted broker must see
+            # the retained status and meta again (the will of the dropped session may have said "offline" meanwhile)
+            ok = (rc == 0) if isinstance(rc, int) else not rc.is_failure
+            if not ok:
                 rm.log("connect refused: %s" % (rc,))
+                return
+            self._pub_status(True)
+            if self.last_meta is not None:
+                self._pub(rm.topic(self.site, "meta"), self.last_meta, True)
+            self.connected = True
 
         c.on_connect = on_connect
         c.connect(self.args.host, self.args.port, keepalive=30)
@@ -130,7 +139,6 @@ class Publisher:
             time.sleep(0.05)
         if not self.connected:
             raise SystemExit("cannot connect to %s:%d" % (self.args.host, self.args.port))
-        self._pub(rm.topic(self.site, "status"), b"online", True)
         rm.log("connected to %s:%d, site %s" % (self.args.host, self.args.port, self.site))
 
     def _pub(self, t, payload, retain):
@@ -140,19 +148,33 @@ class Publisher:
             self.infos = self.infos[-1000:]
         return info
 
+    def _pub_status(self, online):
+        self._pub(rm.topic(self.site, "status"), rm.status_payload(online, self.epoch), True)
+
     def send_line(self, line):
         r = rm.route(line)
         payload = line.encode("utf-8")
+        if r.kind == "meta":
+            self.last_meta = payload
+            try:
+                ep = json.loads(line).get("epoch")
+            except ValueError:
+                ep = None
+            if isinstance(ep, int) and ep != self.epoch:   # a new boot (serial mode): the status carries the new epoch
+                self.epoch = ep
+                self._pub_status(True)
         t = rm.topic(self.site, r.leaf)
         self._pub(t, payload, r.retain)
         if r.to_state:
             self._pub(rm.topic(self.site, "state"), payload, True)
+        if r.to_damage_state:
+            self._pub(rm.topic(self.site, "damage_state"), payload, True)
         self.sent += 1
         self.by_topic[r.leaf] = self.by_topic.get(r.leaf, 0) + 1
 
     def finish(self, offline=True):
         if offline:
-            self._pub(rm.topic(self.site, "status"), b"offline", True)
+            self._pub_status(False)
         for info in self.infos[-1000:]:
             info.wait_for_publish(timeout=30)
         self.client.loop_stop()
@@ -160,7 +182,20 @@ class Publisher:
 
 
 def run(args):
-    pub = Publisher(args)
+    epoch = None
+    if not args.serial:   # known up front: the status payloads and the last will carry meta.epoch
+        first = read_lines(args.jsonl) if args.jsonl else None
+        if first is None:
+            first = netsim_lines(args.netsim_exe, args.traces, args.netsim_args.split() if args.netsim_args else [])
+        for ln in first:
+            if rm.route(ln).kind == "meta":
+                try:
+                    e = json.loads(ln).get("epoch")
+                    epoch = e if isinstance(e, int) else None
+                except ValueError:
+                    pass
+                break
+    pub = Publisher(args, epoch)
     if args.dry_run:
         pub.connect = lambda: None
         pub._pub = lambda t, p, r: print("%s%s %s" % (t, " [retained]" if r else "", p.decode()[:110]))
@@ -171,6 +206,9 @@ def run(args):
         n_run = 0
         while True:
             n_run += 1
+            if n_run > 1 and not args.serial:
+                # a new lap starts at t_us 0 again, like a rebooted master: say so (the dashboard continues its timeline after a restart line)
+                pub.send_line('{"type":"restart","t_us":0,"epoch":%d,"prev_epoch":%d}' % (pub.epoch or 1, pub.epoch or 1))
             if args.serial:
                 source = serial_lines(args.serial, args.baud)
                 pacer = Pacer(0)  # the master already runs in real time

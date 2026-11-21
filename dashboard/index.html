@@ -127,6 +127,7 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
   <div class="row" id="mqttRow" style="margin-top:8px" role="group" aria-label="MQTT live source">
     <label>MQTT broker <input id="mqUrl" type="text" size="32" value="wss://broker.hivemq.com:8884/mqtt" spellcheck="false" autocomplete="off" aria-label="Broker WebSocket URL"></label>
     <label>Site <input id="mqSite" type="text" size="13" value="rsn-822298ab" spellcheck="false" autocomplete="off" aria-label="Site id"></label>
+    <button id="mqPlain" type="button" title="Use the plain WebSocket endpoint ws://broker.hivemq.com:8000/mqtt (for file:// or http pages when wss:// is blocked by the network)" hidden>Use ws:// (8000)</button>
     <button id="mqBtn" type="button" title="Subscribes to resonance/&lt;site&gt;/ on the broker over MQTT-over-WebSocket">MQTT live: connect</button>
     <span class="pill unk" id="mqState">MQTT idle</span>
     <span class="na" id="mqCounts"></span>
@@ -379,7 +380,7 @@ function fresh(){
     stats:{ok:0,bad:0,ignored:0,other:0,outOfOrder:0,capped:0,samples:0,restarts:0,nodes:0},warns:{},
     eLines:[],t0:0,tEnd:0,playhead:0,k:0,ks:0,playing:false,speed:10,
     lastArrival:0,raw:[],port:null,reader:null,
-    kind:"",mq:null,mqRecv:0,mqDup:0,mqSeen:null,mqSeenQ:[],mqBuf:[],mqSeq:0,mqMax:null,mqTimer:null,mqMaster:"",mqSite:""};
+    kind:"",mq:null,mqRecv:0,mqDup:0,mqSeen:null,mqSeenQ:[],mqBuf:[],mqSeq:0,mqMax:null,mqTimer:null,mqMaster:"",mqSite:"",mqEver:false};
 }
 S=fresh();
 var dirty=true, rafOn=false, lastFrame=0, lastTableK=-1, lastTableN=-1, lastTableT=0;
@@ -483,7 +484,8 @@ function parseLine(line,live){
     if(o.type==="restart"){
       if(!isNum(o.t_us)||o.t_us<0) return "bad";
       var t=o.t_us+S.tOff;
-      if(t<S.lastT){  // the master clock started again at 0 (reboot): continue the timeline after the last line
+      // MQTT delivers topics in no fixed order: a restart line may arrive after newer lines, so there only a drop of more than 30 s counts as a clock reset
+      if(t<S.lastT-(S.kind==="mqtt"?30e6:0)){  // the master clock started again at 0 (reboot): continue the timeline after the last line
         S.tOff=S.lastT+sfus()-o.t_us; t=o.t_us+S.tOff; S.rebased++;
       }
       S.rs.push({t:t,epoch:isNum(o.epoch)?o.epoch:null,prev:isNum(o.prev_epoch)?o.prev_epoch:null,first:!S.ev.length&&!S.sm.length});
@@ -679,25 +681,42 @@ function stopLive(){
    Same schema-2 JSON lines as the serial source, one per message on resonance/<site>/<type> (see tools/resonance_mqtt.py and
    firmware/esp32/include/mqtt_logic.h). Every line goes through parseLine() like in the other sources. MQTT only orders messages
    per topic, so lines are held briefly and released sorted by t_us (restart/node/sample/event tie-break) before parsing. */
-var MQ={holdMs:2500,waterUs:3e6,resetUs:30e6,tickMs:250,seenMax:800,retainedStateMs:700};
+var MQ={holdMs:2500,resetUs:30e6,tickMs:250,seenMax:800,retainedStateMs:700};
+var WSS_DEFAULT="wss://broker.hivemq.com:8884/mqtt", WS_FALLBACK="ws://broker.hivemq.com:8000/mqtt";
 var SITE_RE=/^[a-z0-9_-]{1,32}$/;
 function setMq(cls,text){ var e=$("mqState"); e.className="pill "+cls; e.textContent=text }
 function mqCountsText(){
   var s=S.stats, drop=s.bad+s.other+s.capped;
   return "received "+S.mqRecv+" · dropped "+drop+(S.mqDup?" · duplicates skipped "+S.mqDup:"")+(S.mqMaster?" · master "+S.mqMaster:"");
 }
+function parseStatus(text){
+  if(text==="online"||text==="offline") return {state:text,epoch:null};   // legacy plain text
+  try{ var o=JSON.parse(text); return {state:(o&&(o.state==="online"||o.state==="offline"))?o.state:null,epoch:(o&&isNum(o.epoch))?o.epoch:null} }catch(e){ return {state:null,epoch:null} }
+}
 function mqRank(o){ switch(o.type){case "meta":return -1;case "restart":return 0;case "node":return 1;case "sample":return 2;default:return 3} }
 function mqFeed(my,text){
   if(S!==my) return;
   var res=parseLine(text,true); count(res);
+  liveResort();
   showMsgs(); dirty=true; schedule();
+}
+// Second line of defence: a line that still arrives later than the hold time (slow broker) must not corrupt the derived arrays,
+// which addEvent/addSample build incrementally in time order. Re-sort and rebuild when the tail is out of order.
+function liveResort(){
+  var ev=S.ev, sm=S.sm, n=ev.length, m=sm.length;
+  var bad=(n>1&&ev[n-1].t<ev[n-2].t)||(m>1&&sm[m-1].t<sm[m-2].t);
+  if(S.nl.length>1&&S.nl[S.nl.length-1].t<S.nl[S.nl.length-2].t) S.nl.sort(function(a,b){return a.t-b.t});
+  if(!bad) return;
+  S.stats.outOfOrder++;
+  var e2=ev.slice().sort(function(a,b){return a.t-b.t}), s2=sm.slice().sort(function(a,b){return a.t-b.t});
+  resetDerived(); e2.forEach(addEvent); s2.forEach(addSample);
 }
 function mqRelease(my,all){
   if(S!==my||!my.mqBuf.length) return;
   var now=performance.now(), b=my.mqBuf;
   b.sort(function(a,c){return a.t-c.t||a.r-c.r||a.seq-c.seq});
   var n=0;
-  while(n<b.length&&(all||now-b[n].at>=MQ.holdMs||b[n].t<=my.mqMax-MQ.waterUs)) n++;   // a prefix only: nothing released ahead of an earlier line
+  while(n<b.length&&(all||now-b[n].at>=MQ.holdMs)) n++;   // wall-clock age only: t_us may advance much faster than real time (burst, backlog flush)   // a prefix only: nothing released ahead of an earlier line
   var out=b.splice(0,n);
   for(var i=0;i<out.length;i++) mqFeed(my,out[i].text);
 }
@@ -739,7 +758,12 @@ function onMqMessage(my,base,topic,payload,packet){
   text=text.replace(/[\r\n]+$/,"");
   my.mqRecv++;
   var retained=!!(packet&&packet.retain);
-  if(leaf==="status"){ my.mqMaster=text.slice(0,16); dirty=true; schedule(); return }   // retained online/offline of the master (last will)
+  if(leaf==="status"){   // retained {"state":"online"|"offline","epoch":E} of the master; "offline" = its last will
+    var st=parseStatus(text);
+    // an "offline" of an OLDER boot (its half-open session timing out after the new boot said "online") is stale: ignore it
+    if(st.state&&!(st.state==="offline"&&isNum(st.epoch)&&my.meta&&isNum(my.meta.epoch)&&st.epoch!==my.meta.epoch)) my.mqMaster=st.state;
+    dirty=true; schedule(); return;
+  }
   if(leaf==="state"){
     // the retained latest decision: only useful for a page that joined late, has nothing yet and whose master is online; live updates repeat the sample/event lines
     if(retained) setTimeout(function(){ if(S===my&&!my.sm.length&&!my.ev.length&&my.mqMaster!=="offline") mqPush(my,text) },MQ.retainedStateMs);   // not when the master is known to be offline: that decision is stale and its clock would collide with the next run
@@ -771,10 +795,21 @@ function connectMqtt(){
   var c;
   try{ c=mqtt.connect(url,opts) }catch(e){ warn("mqtt","Could not start the MQTT connection: "+(e&&e.message||e)); setMq("bad","MQTT error"); return }
   my.mq=c;
+  // On file:// and http pages a blocked wss:// port (8884) is common: if nothing connects within 12 s, fall back ONCE to the plain
+  // WebSocket endpoint of the same public broker. Not on https pages (mixed content is blocked there) and not for other URLs.
+  if(url===WSS_DEFAULT&&location.protocol!=="https:"&&!window.__noMqFallback){
+    setTimeout(function(){
+      if(S!==my||my.mqEver||!my.mq) return;
+      $("mqUrl").value=WS_FALLBACK;
+      connectMqtt();
+      warn("mqtt","wss://broker.hivemq.com:8884 did not connect (blocked port or network); fell back to "+WS_FALLBACK+" (unencrypted WebSocket, fine for demo data).");
+    },12000);
+  }
   $("liveInfo").textContent="Waiting for messages on "+base+"+ ...";
   setMq("unk","MQTT connecting...");
   c.on("connect",function(){
     if(S!==my) return;
+    my.mqEver=true;
     setMq("ok","MQTT connected");
     c.subscribe(base+"+",{qos:1},function(err){ if(err&&S===my) warn("mqtt","Subscribe failed: "+(err.message||err)) });
   });
@@ -1244,6 +1279,8 @@ $("mqBtn").onclick=function(){
   if(S.mode==="live"&&S.kind==="mqtt"&&S.mq){ stopLive(); $("mqBtn").textContent="MQTT live: connect"; $("liveBadge").textContent="○ DISCONNECTED"; $("liveBadge").className="pill bad"; return }
   connectMqtt();
 };
+if(location.protocol!=="https:") $("mqPlain").hidden=false;
+$("mqPlain").onclick=function(){ $("mqUrl").value=WS_FALLBACK; connectMqtt() };
 $("notifBtn").onclick=function(){
   if(!notifySupported()) return;
   try{ var p=Notification.requestPermission(function(){updNotifBtn()}); if(p&&p.then) p.then(updNotifBtn) }catch(e){ updNotifBtn() }
@@ -1273,7 +1310,7 @@ window.addEventListener("drop",function(e){e.preventDefault();dc=0;$("drop").cla
 renderLegend();
 readColors();
 dirty=true; schedule();
-window.__resonance={MQ:MQ,connectMqtt:connectMqtt,parseLine:parseLine,normalise:normalise,normaliseSample:normaliseSample,loadText:loadText,seek:setPlayhead,state:function(){return S},render:function(){render(0)}};
+window.__resonance={parseStatus:parseStatus,MQ:MQ,connectMqtt:connectMqtt,parseLine:parseLine,normalise:normalise,normaliseSample:normaliseSample,loadText:loadText,seek:setPlayhead,state:function(){return S},render:function(){render(0)}};
 })();
 </script>
 </body>
