@@ -129,8 +129,9 @@ static inline size_t meta_line(char *buf, size_t cap, const Meta &m) {
     w.lit("{\"type\":\"meta\",\"schema\":").u64(SCHEMA);
     w.lit(",\"source\":").str(m.source ? m.source : "");
     w.lit(",\"rule\":").str(rs);
-    w.lit(",\"T\":").num((double)m.cfg.T);
-    if (m.cfg.rule == 'f') w.lit(",\"T_b\":").num((double)m.cfg.T_b).lit(",\"gate\":").num((double)m.cfg.gate);   // T = the AE threshold
+    // "T" is always the threshold of the std ratio r (what a reader draws on the r chart): rule f: T_b; its AE threshold is "T_ae".
+    w.lit(",\"T\":").num((double)(m.cfg.rule == 'f' ? m.cfg.T_b : m.cfg.T));
+    if (m.cfg.rule == 'f') w.lit(",\"T_ae\":").num((double)m.cfg.T).lit(",\"gate\":").num((double)m.cfg.gate);
     w.lit(",\"use_raw\":").boolean(m.cfg.use_raw);
     w.lit(",\"debounce\":").u64(m.cfg.debounce);
     w.lit(",\"commission_windows\":").u64(m.cfg.comm_n);

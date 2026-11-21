@@ -126,8 +126,8 @@ def test_schema3_field_rules():
     assert any("differs from the sample" in x for x in check(lines[:j] + [json.dumps(e, separators=(",", ":"))] + lines[j + 1:]))
     # meta: rule f needs T_b and gate, dmg constants
     m = json.loads(META)
-    assert m["rule"] == "f" and m["T"] == 6 and m["T_b"] == 3 and m["dmg_p"] == 32
-    del m["T_b"]
+    assert m["rule"] == "f" and m["T"] == 3 and m["T_ae"] == 6 and m["dmg_p"] == 32
+    del m["T_ae"]
     assert any("meta keys" in x for x in check([json.dumps(m, separators=(",", ":"))] + LINES[1:]))
 
 

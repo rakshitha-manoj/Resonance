@@ -911,7 +911,7 @@ static void test_json_meta_line() {
     m.epoch = 2866824256u;
     m.samples = true;
     size_t n = J::meta_line(b, sizeof b, m);
-    const char *want = "{\"type\":\"meta\",\"schema\":3,\"source\":\"netsim\",\"rule\":\"f\",\"T\":6,\"T_b\":3,\"gate\":92.12,\"use_raw\":false,\"debounce\":1,"
+    const char *want = "{\"type\":\"meta\",\"schema\":3,\"source\":\"netsim\",\"rule\":\"f\",\"T\":3,\"T_ae\":6,\"gate\":92.12,\"use_raw\":false,\"debounce\":1,"
                        "\"commission_windows\":20,\"status_every_sf\":64,\"dmg_delta\":0.02,\"dmg_p\":32,\"superframe_s\":1.4,\"floors\":[5,10],\"epoch\":2866824256,\"samples\":true}\n";
     TEST_ASSERT_EQUAL_STRING(want, b);
     TEST_ASSERT_EQUAL_UINT32(strlen(want), n);

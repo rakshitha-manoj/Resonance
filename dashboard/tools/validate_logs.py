@@ -5,7 +5,7 @@ non-decreasing, sample/closed consistency, sample vs event agreement for the sam
 commission_n and age ranges, and for `node` lines: slave 1|2, state DEAD|ALIVE, DEAD/ALIVE alternate per slave (a master restart
 or a new meta line forgets the state: the master starts with both slaves alive), and the next sample's `alive` bit for that slave
 agrees with the node line. A second meta line (hardware reboot) restarts the closed/events counters.
-Schema 3 (additive over 2): meta also has dmg_delta / dmg_p (and T_b / gate for rule f), sample and event lines carry ae / f1 / drop
+Schema 3 (additive over 2): meta also has dmg_delta / dmg_p (and T_ae / gate for rule f; T is always the std-ratio threshold, for rule f T_b), sample and event lines carry ae / f1 / drop
 ([a, b] per slave, null = unknown) and dmg (0|1); the `damage` line {"type":"damage","t_us","sf","state":"BEGIN"|"END","drop",
 "f1":[..],"f1_0":[..]} must alternate BEGIN / END, follows the sample whose `dmg` flips (BEGIN: dmg 1 and drop >= dmg_delta, END: dmg 0
 and drop < dmg_delta / 2), a slave that did not report in a sample (age != 0) has null ae / f1 / drop, and drop needs f1.
@@ -17,7 +17,7 @@ CLASSES = {"COMMISSIONING", "AMBIENT", "LOCAL", "BUILDING", "NO_DATA"}
 META_KEYS = {"type", "schema", "source", "rule", "T", "use_raw", "debounce", "commission_windows", "status_every_sf",
              "superframe_s", "floors", "epoch", "samples"}
 META_KEYS_V3 = META_KEYS | {"dmg_delta", "dmg_p"}
-META_KEYS_V3_F = META_KEYS_V3 | {"T_b", "gate"}
+META_KEYS_V3_F = META_KEYS_V3 | {"T_ae", "gate"}
 META_KEYS_V1 = {"type", "schema", "rule", "T", "use_raw", "commission_windows", "status_every_sf", "superframe_s"}
 EVENT_KEYS_V1 = {"type", "t_us", "sf", "class", "slave", "degraded_alive", "r1", "r2", "base1", "base2", "alive", "closed", "events"}
 EVENT_KEYS_V2 = EVENT_KEYS_V1 | {"commission_n"}
@@ -116,8 +116,8 @@ def validate(path):
                 if not is_int(o.get("dmg_p"), 1):
                     err(n, "dmg_p")
                 if o.get("rule") == "f":
-                    if not (is_num(o.get("T_b")) and o["T_b"] > 0):
-                        err(n, "T_b")
+                    if not (is_num(o.get("T_ae")) and o["T_ae"] > 0):
+                        err(n, "T_ae")
                     if not (is_num(o.get("gate")) and o["gate"] >= 0):
                         err(n, "gate")
             if schema in (2, 3):
