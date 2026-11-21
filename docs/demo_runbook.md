@@ -2,6 +2,10 @@
 
 Everything here is SIMULATED data (a simulated 10-storey building, sensors on floors 5 and 10). Say so at the start. Nothing was measured on hardware.
 
+The scenario is hand-picked: the excitation realisations of the building-wide event and the frequency shift (exc ids 16 and 18) were chosen by scanning for clean, unambiguous events. On the fresh test block the deployed rule's mean event recall (LOCAL and BUILDING recall averaged) is 0.734, about 73 %, at 1.64 false onsets per hour over healthy and noise-only hours, which does NOT meet the 1/h target (`models/selected/validation/fusion_eval_r3_test.md`, README). Do not present the demo as typical.
+
+**Telegram warning:** if `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` are already set permanently (User environment variables), `tools/alerter.py` and `--selftest-message` send REAL messages. Check with `echo $env:TELEGRAM_BOT_TOKEN` (do not paste it anywhere) and remove them from a window with `Remove-Item Env:TELEGRAM_BOT_TOKEN, Env:TELEGRAM_CHAT_ID` if you only want a dry run.
+
 The demo story (about 7.5 minutes of log time; times are minutes:seconds into the demo):
 
 | Time | What happens | What you point at |
@@ -9,7 +13,7 @@ The demo story (about 7.5 minutes of log time; times are minutes:seconds into th
 | 0:00 - 0:28 | Calibration (20 windows): each sensor learns its own normal level | grey "Calibrating" banner |
 | 0:28 | Normal monitoring | green banner |
 | about 2:10 | Each sensor has commissioned its natural frequency f1 (about 7.03 Hz) | the shaded band appears on the f1 chart |
-| 2:50 | Impact on floor 5 -> LOCAL event, sensor 1. The TinyML autoencoder fires first (tag AE), the std ratio joins a moment later | event row with the AE tag, AE chart spike on floor 5 |
+| 2:50 | Impact on floor 5 -> LOCAL event, sensor 1. Both detectors see it; at the begin superframe only the autoencoder's smoothed flag is on (tag AE), the std ratio confirms one superframe later | event row with the AE tag, AE chart spike on floor 5 |
 | 3:27 | Shaking of the whole building -> BUILDING-WIDE event | red square on the timeline |
 | 3:58 | Frequency shift on floor 10 -> LOCAL event, sensor 2, detected ONLY by the autoencoder (the std ratio stays below 3) | AE chart over T_ae = 6 while the std chart is flat |
 | 4:29 | A permanent 30 % stiffness loss in storey 1 starts (no event is visible: the building just vibrates a bit slower) | f1 drifting down |
@@ -18,7 +22,7 @@ The demo story (about 7.5 minutes of log time; times are minutes:seconds into th
 ## (a) Offline replay demo (no network, safest, do this first)
 
 1. Open `dashboard/index.html` by double-click (Chrome or Edge). No server needed.
-2. Click **Damage demo (simulated)**, then set speed to **10x** (or **60x** if short of time) and press Play. The page uses its own embedded copy of the log, so it works from `file://`.
+2. Click **Damage demo (simulated)**: it starts playing at 10x by itself; switch to 60x if short of time (the Play button toggles pause). The page uses its own embedded copy of the log, so it works from `file://`.
 3. Or use a link: `file:///D:/Resonance/dashboard/index.html?replay=demo_events_sim.jsonl&speed=20` (adjust the path). Add `&at=sf236&play=0` to open paused right after the alarm.
 4. Back-up: the same data as pictures, `docs/figures/dashboard_overview.png` (end state) and `docs/figures/dashboard_damage.png` (moment of the alarm).
 
@@ -26,10 +30,10 @@ The demo story (about 7.5 minutes of log time; times are minutes:seconds into th
 
 Needs internet. The broker is the free public HiveMQ one: anybody who knows the site id can read the topics, which is fine for simulated data.
 
-1. Build the simulator once (from `firmware/esp32`): `pio run -e netsim`. Run it again after any `pio test -e netsim`, which overwrites the exe.
+1. Build the simulator once (from `firmware/esp32`), in the VS Code PlatformIO terminal, or in plain PowerShell with `~\.platformio\penv\Scripts\pio.exe run -e netsim` (pio is not on the PATH there; WinLibs gcc must be on the PATH). Run it again after any `pio test -e netsim`, which overwrites the exe.
 2. Publish (from the repository root, PowerShell):
    ```
-   pip install -r requirements-iot.txt        # once (in the .venv: .venv\Scripts\python.exe -m pip ...)
+   .venv\Scripts\python.exe -m pip install -r requirements-iot.txt      # once
    .venv\Scripts\python.exe tools/sim_publisher.py --speed 5 --transport websockets --port 8000
    ```
    `--speed 5` plays the 7.5 minutes in about 90 s (`--speed 1` = real time; `--loop -1` repeats forever). The websocket options are for networks that block port 1883 (`ws://broker.hivemq.com:8000/mqtt`); on a free network drop them.
@@ -51,7 +55,7 @@ Needs internet. The broker is the free public HiveMQ one: anybody who knows the 
 
 ## (c) Wokwi cloud demo (the master firmware in a simulated ESP32)
 
-1. From `firmware/esp32`: `pio run -e master_wokwi_cloud` (flash use 96 % of the default app partition, it fits).
+1. From `firmware/esp32`, in the VS Code PlatformIO terminal (or `~\.platformio\penv\Scripts\pio.exe run -e master_wokwi_cloud` in PowerShell): `pio run -e master_wokwi_cloud` (flash use 96 % of the default app partition, it fits; if it ever does not, see "Partition table" in `firmware/esp32/wokwi/README.md`).
 2. In VS Code: "Wokwi: Select Config File" -> `firmware/esp32/wokwi/master_cloud/wokwi.toml`, then "Wokwi: Start Simulator".
 3. The serial monitor should show `wifi: connected ssid=Wokwi-GUEST channel=6`, `mqtt: connected`, then one JSON line per superframe and `S,mqtt,...` statistics. The demo loops every 7.5 minutes (meta `source` = `wokwi_demo`), so the DAMAGE alarm comes back each lap (after the lap restarts the frequency is back to normal and the alarm ends first).
 4. View it exactly as in (b) step 3 (same site id; do not run `sim_publisher.py` at the same time on the same site).
@@ -78,4 +82,4 @@ Needs internet. The broker is the free public HiveMQ one: anybody who knows the 
 - **Telegram blocked**: the alerter prints the same messages in the terminal (dry run); show those.
 - **Wokwi will not connect**: use (b); same dashboard, same data.
 - **Dashboard misbehaves**: `docs/figures/dashboard_overview.png` and `dashboard_damage.png`, or reload with the `?replay=` link.
-- **`program.exe` missing**: `pio run -e netsim` in `firmware/esp32`; or publish the stored log without the simulator: `tools/sim_publisher.py --jsonl dashboard/demo_events_sim.jsonl --speed 5`.
+- **`program.exe` missing**: `pio run -e netsim` in `firmware/esp32` (VS Code PlatformIO terminal, or `~\.platformio\penv\Scripts\pio.exe run -e netsim`); or publish the stored log without the simulator: `.venv\Scripts\python.exe tools/sim_publisher.py --jsonl dashboard/demo_events_sim.jsonl --speed 5 --transport websockets --port 8000`.

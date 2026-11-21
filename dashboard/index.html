@@ -105,6 +105,7 @@ canvas{width:100%;display:block}
 #dmgBanner.d-warn{border-color:var(--local);background:var(--tint-local)}
 #dmgBanner.d-alarm{border-color:var(--dmg);background:var(--dmg);color:var(--dmg-text)}
 #dmgBanner.d-alarm .sub{color:var(--dmg-text)}
+.chan{font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;opacity:.8;margin-bottom:2px}
 .tag{display:inline-block;padding:0 7px;border-radius:6px;border:1px solid currentColor;font-size:.8rem;font-weight:700;margin-right:4px}
 .tag.std{color:var(--r1)}.tag.ae{color:var(--ae)}
 tr.dmgrow td{background:var(--tint-dmg)}
@@ -148,7 +149,7 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
     <button id="mqBtn" type="button" title="Subscribes to resonance/&lt;site&gt;/ on the broker over MQTT-over-WebSocket">MQTT live: connect</button>
     <span class="pill unk" id="mqState">MQTT idle</span>
     <span class="na" id="mqCounts"></span>
-    <button id="notifBtn" type="button" title="Browser notification when an event begins or a sensor goes offline (live sources only)">Enable notifications</button>
+    <button id="notifBtn" type="button" title="Browser notification when an event begins, a sensor goes offline or the DAMAGE alarm starts / clears (live sources only)">Enable notifications</button>
   </div>
   <details id="mqAdv" style="margin-top:4px">
     <summary>MQTT options (private broker, credentials)</summary>
@@ -180,7 +181,7 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
       <li><b>Damage demo (simulated).</b> Plays <code>demo_events_sim.jsonl</code>, made by the PC network simulator (netsim) from the project's firmware code: a simulated 10-storey building, sensors on floors 5 and 10, a local impact, a building-wide event, a frequency shift on one sensor and finally a permanent 30 % stiffness loss in storey 1 (natural frequency about 4 % lower). The page reads the file from its folder when it can, otherwise it uses the copy embedded in the page.</li>
       <li><b>Panels.</b> Std ratio r (vibration level / own baseline, threshold T) and AE ratio (int8 autoencoder reconstruction error / own baseline, threshold T_ae) are the two detectors of rule f (an event if EITHER fires, each smoothed 2-of-3). The natural-frequency panel shows each sensor's f1 estimate against its own commissioned f1_0 with a band of plus/minus the DAMAGE threshold; the DAMAGE banner turns red after the pooled f1 drop has stayed at or above the threshold for P superframes.</li>
       <li><b>Live over USB.</b> Chrome or Edge on a desktop only (Web Serial API), 115200 baud. Close any other program using the port first (PlatformIO or Arduino serial monitor). The master firmware prints the same JSON lines as the simulator; the page keeps lines that are JSON objects of the schema and ignores everything else, including the <code>R,</code> and <code>S,</code> CSV lines and <code>#</code> comments. If the master reboots, its clock starts again at 0; a <code>restart</code> line marks it and the page continues the timeline after the last line.</li>
-      <li><b>MQTT live (cloud).</b> The master (or <code>tools/sim_publisher.py</code>, or the Wokwi cloud demo) publishes the same JSON lines to an MQTT broker under <code>resonance/&lt;site&gt;/&lt;type&gt;</code>; this page subscribes over MQTT-over-WebSocket (default: the free public HiveMQ broker, site id from the firmware config) and feeds each message through the same parser as the other sources. Anybody who knows the site id can read a public broker's topics, so use it for simulator or demo data only; a private broker with TLS and a password works by changing the URL and the options. The retained <code>meta</code> arrives at once, so a page that joins late still knows the floors. The counters show messages received and lines dropped (malformed or buffer full); lines the master or the broker dropped are only visible in the master's <code>S,mqtt</code> statistics. Cross-topic arrival order is not guaranteed by MQTT: the page re-sorts by time. Browser notifications (permission asked when you click "Enable notifications") fire for new <code>begin</code> events and sensors going offline. Needs <code>vendor/mqtt.min.js</code> (MQTT.js, MIT); without it the rest of the page works as before.</li>
+      <li><b>MQTT live (cloud).</b> The master (or <code>tools/sim_publisher.py</code>, or the Wokwi cloud demo) publishes the same JSON lines to an MQTT broker under <code>resonance/&lt;site&gt;/&lt;type&gt;</code>; this page subscribes over MQTT-over-WebSocket (default: the free public HiveMQ broker, site id from the firmware config) and feeds each message through the same parser as the other sources. Anybody who knows the site id can read a public broker's topics, so use it for simulator or demo data only; a private broker with TLS and a password works by changing the URL and the options. The retained <code>meta</code> arrives at once, so a page that joins late still knows the floors. The counters show messages received and lines dropped (malformed or buffer full); lines the master or the broker dropped are only visible in the master's <code>S,mqtt</code> statistics. Cross-topic arrival order is not guaranteed by MQTT: the page re-sorts by time. Browser notifications (permission asked when you click "Enable notifications") fire for new <code>begin</code> events, sensors going offline and the DAMAGE alarm starting or clearing. Needs <code>vendor/mqtt.min.js</code> (MQTT.js, MIT); without it the rest of the page works as before.</li>
       <li><b>Demo.</b> A short scripted scenario written to follow schema 2 exactly. It is not hardware data and not simulator output.</li>
       <li><b>Not available:</b> r values between logged lines in schema 1 logs, and the age of a sensor's last report in schema 1 logs. These show as "not available".</li>
       <li><b>Limits.</b> Replay, demo and USB run entirely offline; nothing leaves your computer. Only the "MQTT live" source connects to a broker (and only when you click connect).</li>
@@ -189,11 +190,12 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
 </section>
 
 <div id="demoFlag" class="demo-flag" hidden>SYNTHETIC DEMO DATA &ndash; scripted by hand, not measured on real hardware and not simulator output.</div>
-<div id="simFlag" class="sim-flag" hidden>SIMULATED DATA &ndash; produced by the PC network simulator (netsim) from simulated building vibration, not measured on real hardware.</div>
+<div id="simFlag" class="sim-flag" hidden>SIMULATED DATA &ndash; produced by the PC network simulator (netsim) from simulated building vibration, not measured on real hardware. The demo scenario is curated: its events are hand-picked and scripted.</div>
 
 <section id="banner" class="card s-comm" aria-live="polite" aria-label="Current state">
   <div class="glyph" id="bGlyph" aria-hidden="true">&#9675;</div>
   <div>
+    <div class="chan">Vibration events (std ratio + autoencoder)</div>
     <div class="big" id="bText">No data yet</div>
     <div class="sub" id="bSub">Run the demo, open a log file or connect to the master.</div>
     <div id="bChip"></div>
@@ -203,6 +205,7 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
 <section id="dmgBanner" class="card d-na" aria-live="polite" aria-label="Structural damage indication" hidden>
   <div class="glyph" id="dGlyph" aria-hidden="true">&#9675;</div>
   <div>
+    <div class="chan">Structural damage (natural frequency)</div>
     <div class="big" id="dText">Damage detector</div>
     <div class="sub" id="dSub"></div>
   </div>
@@ -1073,6 +1076,10 @@ function embeddedSim(){ var e=document.getElementById("sim-data"); return e?e.te
 async function loadSim(opts){
   opts=opts||{};
   var name=opts.url||SIM_URL, text="", how="";
+  if(!/^[A-Za-z0-9_.-]+\.jsonl$/.test(name)){   // relative file names only: no paths, no other origins, no data: URLs (a link must not be able to load a spoofed log)
+    warn("sim","The replay link must name a .jsonl file in the same folder as this page (letters, digits, _ . - only); "+name.slice(0,60)+" was refused.");
+    return;
+  }
   try{
     var r=await fetch(name,{cache:"no-store"});
     if(!r.ok) throw new Error("HTTP "+r.status);
@@ -1101,7 +1108,8 @@ function seekTo(at){ // "end" | seconds into the log | "sf<N>"
   var t;
   if(at==="end") t=S.tEnd;
   else if(/^sf\d+$/.test(at)){ var want=+at.slice(2), best=null; for(var i=0;i<S.sm.length;i++) if(S.sm[i].sf>=want){best=S.sm[i];break} t=best?best.t:S.tEnd }
-  else t=S.t0+(+at)*1e6;
+  else if(isFinite(+at)&&String(at).trim()!=="") t=S.t0+(+at)*1e6;
+  else t=S.tEnd;
   setPlayhead(t);
 }
 
@@ -1230,8 +1238,10 @@ function notifyLine(text){
     body="Superframe "+o.sf+(isNum(o.r1)?", r1 "+o.r1.toFixed(1):"")+(isNum(o.r2)?", r2 "+o.r2.toFixed(1):"");
   } else if(o.type==="node"&&o.state==="DEAD"&&(o.slave===1||o.slave===2)){
     title="Sensor "+o.slave+" offline ("+lab(o.slave)+")"; body="No valid report for 3 superframes";
-  } else if(o.type==="damage"){
-    title="Damage indication"; body=text.slice(0,140);
+  } else if(o.type==="damage"&&o.state==="BEGIN"){
+    title="DAMAGE ALARM"; body="Natural frequency down "+(isNum(o.drop)?(o.drop*100).toFixed(1)+" %":"(drop n/a)")+" (superframe "+o.sf+")";
+  } else if(o.type==="damage"&&o.state==="END"){
+    title="DAMAGE cleared"; body="Natural frequency back within the threshold (superframe "+o.sf+")";
   }
   if(title){ try{ new Notification(title,{body:body,tag:"resonance-"+o.type+"-"+(o.sf===undefined?"":o.sf)+"-"+(o.slave||0)}) }catch(e){} }
 }
@@ -1254,11 +1264,21 @@ function onMqMessage(my,base,topic,payload,packet){
     mqMasterEval(my);
     dirty=true; schedule(); return;
   }
-  if(leaf==="damage_state"){   // the retained latest damage line: live updates repeat it on resonance/<site>/damage, so a retained copy is stale unless the page is brand new and the master is online
-    if(retained) setTimeout(function(){ if(S===my&&!my.sm.length&&!my.ev.length&&!my.dl.length&&my.mqMaster==="online") mqPush(my,text) },MQ.retainedStateMs);
+  if(leaf==="damage_state"){
+    // The retained latest damage line. Live updates repeat it on resonance/<site>/damage, so a retained copy is only wanted by a page that joined late.
+    // It is fed only if the master is known to be online AND the retained decision (`state`) is not older than it (t_us and sf) and agrees with it
+    // (BEGIN needs dmg 1 in that decision): a BEGIN left over from an EARLIER run has a later clock / superframe than the new run's first state.
+    if(retained) setTimeout(function(){
+      var st=my.mqRetState, d; try{ d=JSON.parse(text) }catch(e){ return }
+      if(S!==my||my.dl.length||my.mqMaster!=="online"||!st||!d||!isNum(d.t_us)||!isNum(d.sf)) return;
+      if(!(isNum(st.t_us)&&isNum(st.sf)&&d.t_us<=st.t_us&&d.sf<=st.sf)) return;
+      if(d.state==="BEGIN"&&st.dmg!==1) return;
+      mqPush(my,text);
+    },MQ.retainedStateMs+100);
     return;
   }
   if(leaf==="state"){
+    if(retained){ try{ my.mqRetState=JSON.parse(text) }catch(e){} }
     // the retained latest decision: only useful for a page that joined late, has nothing yet and whose master is KNOWN to be online (an unknown or offline status means the decision may be stale); live updates repeat the sample/event lines
     if(retained) setTimeout(function(){ if(S===my&&!my.sm.length&&!my.ev.length&&my.mqMaster==="online") mqPush(my,text) },MQ.retainedStateMs);   // not when the master is known to be offline: that decision is stale and its clock would collide with the next run
     return;
@@ -1525,7 +1545,7 @@ function renderBanner(v){
   t.textContent=stateText(v);
   var sub="";
   if(v.cls===0) sub="Learning each floor's normal vibration level. Do not shake the model.";
-  else if(v.cls===1) sub="Only ordinary background vibration.";
+  else if(v.cls===1) sub="Vibration events: only ordinary background vibration"+(S.meta&&S.meta.dmg_delta!==null?" (shaking only; structural damage is judged separately from the natural frequency, in the box below)":"")+".";
   else if(v.cls===2) sub="Only the "+lab(v.slave)+" sensor is vibrating strongly; the other floor is calm.";
   else if(v.cls===3) sub="Both floors are vibrating strongly at the same time.";
   else sub="Neither sensor has delivered a report.";
@@ -1577,7 +1597,7 @@ function renderNodes(v,k,now){
     }
     var cn=v?(i?v.cn2:v.cn1):null, calib="";
     if(v&&cn!==null&&cn!==undefined&&(v.cls===0||!(base>0))) calib=' &middot; calibration '+cn+' / '+N+' reports';
-    h+='<div class="node"><div><b>Sensor '+(i+1)+'</b> ('+esc(labFull(i+1))+')'+esc(src[i])+'<small>'+seen+'</small>'+
+    h+='<div class="node"><div><b>Sensor '+(i+1)+'</b> ('+esc(lab(i+1))+')'+esc(src[i])+'<small>'+seen+'</small>'+
        '<small>Baseline: '+(base===null||(v&&!v.hasBase)?'<span class="na">n/a</span>':(base>0?base.toFixed(1)+' counts':'<span class="na">not known yet (calibrating)</span>'))+calib+' &middot; r now: '+(v?fmtR(r):'n/a')+'</small></div>'+pill+'</div>';
   }
   var rr=S.rs.filter(function(x){return !x.first&&x.t<=cur}), m=S.meta;
@@ -1606,7 +1626,7 @@ function renderCounters(k,now){
   $("counters").innerHTML=
     st(l1,"Local events, "+esc(labFull(1)))+st(l2,"Local events, "+esc(labFull(2)))+st(bb,"Building-wide events")+st(tot,"All events")+
     st(since,"Time since last event",true)+
-    st(rate,"Events per hour of monitoring (after calibration). If nothing was really shaking the model, each one is a false alarm.",true)+
+    st(rate,(S.demo||(S.meta&&(S.meta.source==="netsim"||S.meta.source==="wokwi_demo")))?"Events per hour of monitoring (after calibration). The events in this demo are scripted shaking, so this is not a false-alarm rate.":"Events per hour of monitoring (after calibration). If nothing was really shaking the model, each one is a false alarm.",true)+
     st(mon?fmtDur(mon):'<span class="na">0</span>',"Monitoring time since calibration finished",true)+
     st(e&&e.events!==null?e.events:'<span class="na">n/a</span>',"Master's own event counter (begin + change lines)",true);
 }
@@ -1742,8 +1762,10 @@ function drawChart(id,o){
   c.setAttribute("aria-label",o.aria+". "+k+" "+cs.what+" lines shown.");
 }
 function dmgIntervals(tEnd){
-  var out=[], st=null;
-  for(var i=0;i<S.dl.length;i++){
+  // DAMAGE periods up to "now": in replay the playhead (no future alarm in the charts), live the current time
+  var lim=S.mode==="replay"?Math.min(tEnd,S.playhead):tEnd, out=[], st=null;
+  tEnd=lim;
+  for(var i=0;i<S.dl.length&&S.dl[i].t<=lim;i++){
     var d=S.dl[i];
     if(d.state==="BEGIN"){ if(st===null) st=d.t }
     else if(d.state==="END"){ if(st!==null){out.push([st,d.t]);st=null} }
@@ -1809,7 +1831,7 @@ function renderF1(){
 }
 /* ---------- schema 3 panels: system line, DAMAGE banner, DAMAGE history, detector tags ---------- */
 var F1_M=32, F1_C=64;   // slave f1 tracker constants (firmware: f1track.h F1T_M / F1T_C); not carried in the log
-function pct(x,d){ return (x*100).toFixed(d===undefined?1:d)+" %" }
+function pct(x,d){ var t=(x*100).toFixed(d===undefined?1:d); if(+t===0) t=t.replace("-",""); return t+" %" }
 function hz(x){ return x===null||x===undefined?"–":x.toFixed(2) }
 function renderSys(){
   var m=S.meta, el=$("sysLine");
@@ -1830,7 +1852,7 @@ function renderDmgBanner(v){
   var lastB=null; for(var i=0;i<S.dl.length&&S.dl[i].t<=cur;i++) if(S.dl[i].state==="BEGIN") lastB=S.dl[i];
   if(!v){ big="Waiting for data"; }
   else if(dmg){
-    cls="d-alarm"; gl="⚠"; big="DAMAGE INDICATED"+(pd!==null?": natural frequency down "+pct(pd):"");
+    cls="d-alarm"; gl="⚠"; big="STRUCTURE: DAMAGE INDICATED"+(pd!==null?": natural frequency down "+pct(pd):"");
     sub="The first natural frequency f1 has stayed below its commissioned value ("+(delta!==null?"threshold "+pct(delta,0)+" for "+(P||"P")+" superframes":"")+")"+
       (v.f1a!==null||v.f1b!==null?"; f1 now "+hz(v.f1a)+" / "+hz(v.f1b)+" Hz":"")+(lastB?"; alarm since "+fmtRel(lastB.t)+" into the log (superframe "+lastB.sf+")":"")+". A stiffness loss in the lower storeys looks like this.";
   } else if(pd!==null){
@@ -1998,7 +2020,7 @@ window.addEventListener("drop",function(e){e.preventDefault();dc=0;$("drop").cla
 renderLegend();
 readColors();
 dirty=true; schedule();
-window.__resonance={parseStatus:parseStatus,MQ:MQ,connectMqtt:connectMqtt,parseLine:parseLine,normalise:normalise,normaliseSample:normaliseSample,loadText:loadText,loadSim:loadSim,detectorOf:detectorOf,seek:setPlayhead,state:function(){return S},render:function(){render(0)}};
+window.__resonance={parseStatus:parseStatus,MQ:MQ,connectMqtt:connectMqtt,parseLine:parseLine,normalise:normalise,normaliseSample:normaliseSample,loadText:loadText,loadSim:loadSim,dmgIntervals:dmgIntervals,notifyLine:notifyLine,detectorOf:detectorOf,seek:setPlayhead,state:function(){return S},render:function(){render(0)}};
 })();
 </script>
 </body>

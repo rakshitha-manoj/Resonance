@@ -192,6 +192,9 @@ class Publisher:
             if isinstance(ep, int) and ep != self.epoch:   # a new boot (serial mode): the status carries the new epoch
                 self.epoch = ep
                 self._pub_status(True)
+            # a new run / boot starts without DAMAGE: clear the retained damage_state of an earlier run (an empty retained payload deletes it),
+            # otherwise a page joining late would list the previous run's BEGIN
+            self._pub(rm.topic(self.site, "damage_state"), b"", True)
         t = rm.topic(self.site, r.leaf)
         self._pub(t, payload, r.retain)
         if r.to_state:

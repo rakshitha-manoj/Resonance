@@ -21,7 +21,7 @@
 3. Run "Wokwi: Start Simulator".
 
 ### Cloud demo (`master_cloud/`, env `master_wokwi_cloud`)
-The only Wokwi project that talks to the internet. Nothing is measured: two `SlaveNode` state machines from `tiers.h` run inside the master firmware behind a loopback transport (`include/virtual_net.h`) and are fed windows from `test/data/demo_traces.bin` (converted to flash by `tools/gen_demo_header.py`, 320 windows x 2 slaves = 327,680 B, nothing decimated; the trace loops). Everything after the slaves is the real master path: `Master`, `Fusion`, the schema 2 JSON formatter, then the MQTT task on core 0.
+The only Wokwi project that talks to the internet. Nothing is measured: two `SlaveNode` state machines from `tiers.h` run inside the master firmware behind a loopback transport (`include/virtual_net.h`) and are fed windows from `test/data/demo_traces.bin` (converted to flash by `tools/gen_demo_header.py`, 320 windows x 2 slaves = 327,680 B, nothing decimated; the trace loops). Everything after the slaves is the real master path: `Master`, `Fusion`, the schema 3 JSON formatter, then the MQTT task on core 0.
 1. `pio run -e master_wokwi_cloud` (generates `include/demo_traces.h` first), select `wokwi/master_cloud/wokwi.toml`, start the simulator.
 2. The serial monitor shows `wifi: connected ssid=Wokwi-GUEST channel=6`, `mqtt: connected`, the JSON lines and `S,mqtt,...` statistics.
 3. Open `dashboard/index.html` in a browser, source **MQTT live**, site id `rsn-822298ab` (the default in `include/mqtt_config.h`), Connect. Or run `tools/alerter.py` / any MQTT client on `resonance/rsn-822298ab/#` at `broker.hivemq.com`.
@@ -48,3 +48,7 @@ Mount each MPU6050 with its z axis along the sway direction; the model reads `az
 | `single_node_selftest/` | `selftest` | `src/selftest.cpp`, the boot self-test (606 windows plus the scripted sequence) |
 
 They are kept because the earlier results (Phases 1-5) were produced with them, and each slave still runs the same sensing and tree code.
+
+### Partition table (master_wokwi_cloud, flash headroom)
+`master_wokwi_cloud` is 1,258,013 B = 96.0 % of the default 1.31 MB app partition, so it still fits and `wokwi.toml` points at the app-only `firmware.bin`. Wokwi adds its own bootloader and DEFAULT partition table to a plain `.bin` (Wokwi docs, project configuration: a custom partition table needs a full image). If the firmware ever outgrows the default slot: in `platformio.ini` set `board_build.partitions = huge_app.csv` under `[env:master_wokwi_cloud]` (the line is there, commented), rebuild, then build a merged image and point `wokwi.toml` at it:
+`~\.platformio\penv\Scripts\python.exe ~\.platformio\packages\tool-esptoolpy\esptool.py --chip esp32 merge_bin -o .pio/build/master_wokwi_cloud/merged.bin --flash_mode dio --flash_size 4MB 0x1000 .pio/build/master_wokwi_cloud/bootloader.bin 0x8000 .pio/build/master_wokwi_cloud/partitions.bin 0x10000 .pio/build/master_wokwi_cloud/firmware.bin`, then `firmware = "../../.pio/build/master_wokwi_cloud/merged.bin"`. Not tried here (not needed at 96 %); PlatformIO's `flasher_args.json` cannot be used as it is.

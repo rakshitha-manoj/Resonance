@@ -128,7 +128,7 @@ void test_virtual_slaves_every_report_reaches_master_in_time() {
 }
 
 void test_cloud_demo_lines_equal_netsim_output_of_the_same_traces() {
-    // dashboard/demo_events_sim.jsonl is REAL netsim output of demo_traces.bin (floors 5,10), schema 3: meta, 320 samples, 8 events + 3 status + 1 damage BEGIN (Phase C2b scenario)
+    // dashboard/demo_events_sim.jsonl is REAL netsim output of demo_traces.bin (floors 5,10), schema 3: meta, 320 samples, 3 begin + 5 change + 5 status + 1 damage BEGIN (Phase C2b scenario)
     // (with the AE ratio, f1 and drop of the slaves' full pipeline in every sample; the virtual slaves run the same pipeline)
     FILE *fp = fopen("../../dashboard/demo_events_sim.jsonl", "rb");
     TEST_ASSERT_NOT_NULL(fp);

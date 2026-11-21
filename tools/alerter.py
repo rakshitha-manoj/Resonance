@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Alerts for the Resonance MQTT feed: subscribes to resonance/<site>/ and sends Telegram messages for
   * begin events whose class is LOCAL or BUILDING (and a change INTO LOCAL / BUILDING from another event class),
-  * node DEAD / ALIVE (a slave lost / came back), restart (the master rebooted), damage (future schema 3 line),
+  * node DEAD / ALIVE (a slave lost / came back), restart (the master rebooted), damage (schema 3 line: BEGIN / END / BASELINE),
   * the master device going offline (last-will message on .../status).
 Telegram is used when the environment variables TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set (Bot API sendMessage over
 HTTPS, urllib only); otherwise the alert text is just printed ("dry run"). Nothing secret is ever printed or logged: the token
@@ -100,18 +100,21 @@ class Alerter:
         return "sensor %s" % slave
 
     def detector(self, o, cls, slave):
-        """' [AE 9.5 >= 6]' / ' [std 3.4 >= 3]' / both: which detector of rule f is at or over its threshold on this line (schema 3)."""
+        """' [sensor 2: AE 9.5 >= 6]' / ' [sensor 1: std 3.4 >= 3, AE 6.2 >= 6; sensor 2: std 3.5 >= 3]': which detector of rule f is at or over its threshold on this line (schema 3)."""
         slaves = (slave,) if cls == "LOCAL" else (1, 2)
         ae, r = o.get("ae"), (o.get("r1"), o.get("r2"))
-        hits = []
+        parts = []
         for n in slaves:
             rv = r[n - 1] if n in (1, 2) else None
             av = ae[n - 1] if isinstance(ae, list) and len(ae) == 2 and n in (1, 2) else None
+            hits = []
             if self.T is not None and isinstance(rv, (int, float)) and rv >= self.T:
                 hits.append("std %.1f >= %g" % (rv, self.T))
             if self.T_ae is not None and isinstance(av, (int, float)) and av >= self.T_ae:
                 hits.append("AE %.1f >= %g" % (av, self.T_ae))
-        return " [%s]" % ", ".join(hits) if hits else ""
+            if hits:
+                parts.append("sensor %s: %s" % (n, ", ".join(hits)))
+        return " [%s]" % "; ".join(parts) if parts else ""
 
     def classify(self, o, retained=False):
         """Returns (key, text) for a line that deserves an alert, else None."""

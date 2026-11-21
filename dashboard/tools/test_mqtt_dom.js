@@ -104,6 +104,25 @@ async function offlineChecks(check) {
   check(/Waiting|Commissioning/.test(qs(w, "dText").textContent) && /d-na/.test(banner.className), "at sf 40: f1 not commissioned yet -> grey: '" + qs(w, "dText").textContent + "'");
   const warnAt = S.sm.find((m) => m.run >= 5 && m.dmg === 0);
   if (warnAt) { A.seek(warnAt.t); A.render(); check(/d-warn/.test(banner.className), "approaching the alarm (run " + warnAt.run + " of 32): amber"); }
+  // B1: DAMAGE shading / red bar never show the future of the replay
+  const upTo = (sf) => { A.seek(S.sm.find((m) => m.sf >= sf).t); return A.dmgIntervals(S.tEnd); };
+  check(upTo(150).length === 0 && upTo(234).length === 0, "replay at sf 150 / 234: no DAMAGE interval is drawn yet (charts and timeline use the playhead)");
+  const iv240 = upTo(240);
+  check(iv240.length === 1 && iv240[0][1] === S.playhead && iv240[0][0] === beg[0].t, "replay at sf 240: the interval runs from the BEGIN to the playhead only");
+  A.seek(S.tEnd); check(A.dmgIntervals(S.tEnd).length === 1 && A.dmgIntervals(S.tEnd)[0][1] === S.tEnd, "replay at the end: one interval to the end");
+  // wording / labels
+  A.seek(S.sm[140].t); A.render();
+  check(/Vibration events: only ordinary background vibration \(shaking only; structural damage is judged separately/.test(qs(w, "bSub").textContent), "state banner says it is about shaking only: '" + qs(w, "bSub").textContent.slice(0, 90) + "'");
+  check(/Sensor 1<\/b> \(floor 5\)/.test(qs(w, "nodes").innerHTML) && !/floor 5 \(sensor 1\)\)/.test(qs(w, "nodes").innerHTML), "sensor health label is 'Sensor 1 (floor 5)'");
+  check(/scripted shaking, so this is not a false-alarm rate/.test(qs(w, "counters").textContent), "events-per-hour label says it is not a false-alarm rate for a simulated log");
+  check(/STRUCTURE: DAMAGE INDICATED/.test((A.seek(S.tEnd), A.render(), qs(w, "dText").textContent)), "end banner: 'STRUCTURE: DAMAGE INDICATED'");
+  // B5: notifications for damage
+  const n0 = pgA.notes.length;
+  A.notifyLine(JSON.stringify({ type: "damage", sf: 235, state: "BEGIN", drop: 0.0426, f1: [6.7, 6.7], f1_0: [7, 7] }));
+  A.notifyLine(JSON.stringify({ type: "damage", sf: 300, state: "END", drop: 0.004, f1: [7, 7], f1_0: [7, 7] }));
+  A.notifyLine(JSON.stringify({ type: "damage", sf: 310, state: "BASELINE", drop: null, f1: [7, null], f1_0: [7, null], slave: 1 }));
+  const nn = pgA.notes.slice(n0);
+  check(nn.length === 2 && nn[0].title === "DAMAGE ALARM" && nn[0].body === "Natural frequency down 4.3 % (superframe 235)" && nn[1].title === "DAMAGE cleared", "notifications: DAMAGE ALARM / DAMAGE cleared, none for BASELINE: " + JSON.stringify(nn));
   // BASELINE note
   const base = JSON.stringify({ type: "damage", t_us: lastS.t + 1000, sf: lastS.sf + 1, state: "BASELINE", drop: null, f1: [7.0, null], f1_0: [7.0, null], slave: 1 });
   const pgB = await openPage();
@@ -126,6 +145,21 @@ async function offlineChecks(check) {
   const pgE = await openPage({ search: "?replay=demo_events_sim.jsonl&speed=50" });
   await until(() => pgE.window.__resonance.state().playing === true, 10000, "?replay= autoplay");
   check(pgE.window.__resonance.state().speed === 50, "?replay=...&speed=50 autoplays at 50x");
+  // B3: only relative .jsonl file names are accepted by ?replay= (no data: URLs, other origins, paths)
+  const bad = ["data:text/plain,%7B%22type%22:%22meta%22%7D", "https://example.com/x.jsonl", "../x.jsonl", "//evil.example/x.jsonl", "a/b.jsonl", "x.txt"];
+  const badPages = [];
+  for (const u of bad) {
+    const pg = await openPage({ search: "?replay=" + encodeURIComponent(u) });
+    badPages.push(pg);
+  }
+  await sleep(600);
+  check(badPages.every((pg) => pg.window.__resonance.state().sm.length === 0 && /must name a \.jsonl file/.test(qs(pg.window, "msgs").textContent)), "?replay= refuses data:, cross-origin, parent / sub-folder and non-.jsonl names (" + bad.length + " cases)");
+  // B4: ?at=abc must not give a NaN playhead
+  const pgH = await openPage({ search: "?replay=demo_events_sim.jsonl&at=abc&play=0" });
+  await until(() => pgH.window.__resonance.state().sm.length === 320, 10000, "?at=abc load");
+  await sleep(300);
+  const sh = pgH.window.__resonance.state();
+  check(Number.isFinite(sh.playhead) && sh.playhead === sh.tEnd, "?at=abc falls back to the end of the log (playhead " + sh.playhead + ")");
   // schema 2 and schema 1 logs: no damage panels, no errors
   const pgF = await openPage();
   await pgF.window.__resonance.loadText(readLog("sample_events.jsonl"), "schema 2", false);
@@ -140,9 +174,56 @@ async function offlineChecks(check) {
   pgG.window.__resonance.seek(pgG.window.__resonance.state().tEnd); pgG.window.__resonance.render();
   check(qs(pgG.window, "dmgBanner").hidden && pgG.window.__resonance.state().ev.length === 3 && /std/.test(qs(pgG.window, "hist").innerHTML), "schema 1 log still replays (3 events, std detector tag, no damage panels)");
   // all pages: no script errors
-  const errs = [pgA, pgB, pgC, pgD, pgE, pgF, pgG].flatMap((p) => p.errors).filter((e) => !/Not implemented/.test(e));
+  const errs = [pgA, pgB, pgC, pgD, pgE, pgF, pgG, pgH, ...badPages].flatMap((p) => p.errors).filter((e) => !/Not implemented/.test(e));
   check(errs.length === 0, "no script errors in any offline page" + (errs.length ? ": " + errs.slice(0, 3).join(" | ") : ""));
   console.log("--- end offline checks ---");
+}
+
+// B2: a retained damage_state left over from an EARLIER run must not be listed by a page that joins late in the next run. The retained topics are
+// written by a small paho script (status online + meta + state + damage_state), then a fresh page joins and is inspected.
+const PUB_RETAINED = `
+import sys, json, paho.mqtt.client as mqtt
+site, host, port, msgs = sys.argv[1], sys.argv[2], int(sys.argv[3]), json.loads(sys.argv[4])
+c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, transport="websockets")
+c.connect(host, port, 30); c.loop_start()
+for leaf, payload in msgs:
+    c.publish("resonance/%s/%s" % (site, leaf), payload.encode(), qos=1, retain=True).wait_for_publish()
+c.loop_stop(); c.disconnect()
+`;
+function setRetained(site, msgs) {
+  return new Promise((resolve) => {
+    const u = new (require("url").URL)(URL_.replace(/^ws/, "http"));
+    const ch = spawn(PY, ["-c", PUB_RETAINED, site, u.hostname, u.port || "8000", JSON.stringify(msgs)], { stdio: "ignore" });
+    ch.on("close", resolve);
+  });
+}
+async function staleDamageState(check) {
+  console.log("--- stale retained damage_state (real broker) ---");
+  const site = SITE + "-stale";
+  const L = fs.readFileSync(LOG, "utf8").split("\n").filter(Boolean);
+  const meta = L[0], dmgLine = L.find((l) => /"type":"damage"/.test(l));
+  const sampleAt = (sf) => L.find((l) => l.startsWith('{"type":"sample"') && JSON.parse(l).sf === sf);
+  const status = JSON.stringify({ state: "online", epoch: JSON.parse(meta).epoch });
+  const join = async () => {
+    const pg = await openPage();
+    pg.window.document.getElementById("mqUrl").value = URL_;
+    pg.window.document.getElementById("mqSite").value = site;
+    pg.window.document.getElementById("mqBtn").click();
+    await until(() => { const s = pg.window.__resonance.state(); return s.meta && s.mqMaster === "online"; }, 30000, "retained meta + online status");
+    await sleep(7500);   // retained state 1.5 s + reorder hold 2.5 s + margin
+    const st = pg.window.__resonance.state();
+    pg.window.document.getElementById("mqBtn").click();
+    return st;
+  };
+  // run 2 has just started (state sf 5) but run 1's BEGIN (sf 235) is still the retained damage_state
+  await setRetained(site, [["status", status], ["meta", meta], ["state", sampleAt(5)], ["damage_state", dmgLine]]);
+  const a = await join();
+  check(a.dl.length === 0, "late page in run 2 does not list run 1's retained BEGIN (damage lines " + a.dl.length + ", samples " + a.sm.length + ")");
+  // the retained state is later than the BEGIN and says dmg 1: the page learns the alarm
+  await setRetained(site, [["state", sampleAt(250)]]);
+  const b = await join();
+  check(b.dl.length === 1 && b.dl[0].state === "BEGIN", "late page during an active alarm lists the retained BEGIN (damage lines " + b.dl.length + ")");
+  await setRetained(site, [["status", ""], ["meta", ""], ["state", ""], ["damage_state", ""]]);
 }
 
 (async () => {
@@ -160,6 +241,7 @@ async function offlineChecks(check) {
   const wantDead = rs.nl.filter((n) => !n.alive).length;
 
   await offlineChecks(check);
+  if (process.argv.includes("--stale-damage")) { await staleDamageState(check); console.log("SUMMARY " + (ok ? "OK" : "FAILED")); process.exit(ok ? 0 : 1); }
   if (process.argv.includes("--offline")) { console.log("SUMMARY " + (ok ? "OK" : "FAILED")); process.exit(ok ? 0 : 1); }
 
   // MQTT page
