@@ -85,8 +85,8 @@ svg text.m{fill:var(--muted)}
 [hidden]{display:none!important}
 #bsvg{width:100%;height:auto;max-height:420px;display:block}
 .bv-st{fill:var(--bv-fill);stroke:var(--bv-line);stroke-width:1.2}
-.bv-st[data-s="building"]{fill:var(--bv-build)}
-.bv-st[data-s="local"]{fill:var(--bv-local);stroke-width:2.5}
+.bv-st[data-s="building"]{fill:var(--building);fill-opacity:.7}
+.bv-st[data-s="local"]{fill:var(--local);stroke-width:2.5}
 .bv-st[data-s="comm"]{fill:var(--tint-comm);stroke-dasharray:3 3}
 .bv-st[data-s="nodata"]{fill:var(--tint-nodata);stroke-dasharray:5 4}
 .bv-st[data-s="local"].pulse{animation:bvpulse 1.1s ease-in-out infinite}
@@ -101,16 +101,16 @@ svg text.m{fill:var(--muted)}
 .bv-ic .wave{fill:none;stroke:var(--card);stroke-width:2;stroke-linecap:round}
 .bv-ic .cross{stroke:var(--card);stroke-width:3;stroke-linecap:round}
 .bv-ic[data-s="ambient"] circle{fill:var(--ambient)}
-.bv-ic[data-s="local"] circle{fill:var(--bv-local)}
-.bv-ic[data-s="building"] circle{fill:var(--bv-build)}
+.bv-ic[data-s="local"] circle{fill:var(--local)}
+.bv-ic[data-s="building"] circle{fill:var(--building)}
 .bv-ic[data-s="comm"] circle,.bv-ic[data-s="none"] circle{fill:var(--comm)}
 .bv-ic[data-s="nodata"] circle,.bv-ic[data-s="dead"] circle{fill:#8a949f}
-.bv-ic[data-s="local"] .wave,.bv-ic[data-s="building"] .wave{stroke:#1a1f26}
 .bv-ic:not([data-s="dead"]) .cross{display:none}
 .bv-ic[data-s="dead"] .wave{display:none}
 .bv-ic text,.bv-lab text{font-size:14px}
 .bv-lab .l1{font-weight:700}
 .bv-lab .l2{font-size:13px;fill:var(--muted)}
+.bv-lab .l3{font-size:12px;font-style:italic;fill:var(--muted)}
 .bv-flag{background:var(--dmg);color:var(--dmg-text);border-radius:8px;padding:6px 10px;margin:6px 0 0;font-weight:700;font-size:.92rem}
 .bv-truth{border:2px dashed var(--dmg);border-radius:8px;padding:6px 10px;margin:6px 0 0;font-size:.9rem}
 .bv-cal{font-size:20px;font-weight:700;fill:var(--text);paint-order:stroke;stroke:var(--card);stroke-width:5px;stroke-linejoin:round}
@@ -184,6 +184,7 @@ canvas{width:100%;display:block}
 .tag.std{color:var(--r1)}.tag.ae{color:var(--ae)}
 tr.dmgrow td{background:var(--tint-dmg)}
 .legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:6px;font-size:.85rem;color:var(--muted)}
+.legend-note{flex:1 1 100%}
 .legend i{display:inline-block;width:16px;height:12px;vertical-align:-1px;margin-right:4px;border:1px solid var(--text)}
 .tablewrap{max-height:340px;overflow:auto}
 table{border-collapse:collapse;width:100%;font-size:.9rem;font-variant-numeric:tabular-nums}
@@ -312,13 +313,13 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
 
 <div class="grid">
   <section class="card c5" id="bvCard"><h2>Building <span class="na" style="text-transform:none;letter-spacing:0;font-weight:400">10-storey drawing</span></h2>
-    <svg id="bsvg" viewBox="0 0 490 380" role="img" aria-labelledby="bsvgT bsvgD" data-amp="0" data-target="0">
+    <svg id="bsvg" viewBox="140 20 420 350" role="img" aria-labelledby="bsvgT bsvgD" data-amp="0" data-target="0">
       <title id="bsvgT">Animated 10-storey building with two instrumented floors. Sway is exaggerated and slowed down, not to scale.</title>
       <desc id="bsvgD">The building sways in its first-mode shape; the amplitude follows the latest vibration level. A local event makes that sensor's floor pulse yellow, a building-wide event turns the whole building amber, a dead sensor is grey with a cross, a DAMAGE indication gives a red outline.</desc>
       <defs>
         <pattern id="bvHatch" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="9" height="9" style="fill:var(--bv-hatchbg)"/><line x1="0" y1="0" x2="0" y2="9" style="stroke:var(--dmg)" stroke-width="4"/></pattern>
       </defs>
-      <line id="bvGround" x1="20" y1="340" x2="470" y2="340" style="stroke:var(--bv-line)" stroke-width="3"/>
+      <line id="bvGround" x1="20" y1="340" x2="540" y2="340" style="stroke:var(--bv-line)" stroke-width="3"/>
       <text x="22" y="360" class="m" font-size="12">ground</text>
       <g id="bvTicks" style="stroke:var(--muted)" stroke-width="1.5"></g>
       <polygon id="bvGhost" class="bv-ghost" points=""/>
@@ -1376,7 +1377,7 @@ function onMqMessage(my,base,topic,payload,packet){
   text=text.replace(/[\r\n]+$/,"");
   my.mqRecv++;
   var retained=!!(packet&&packet.retain);
-  if(leaf==="twin/state"||leaf==="twin/log"){ onTwin(my,leaf,text); return }
+  if(leaf==="twin/state"||leaf==="twin/log"){ onTwin(my,leaf,text,retained); return }
   if(leaf==="status"){   // retained {"state":"online"|"offline","epoch":E} of the master; "offline" = its last will
     my.mqStatus=parseStatus(text);
     mqMasterEval(my);
@@ -1411,32 +1412,69 @@ function onMqMessage(my,base,topic,payload,packet){
 }
 /* ---------- digital twin (tools/twin_server.py): control panel + ground-truth f1 ----------
    Shown only when a twin/state message arrives on the connected site. Commands go to resonance/<site>/twin/cmd (not retained). */
-var TW_MAX_LOG=12;
-function onTwin(my,leaf,text){
-  if(leaf==="twin/log"){ my.twinLog.push(text); if(my.twinLog.length>TW_MAX_LOG) my.twinLog.shift(); my.twinLogAt=performance.now(); renderTwin(); return }
-  var o; try{ o=JSON.parse(text) }catch(e){ return }
-  if(!o||typeof o!=="object"||typeof o.running!=="boolean") return;
-  my.twin=o;
-  if(!my.twinLog.length&&Array.isArray(o.log)) my.twinLog=o.log.filter(function(x){return typeof x==="string"}).slice(-TW_MAX_LOG);
-  renderTwin(); dirty=true; schedule();
+var TW_MAX_LOG=12, TW_MAX_TRUTH=5000;
+/* A twin/state comes from a public broker: anybody can publish (and retain) anything on the site. sanitizeTwin() returns a clean copy
+   with only validated, range-checked fields, or null (not a twin state). Nothing from the raw message is used afterwards. */
+function twNum(x,lo,hi){ return isNum(x)&&x>=lo&&x<=hi?x:null }
+function sanitizeTwin(o){
+  if(!o||typeof o!=="object"||Array.isArray(o)||typeof o.running!=="boolean") return null;
+  var t={running:o.running,commissioned:o.commissioned===true,speed:twNum(o.speed,0,1000),sf:isCount(o.sf)&&o.sf<1e9?o.sf:null,
+    commission_sf:isCount(o.commission_sf)&&o.commission_sf<1e9?o.commission_sf:null,
+    f1_hz:(o.building&&typeof o.building==="object")?twNum(o.building.f1_hz,0,1000):null,
+    f1_true_hz:twNum(o.f1_true_hz,0,1000),drop_true:twNum(o.drop_true,-1,1),
+    damage:null,killed:[],truth:[],log:[],updated_t:twNum(o.updated_t,0,1e11),period_s:twNum(o.period_s,0.5,3600)};
+  if(t.period_s===null) t.period_s=5;
+  var d=o.damage;
+  if(d&&typeof d==="object"&&!Array.isArray(d)&&isCount(d.storey)&&d.storey>=1&&d.storey<=10&&isNum(d.loss)&&d.loss>0&&d.loss<1) t.damage={storey:d.storey,loss:d.loss};
+  if(Array.isArray(o.killed)) o.killed.slice(0,8).forEach(function(x){ if((x===1||x===2)&&t.killed.indexOf(x)<0) t.killed.push(x) });
+  if(Array.isArray(o.truth)){
+    var tr=o.truth.length>TW_MAX_TRUTH?o.truth.slice(-TW_MAX_TRUTH):o.truth;
+    tr.forEach(function(r){ if(Array.isArray(r)&&r.length>=3&&isNum(r[2])&&r[2]>0&&r[2]<1000&&(r[1]===null||isNum(r[1]))&&isCount(r[0])) t.truth.push([r[0],r[1],r[2]]) });
+  }
+  if(Array.isArray(o.log)) o.log.slice(-TW_MAX_LOG).forEach(function(x){ if(typeof x==="string") t.log.push(x.slice(0,300)) });
+  return t;
+}
+function onTwin(my,leaf,text,retained){
+  try{
+    if(leaf==="twin/log"){ my.twinLog.push(String(text).slice(0,300)); if(my.twinLog.length>TW_MAX_LOG) my.twinLog.shift(); my.twinLogAt=performance.now(); renderTwin(); return }
+    var o; try{ o=JSON.parse(text) }catch(e){ return }
+    var t=sanitizeTwin(o); if(!t) return;
+    my.twin=t;
+    // freshness: a live (not retained) state proves the server is up; a retained one only if its own heartbeat is recent
+    var fresh=!retained||t.updated_t===null||(Date.now()/1000-t.updated_t)<=3*t.period_s;
+    if(fresh) my.twinFreshAt=performance.now(); else if(retained) my.twinFreshAt=-1e12;   // an old retained heartbeat = a twin that is gone
+    if(!my.twinLog.length&&t.log.length) my.twinLog=t.log.slice();
+    renderTwin(); dirty=true; schedule();
+  }catch(e){ /* a malformed twin message must never stop the live feed */ }
+}
+function twinAlive(t){   // running, and (when the state has a heartbeat) heard from within 3 periods
+  if(!t||!t.running) return false;
+  if(t.updated_t===null) return true;
+  return S.twinFreshAt!==undefined&&performance.now()-S.twinFreshAt<=3*t.period_s*1000;
 }
 function renderTwin(){
-  var card=$("twinCard"), t=S.twin;
-  card.hidden=!(S.kind==="mqtt"&&t);
-  if(card.hidden) return;
-  var d=t.damage, parts=[];
-  parts.push(t.running?(t.commissioned?"running":"commissioning (commands disabled until about sf "+t.commission_sf+")"):"twin stopped");
-  parts.push("speed "+t.speed+"x, sf "+t.sf);
-  parts.push("building f1 "+(+t.building.f1_hz).toFixed(2)+" Hz; true f1 now "+(+t.f1_true_hz).toFixed(3)+" Hz ("+(t.drop_true>=0?"-":"+")+Math.abs(t.drop_true*100).toFixed(1)+" %)");
-  parts.push(d?"damage: storey "+d.storey+" by "+Math.round(d.loss*100)+" %":"no damage");
-  if(t.killed&&t.killed.length) parts.push("dead sensor(s): "+t.killed.join(", "));
-  $("twState").textContent=parts.join(" · ");
-  $("twLog").textContent=S.twinLog.join("\n");
-  var off=!t.running||!t.commissioned;
-  var bs=card.querySelectorAll("button[data-tw]"); for(var i=0;i<bs.length;i++) bs[i].disabled=off;
+  try{
+    var card=$("twinCard"), t=S.twin;
+    card.hidden=!(S.kind==="mqtt"&&S.mq&&t);   // only on a connected MQTT source that has shown a twin
+    if(card.hidden) return;
+    var d=t.damage, parts=[], alive=twinAlive(t);
+    if(!t.running) parts.push("twin stopped");
+    else if(!alive) parts.push("twin not responding (no update for more than "+(3*t.period_s)+" s; it was running last time: server stopped or network lost)");
+    else parts.push(t.commissioned?"running":"commissioning (commands disabled"+(t.commission_sf!==null?" until about sf "+t.commission_sf:"")+")");
+    if(t.speed!==null||t.sf!==null) parts.push((t.speed!==null?"speed "+t.speed+"x":"")+(t.speed!==null&&t.sf!==null?", ":"")+(t.sf!==null?"sf "+t.sf:""));
+    var f=[]; if(t.f1_hz!==null) f.push("building f1 "+t.f1_hz.toFixed(2)+" Hz"); if(t.f1_true_hz!==null) f.push("true f1 now "+t.f1_true_hz.toFixed(3)+" Hz"+(t.drop_true!==null?" ("+(t.drop_true>=0?"-":"+")+Math.abs(t.drop_true*100).toFixed(1)+" %)":""));
+    if(f.length) parts.push(f.join("; "));
+    parts.push(d?"damage: storey "+d.storey+" by "+twPct(d.loss)+" %":"no damage");
+    if(t.killed.length) parts.push("dead sensor(s): "+t.killed.join(", "));
+    $("twState").textContent=parts.join(" · ");
+    $("twLog").textContent=S.twinLog.join("\n");
+    var off=!alive||!t.commissioned;
+    var bs=card.querySelectorAll("button[data-tw]"); for(var i=0;i<bs.length;i++) bs[i].disabled=off;
+  }catch(e){}
 }
+function twPct(loss){ return String(+(loss*100).toFixed(1)) }
 function twinSend(cmd){
-  if(!S.mq||S.kind!=="mqtt"||!S.twin||!S.twin.running) return false;
+  if(!S.mq||S.kind!=="mqtt"||!S.twin||!twinAlive(S.twin)) return false;
   S.twinSentAt=performance.now();
   try{ S.mq.publish("resonance/"+S.mqSite+"/twin/cmd",JSON.stringify(cmd),{qos:1,retain:false}) }catch(e){ return false }
   return true;
@@ -1498,8 +1536,9 @@ function connectMqtt(){
   c.on("offline",function(){ if(S===my) setMq("bad","MQTT offline") });
   c.on("close",function(){ if(S===my&&my.mq) setMq("bad","MQTT disconnected, retrying") });
   c.on("error",function(e){ if(S===my) warn("mqtt","MQTT error: "+(e&&e.message||e)+" (wrong URL or port, a blocked network, or bad credentials)") });
-  c.on("message",function(topic,payload,packet){ onMqMessage(my,base,topic,payload,packet) });
-  my.mqTimer=setInterval(function(){ if(S!==my){clearInterval(my.mqTimer);return} mqRelease(my,false); $("mqCounts").textContent=mqCountsText() },MQ.tickMs);
+  c.on("message",function(topic,payload,packet){ try{ onMqMessage(my,base,topic,payload,packet) }catch(e){ if(S===my) my.stats.bad++ } });   // a bad message must never stop the feed
+  my.mqTimer=setInterval(function(){ if(S!==my){clearInterval(my.mqTimer);return} mqRelease(my,false); $("mqCounts").textContent=mqCountsText();
+    if(my.twin){ var al=twinAlive(my.twin); if(al!==my.twinWasAlive){ my.twinWasAlive=al; renderTwin(); dirty=true; schedule() } } },MQ.tickMs);   // a twin that stops sending is noticed within 3 periods
   showMsgs(); dirty=true; schedule();
 }
 function downloadRaw(){
@@ -1705,7 +1744,7 @@ var BV={n:0,amp:0,phase:Math.PI/2,last:0,raf:0,model:null,reduced:false,els:null
 var SVGNS="http://www.w3.org/2000/svg";
 function svgEl(tag,attrs,parent){ var e=document.createElementNS(SVGNS,tag); for(var k in attrs) e.setAttribute(k,attrs[k]); if(parent) parent.appendChild(e); return e }
 function bvBuild(n){
-  var g=$("bvSt"), ts=$("bvTicks"), ic=$("bvIcs"), lb=$("bvLabs"), els={st:[],no:[],ic:[],lab:[],l1:[],l2:[],leader:[]};
+  var g=$("bvSt"), ts=$("bvTicks"), ic=$("bvIcs"), lb=$("bvLabs"), els={st:[],no:[],ic:[],lab:[],l1:[],l2:[],l3:[],leader:[]};
   while(g.children.length>1) g.removeChild(g.lastChild);   // keep the <title> tooltip
   ts.textContent=""; ic.textContent=""; lb.textContent="";
   for(var i=1;i<=n;i++){
@@ -1723,6 +1762,7 @@ function bvBuild(n){
     els.leader.push(svgEl("line",{x1:0,y1:0,x2:0,y2:0,style:"stroke:var(--muted)","stroke-width":1.5,"stroke-dasharray":"3 3"},lg));
     els.l1.push(svgEl("text",{"class":"l1",x:BV_X1+30,y:0},lg));
     els.l2.push(svgEl("text",{"class":"l2",x:BV_X1+30,y:0},lg));
+    els.l3.push(svgEl("text",{"class":"l3",x:BV_X1+30,y:0},lg));
   }
   BV.els=els; BV.n=n;
   var sh=BV_H/n;
@@ -1747,7 +1787,8 @@ function bvDraw(){
       var f=m.floors[s], zc=f-0.5, cx=BV_X1-22+bvD(zc,n,A), cy=BV_YG-zc*sh;
       E.ic[s].setAttribute("transform","translate("+cx.toFixed(1)+","+cy.toFixed(1)+")");
       E.leader[s].setAttribute("x1",(cx+12).toFixed(1)); E.leader[s].setAttribute("x2",BV_X1+26); E.leader[s].setAttribute("y1",cy.toFixed(1)); E.leader[s].setAttribute("y2",cy.toFixed(1));
-      E.l1[s].setAttribute("y",(cy-2).toFixed(1)); E.l2[s].setAttribute("y",(cy+13).toFixed(1));
+      if(m.out[s]) cy=BV_YG-BV_H+10+s*48;   // outside the drawing: label only, parked at the top
+      E.l1[s].setAttribute("y",(cy-2).toFixed(1)); E.l2[s].setAttribute("y",(cy+12).toFixed(1)); E.l3[s].setAttribute("y",(cy+25).toFixed(1));
     }
     if(m.truth){
       var t=m.truth.storey, band=$("bvBand"); band.setAttribute("points",quad(t-1,t));
@@ -1785,27 +1826,26 @@ function swayTarget(v){   // 0..1: ambient (r about 1) small, events (r of 3 and
   if(L===null) return v?0.04:0;
   return 0.10+0.90*Math.max(0,Math.min(1,(L-1)/7));
 }
-function twinTruth(){   // the damaged storey as the SIMULATOR knows it (twin mode only), validated: it comes from a public broker
-  var t=S.kind==="mqtt"?S.twin:null, d=t&&t.damage;
-  if(!d||typeof d!=="object"||!isCount(d.storey)||d.storey<1||d.storey>10||!isNum(d.loss)||d.loss<=0||d.loss>=1) return null;
+function twinTruth(){   // the damaged storey as the SIMULATOR knows it (twin mode only); the state is sanitised already, and a dead / silent twin shows no truth
+  var t=S.kind==="mqtt"&&S.mq?S.twin:null, d=t&&twinAlive(t)?t.damage:null;
+  if(!d||!(d.loss>=0.05&&d.loss<=0.5)) return null;   // the twin accepts 5 to 50 % only
   return {storey:d.storey,loss:d.loss};
 }
 function bvModel(v){
-  var f=floors(), known=!!f, fl=f?[f[0],f[1]]:[5,10], n=10, ok=true;
-  fl.forEach(function(x){ if(!isCount(x)||x<1) ok=false; else if(x>n) n=Math.min(40,x) });
-  if(!ok||fl[0]>n||fl[1]>n){ fl=[5,10]; known=false }
-  var tr=twinTruth(); if(tr&&tr.storey>n) tr=null;
+  // the drawing is always the simulator's 10 storeys; a sensor floor outside 1..10 (or not an integer) is not drawn on it
+  var f=floors(), known=!!f, fl=f?[f[0],f[1]]:[5,10], n=10, out=[false,false];
+  if(known) for(var q=0;q<2;q++) if(!isCount(fl[q])||fl[q]<1||fl[q]>n) out[q]=true;
+  var tr=twinTruth();
   var cls=v?v.cls:-1, sens=[floorState(v,0),floorState(v,1)];
   var cur=curTime(), has3_=has3()||S.dl.length>0;
   var dmg=!!(v&&has3_&&(v.dmg!==null&&v.dmg!==undefined?v.dmg===1:dmgActiveAt(cur)));
-  return {n:n,floors:fl,known:known,cls:cls,sens:sens,dmg:dmg,truth:tr,target:swayTarget(v),
+  return {n:n,floors:fl,known:known,out:out,cls:cls,sens:sens,dmg:dmg,truth:tr,target:swayTarget(v),
     building:!v?"none":cls===0?"comm":cls===4?"nodata":cls===3?"building":"ambient"};
 }
 function setHid(el,b){ if(b) el.setAttribute("hidden",""); else el.removeAttribute("hidden") }   // SVG elements have no .hidden property
 function renderBuilding(v){
   if(!BV.els) bvBuild(10);
   var m=bvModel(v);
-  if(m.n!==BV.n) bvBuild(m.n);
   BV.model=m; var E=BV.els, i;
   for(i=1;i<=m.n;i++){
     var st=m.building==="ambient"?"ambient":m.building;   // whole building: amber / grey / dashed
@@ -1821,23 +1861,25 @@ function renderBuilding(v){
   for(var s2=0;s2<2;s2++){
     var key=m.sens[s2], fs=FS[key]||FS.none;
     E.ic[s2].setAttribute("data-s",key);
-    var name="sensor "+(s2+1)+", floor "+m.floors[s2];
-    E.l1[s2].textContent=name; E.l2[s2].textContent=(key==="dead"?"offline (no reports)":fs.t)+(m.known?"":" · floor assumed");
-    E.ic[s2].setAttribute("aria-label",name+": "+fs.t);
+    var name="sensor "+(s2+1)+", floor "+m.floors[s2], note=m.out[s2]?"outside the drawing":(m.known?"":"floor assumed");
+    E.l1[s2].textContent=name; E.l2[s2].textContent=key==="dead"?"offline (no reports)":fs.t; E.l3[s2].textContent=note;
+    setHid(E.ic[s2],m.out[s2]); setHid(E.leader[s2],m.out[s2]);
+    E.ic[s2].setAttribute("aria-label",name+(note?" ("+note+")":"")+": "+fs.t);
   }
   var flag=$("bvFlag"); flag.hidden=!m.dmg;
   flag.textContent=m.dmg?"DAMAGE indicated — f1 tracking cannot locate the storey":"";
   var tn=$("bvTruthNote"), tg=$("bvTruthG"), band=$("bvBand");
   setHid(band,!m.truth); setHid(tg,!m.truth); setHid(tn,!m.truth);
-  $("bsvg").setAttribute("viewBox",m.truth?"0 20 490 350":"140 20 350 350");   // the left margin is only needed for the truth label
+  $("bsvg").setAttribute("viewBox",m.truth?"0 20 560 350":"140 20 420 350");   // the left margin is only needed for the truth label
   band.setAttribute("data-truth",m.truth?String(m.truth.storey):"");
   if(m.truth){
-    var lossTxt=Math.round(m.truth.loss*100);
+    var lossTxt=twPct(m.truth.loss);
     $("bvTruthB").textContent="storey "+m.truth.storey+", ";
     $("bvTruthC").textContent="−"+lossTxt+" % stiffness";
     tn.textContent="Digital twin only: the simulator applied a "+lossTxt+" % stiffness loss to storey "+m.truth.storey+". The sensors cannot see which storey it is: "+(m.dmg?"they indicate DAMAGE from the natural frequency, but f1 tracking cannot locate the storey.":"they have not indicated damage (yet).");
   }
-  $("bNote").textContent=(m.known?"Sensors on floors "+m.floors[0]+" and "+m.floors[1]+" (meta.floors of the log).":"The log does not say which floors the sensors are on (schema 1): drawn at floors 5 and 10 by assumption.")+" Storey "+(m.n===10?"count 10":"count "+m.n)+" is the simulator's building, not read from the log.";
+  var outTxt=[0,1].filter(function(k){return m.out[k]}).map(function(k){return "sensor "+(k+1)+" is on floor "+m.floors[k]+", outside the drawn 10 storeys"}).join("; ");
+  $("bNote").textContent=(m.known?"Sensors on floors "+m.floors[0]+" and "+m.floors[1]+" (meta.floors of the log).":"The log does not say which floors the sensors are on (schema 1): drawn at floors 5 and 10 by assumption.")+(outTxt?" Note: "+outTxt+".":"")+" The drawing always shows the simulator's 10 storeys; the storey count is not read from the log.";
   $("bsvg").setAttribute("data-target",(m.target*BV_AMAX).toFixed(2));
   if(bvAnimating()) bvRequest();
   else { if(BV.raf){ cancelAnimationFrame(BV.raf); BV.raf=0 } bvTick(0) }
@@ -1992,7 +2034,6 @@ function renderTimeline(k){
   for(var q=0;q<S.rs.length;q++){ if(S.rs[q].first) continue; var rx=xs(S.rs[q].t);
     ctx.fillStyle=CSS.text;ctx.fillRect(rx-1.5,0,3,rowH+2);
     ctx.fillStyle=CSS.card;ctx.fillRect(rx+3,rowH-17,14,15);ctx.fillStyle=CSS.text;ctx.font="bold 12px system-ui";ctx.fillText("R",rx+6,rowH-5);}
-  ctx.fillStyle=CSS.muted;ctx.font="11px system-ui";ctx.fillText("degraded (one sensor offline) = striped bar; red bar = DAMAGE alarm; R = master restart",4,H-1);
   if(S.mode==="replay"){
     var px=xs(S.playhead);
     ctx.fillStyle="rgba(128,128,128,.35)"; ctx.fillRect(px,0,W-px,rowH);
@@ -2177,7 +2218,7 @@ function renderDmgBanner(v){
   else if(dmg){
     cls="d-alarm"; gl="⚠"; big="STRUCTURE: DAMAGE INDICATED"+(pd!==null?": natural frequency down "+pct(pd):"");
     sub="The first natural frequency f1 has stayed below its commissioned value ("+(delta!==null?"threshold "+pct(delta,0)+" for "+(P||"P")+" superframes":"")+")"+
-      (v.f1a!==null||v.f1b!==null?"; f1 now "+hz(v.f1a)+" / "+hz(v.f1b)+" Hz":"")+(lastB?"; alarm since "+fmtRel(lastB.t)+" into the log (superframe "+lastB.sf+")":"")+". A stiffness loss in the lower storeys looks like this.";
+      (v.f1a!==null||v.f1b!==null?"; f1 now "+hz(v.f1a)+" / "+hz(v.f1b)+" Hz":"")+(lastB?"; alarm since "+fmtRel(lastB.t)+" into the log (superframe "+lastB.sf+")":"")+". Natural-frequency tracking detects a stiffness loss but cannot tell which storey (lower-storey damage moves f1 the most).";
   } else if(pd!==null){
     var run=v.run===null?0:v.run;
     if(run>0&&delta!==null){ cls="d-warn"; gl="▲"; big="Natural frequency down "+pct(pd)+": watching";
@@ -2229,12 +2270,14 @@ function renderLegend(){
   var h="";
   [["comm","○","Calibrating"],["ambient","●","Normal"],["local","▲","Local event (1 = sensor 1, 2 = sensor 2)"],["building","■","Building-wide event"],["nodata","◆","No data"]].forEach(function(x){
     h+='<span><i style="background:var(--'+x[0]+')"></i>'+x[1]+' '+x[2]+'</span>'});
+  h+='<span class="legend-note">Under the bar: striped = degraded (one sensor offline); red bar = DAMAGE alarm. R = master restart.</span>';
   $("legend").innerHTML=h;
 }
 function render(now){
   if(!CSS)readColors();
   var live=S.mode==="live", k=live?S.ev.length:S.k, ks=live?S.sm.length:S.ks, v=applyNodes(view(k,ks));
   renderBanner(v);
+  renderTwin();
   renderBuilding(v);
   renderNodes(v,k,now);
   renderCounters(k,now);
@@ -2391,7 +2434,7 @@ $("serBtn").onclick=function(){
   connectSerial();
 };
 $("mqBtn").onclick=function(){
-  if(S.mode==="live"&&S.kind==="mqtt"&&S.mq){ stopLive(); $("mqBtn").textContent="MQTT live: connect"; $("liveBadge").textContent="○ DISCONNECTED"; $("liveBadge").className="pill bad"; return }
+  if(S.mode==="live"&&S.kind==="mqtt"&&S.mq){ stopLive(); $("mqBtn").textContent="MQTT live: connect"; $("liveBadge").textContent="○ DISCONNECTED"; $("liveBadge").className="pill bad"; dirty=true; schedule(); return }
   connectMqtt();
 };
 if(location.protocol!=="https:") $("mqPlain").hidden=false;
@@ -2427,7 +2470,7 @@ window.addEventListener("drop",function(e){e.preventDefault();dc=0;$("drop").cla
 renderLegend();
 readColors();
 dirty=true; schedule();
-window.__resonance={play:togglePlay,parseLaunch:parseLaunch,phoneQuery:phoneQuery,building:function(){return BV.model},bvState:function(){return {amp:BV.amp,reduced:BV.reduced,n:BV.n}},parseStatus:parseStatus,MQ:MQ,connectMqtt:connectMqtt,parseLine:parseLine,normalise:normalise,normaliseSample:normaliseSample,loadText:loadText,loadSim:loadSim,dmgIntervals:dmgIntervals,notifyLine:notifyLine,detectorOf:detectorOf,seek:setPlayhead,state:function(){return S},render:function(){render(0)}};
+window.__resonance={play:togglePlay,twinFeed:function(text,retained,leaf){onTwin(S,leaf||"twin/state",text,!!retained)},feedMq:function(leaf,text,retained){onMqMessage(S,"resonance/"+S.mqSite+"/","resonance/"+S.mqSite+"/"+leaf,new TextEncoder().encode(text),{retain:!!retained})},parseLaunch:parseLaunch,phoneQuery:phoneQuery,building:function(){return BV.model},bvState:function(){return {amp:BV.amp,reduced:BV.reduced,n:BV.n}},parseStatus:parseStatus,MQ:MQ,connectMqtt:connectMqtt,parseLine:parseLine,normalise:normalise,normaliseSample:normaliseSample,loadText:loadText,loadSim:loadSim,dmgIntervals:dmgIntervals,notifyLine:notifyLine,detectorOf:detectorOf,seek:setPlayhead,state:function(){return S},render:function(){render(0)}};
 })();
 </script>
 </body>

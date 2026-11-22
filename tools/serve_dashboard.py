@@ -50,8 +50,10 @@ def lan_urls(port, ips=None):
 
 
 def safe_path(root, url_path):
-    """Map a request path to a file below root, or None. Refuses '..', backslashes, NUL, drive letters, dot-files,
-    hidden folders, anything whose real path leaves root (symlinks included) and directories without index.html."""
+    """Map a request path to a file below root, or None. Refuses '..', backslashes, NUL, drive letters / streams (':'), dot-files,
+    segments ending in '.' or ' ' (Windows ignores those), hidden folders, anything whose REAL path leaves root (symlinks included)
+    and directories without index.html. The dot-file / hidden-folder rule is applied again to the real path, case-insensitively,
+    because NTFS is case-insensitive and resolves 'TOOLS', 'tools.' and 'tools ' to the folder 'tools'."""
     p = url_path.split("?", 1)[0].split("#", 1)[0]     # not urlsplit: it reads "//x" as a host name
     try:
         p = urllib.parse.unquote(p, errors="strict")
@@ -61,7 +63,7 @@ def safe_path(root, url_path):
         return None
     parts = [x for x in p.split("/") if x not in ("", ".")]
     for x in parts:
-        if x == ".." or x.startswith(".") or ":" in x or x in HIDDEN_DIRS:
+        if x == ".." or x.startswith(".") or ":" in x or x.endswith((".", " ")) or any(ord(c) < 32 for c in x):
             return None
     root_real = os.path.realpath(root)
     target = os.path.realpath(os.path.join(root_real, *parts)) if parts else root_real
@@ -71,7 +73,15 @@ def safe_path(root, url_path):
         target = os.path.join(target, "index.html")
         if not os.path.isfile(target):
             return None                      # no directory listing
-    return target if os.path.isfile(target) else None
+        target = os.path.realpath(target)
+    if not os.path.isfile(target):
+        return None
+    rel = os.path.relpath(target, root_real)
+    for x in rel.split(os.sep):              # on the real names, whatever spelling the request used
+        xl = x.lower()
+        if xl.startswith(".") or xl in HIDDEN_DIRS or xl.endswith((".", " ")):
+            return None
+    return target
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -113,12 +123,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return super().send_head()
 
 
+class Server(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = os.name != "nt"    # on Windows SO_REUSEADDR lets a second instance bind the same port silently
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def make_server(port=8080, host="0.0.0.0", root=DASHBOARD):
     h = type("BoundHandler", (Handler,), {"root": root, "port": port})
-    srv = http.server.ThreadingHTTPServer((host, port), h)
-    srv.daemon_threads = True
+    srv = Server((host, port), h)
     h.port = srv.server_address[1]           # the real port when 0 was asked for
     return srv
+
+
+def python_binary():
+    """The program that listens (the base interpreter, not the .venv launcher): the firewall rule has to name this file."""
+    return os.path.realpath(getattr(sys, "_base_executable", None) or sys.executable)
 
 
 def main(argv=None):
@@ -143,8 +167,13 @@ def main(argv=None):
     else:
         print("No network address found: connect to Wi-Fi (or start a phone hotspot) and restart.")
     print()
-    print("Windows will ask whether Python may use the network: tick 'Private networks' and Allow.")
-    print("If the phone cannot open the address, the Wi-Fi probably isolates devices (campus / guest networks do):")
+    print()
+    print("Windows Firewall: the listening program is  %s" % python_binary())
+    print("  - When Windows asks whether it may use the network, allow it on the network type you are really on.")
+    print("  - Wi-Fi profiles are often 'Public' (also most phone hotspots): then tick Public too, or better set the profile to Private for the demo")
+    print("    (Settings > Network & internet > Wi-Fi > your network > Network profile type > Private). Remove the rule afterwards.")
+    print("  - The rule must name that python.exe, not the .venv launcher.")
+    print("If the phone still cannot open the address, the Wi-Fi probably isolates devices (campus / guest networks do):")
     print("start a hotspot on a phone, join the laptop and the other phones to it, restart this script, use the new URL.")
     print("Ctrl+C stops the server.")
     sys.stdout.flush()

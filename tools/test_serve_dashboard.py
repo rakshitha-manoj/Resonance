@@ -107,6 +107,65 @@ def only_dashboard_files_nothing_else():
 
 
 @test
+def windows_spelling_tricks_do_not_reach_hidden_folders_or_files():
+    # NTFS ignores case, trailing dots and spaces: 'TOOLS', 'tools.', 'tools ' all name the folder 'tools' (cases from the verifier's attack.py)
+    srv = start()
+    try:
+        for a in ["/TOOLS/validate_logs.py", "/Tools/test_mqtt_dom.js", "/tools./validate_logs.py", "/tools%20/validate_logs.py", "/tools.../embed_sim.py",
+                  "/tools::$INDEX_ALLOCATION/validate_logs.py", "/TOOLS~1/validate_logs.py", "/__PYCACHE__/", "/TOOLS/__PYCACHE__/x.pyc", "/tools/__pycache__/",
+                  "/%2egitignore", "/.GIT/config"]:
+            assert get(srv, a)[0] in (400, 404), a
+        # the page itself under other spellings: refused (trailing dot / space) or served identically (case) - never anything else
+        for a in ["/index.html.", "/index.html%20", "/index.html::$DATA"]:
+            assert get(srv, a)[0] in (400, 404), a
+        st, _, body = get(srv, "/INDEX.HTML")
+        assert st == 404 or (st == 200 and b"Resonance Monitor" in body)
+        assert get(srv, "/VENDOR/QRCODE.JS")[0] in (200, 404)
+        # and the real names still work
+        assert get(srv, "/vendor/qrcode.js")[0] == 200
+    finally:
+        srv.shutdown()
+
+
+@test
+def a_second_instance_cannot_take_the_same_port():
+    srv = start()
+    try:
+        port = srv.server_address[1]
+        try:
+            other = sd.make_server(port, "127.0.0.1")
+        except OSError:
+            return                           # what main() turns into "Try --port 8081"
+        other.server_close()
+        raise AssertionError("second server bound the same port")
+    finally:
+        srv.shutdown()
+
+
+@test
+def startup_hint_names_the_listening_binary_and_the_profile_advice():
+    import socket
+    import subprocess
+    import time
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+    env = {k: v for k, v in os.environ.items() if not k.startswith("TELEGRAM_")}
+    pr = subprocess.Popen([sys.executable, "-u", os.path.join(HERE, "serve_dashboard.py"), "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True)
+    try:
+        out = ""
+        t0 = time.time()
+        while "Ctrl+C stops" not in out and time.time() - t0 < 15:
+            out += pr.stdout.readline()
+        assert sd.python_binary() in out, out
+        assert "Public" in out and "Private" in out and "isolates devices" in out and "Open on this computer" in out, out
+        # a second copy on the same port reports the busy port instead of starting
+        pr2 = subprocess.run([sys.executable, os.path.join(HERE, "serve_dashboard.py"), "--port", str(port)], capture_output=True, text=True, timeout=20, env=env)
+        assert pr2.returncode == 1 and "--port 8081" in pr2.stderr, (pr2.returncode, pr2.stderr)
+    finally:
+        pr.terminate()
+        pr.wait(timeout=10)
+
+
+@test
 def no_directory_listing_in_a_folder_without_index():
     with tempfile.TemporaryDirectory() as d:
         os.makedirs(os.path.join(d, "sub"))

@@ -10,7 +10,7 @@
 //   NODE_PATH=<folder>/node_modules node dashboard/tools/test_mqtt_dom.js [--url ws://broker.hivemq.com:8000/mqtt]
 //        [--site rsn-822298ab] [--log dashboard/demo_events_faults_sim.jsonl] [--python <python>] [--speed 0]
 // Reboot case: --log dashboard/tools/short_reboot.jsonl --speed 2 (a burst can reorder a reboot's restart line across topics, see dashboard/README.md).
-// (broker.hivemq.com:8884 / wss and 1883 are blocked on some networks; ws://...:8000/mqtt is the plain WebSocket port.)
+// Defaults that work on this laptop: --url ws://broker.hivemq.com:8000/mqtt (the plain WebSocket port; wss :8884 and 1883 are blocked on some networks), --python = the repo's .venv python when it exists (else `python`). The twin run needs netsim built (`pio run -e netsim` in firmware/esp32) and strips TELEGRAM_* from the server's environment.
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -20,10 +20,11 @@ const { JSDOM, VirtualConsole } = jsdom;
 
 const arg = (n, d) => { const i = process.argv.indexOf("--" + n); return i > 0 ? process.argv[i + 1] : d; };
 const ROOT = path.resolve(__dirname, "..", "..");
-const URL_ = arg("url", "wss://broker.hivemq.com:8884/mqtt");
+const URL_ = arg("url", "ws://broker.hivemq.com:8000/mqtt");   // plain WebSocket port: 8884 (wss) is blocked on some networks, this one works here
 const SITE = arg("site", "rsn-822298ab");
 const LOG = path.resolve(arg("log", path.join(ROOT, "dashboard", "demo_events_sim.jsonl")));
-const PY = arg("python", "python");
+const VENV_PY = [path.join(ROOT, ".venv", "Scripts", "python.exe"), path.join(ROOT, ".venv", "bin", "python")].find((p) => fs.existsSync(p));
+const PY = arg("python", VENV_PY || "python");   // the repo's .venv python when present
 const SPEED = arg("speed", "0");
 const PAGE = path.join(ROOT, "dashboard", "index.html");
 
@@ -204,6 +205,7 @@ async function offlineChecks(check) {
   check(qs(pgG.window, "dmgBanner").hidden && pgG.window.__resonance.state().ev.length === 3 && /std/.test(qs(pgG.window, "hist").innerHTML), "schema 1 log still replays (3 events, std detector tag, no damage panels)");
   // all pages: no script errors
   await viewChecks(check, text);
+  await twinViewChecks(check, text);
   const errs = [pgA, pgB, pgC, pgD, pgE, pgF, pgG, pgH, ...badPages, ...EXTRA_PAGES].flatMap((p) => p.errors).filter((e) => !/Not implemented/.test(e));
   check(errs.length === 0, "no script errors in any offline page" + (errs.length ? ": " + errs.slice(0, 3).join(" | ") : ""));
   console.log("--- end offline checks ---");
@@ -271,16 +273,17 @@ async function viewChecks(check, text) {
   check(!shown(pg, "bvBand") && !shown(pg, "bvTruthG") && !shown(pg, "bvTruthNote") && doc(pg).getElementById("bvBand").getAttribute("data-truth") === "" && !storeys(pg).includes("damage") && storeys(pg).every((x) => x === "ambient"), "outside twin mode NO storey is marked as damaged (no band, no truth label, storey fills unchanged)");
   // twin truth (synthetic twin/state; the page only trusts it on an MQTT site)
   const tw = (d) => ({ running: true, commissioned: true, speed: 2, sf: 300, damage: d, building: { f1_hz: 7.03 }, f1_true_hz: 6.8, drop_true: 0.039, killed: [], truth: [[0, 0, 7.03]], log: [] });
-  S.kind = "mqtt"; S.twin = tw({ storey: 3, loss: 0.3 }); A.render();
+  const setTw = (d) => A.twinFeed(JSON.stringify(Object.assign(tw(d), { updated_t: Date.now() / 1000, period_s: 5 })), false);
+  S.kind = "mqtt"; S.mq = { end() {} }; setTw({ storey: 3, loss: 0.3 }); A.render();
   const lbl = doc(pg).getElementById("bvTruthT").textContent;
   check(shown(pg, "bvBand") && doc(pg).getElementById("bvBand").getAttribute("data-truth") === "3" && lbl === "simulator truth: storey 3, −30 % stiffness" && shown(pg, "bvTruthG"), "twin mode: red hatched band on storey 3 labelled '" + lbl + "'");
   const bandPts = pts("bvBand"), s3 = pts("bvS3");
   check(JSON.stringify(bandPts) === JSON.stringify(s3) && !!doc(pg).getElementById("bvHatch") && /cannot locate/.test(doc(pg).getElementById("bvTruthNote").textContent) && /cannot locate/.test(doc(pg).getElementById("bvFlag").textContent), "twin mode: the band covers exactly storey 3 and the 'cannot locate the storey' note is kept for what the sensors know");
-  S.twin = tw(null); A.render(); check(!shown(pg, "bvBand"), "twin without damage: no band");
-  for (const bad of [{ storey: 11, loss: 0.3 }, { storey: 0, loss: 0.3 }, { storey: 2.5, loss: 0.3 }, { storey: 3, loss: 1.5 }, { storey: "3", loss: 0.3 }, { storey: 3, loss: -0.1 }]) { S.twin = tw(bad); A.render(); if (shown(pg, "bvBand")) check(false, "twin truth with invalid values " + JSON.stringify(bad) + " must not be drawn"); }
+  setTw(null); A.render(); check(!shown(pg, "bvBand"), "twin without damage: no band");
+  for (const bad of [{ storey: 11, loss: 0.3 }, { storey: 0, loss: 0.3 }, { storey: 2.5, loss: 0.3 }, { storey: 3, loss: 1.5 }, { storey: "3", loss: 0.3 }, { storey: 3, loss: -0.1 }]) { setTw(bad); A.render(); if (shown(pg, "bvBand")) check(false, "twin truth with invalid values " + JSON.stringify(bad) + " must not be drawn"); }
   check(!shown(pg, "bvBand"), "twin truth with invalid values (storey 0 / 2.5 / 11 / '3', loss <= 0 or >= 1) is not drawn");
-  S.twin = tw({ storey: 3, loss: 0.3 }); S.kind = ""; A.render(); check(!shown(pg, "bvBand"), "a twin/state outside an MQTT source is ignored (no storey mark)");
-  S.twin = null; S.kind = "";
+  setTw({ storey: 3, loss: 0.3 }); S.kind = ""; A.render(); check(!shown(pg, "bvBand"), "a twin/state outside an MQTT source is ignored (no storey mark)");
+  S.twin = null; S.kind = ""; S.mq = null;
 
   // dead sensor (faults log has node lines)
   const pgF = await mk(); const FA = pgF.window.__resonance;
@@ -299,7 +302,7 @@ async function viewChecks(check, text) {
     '{"type":"begin","t_us":57000000,"sf":40,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":7.4,"r2":1.4,"base1":75.2,"base2":102.6,"alive":[true,true],"closed":41,"events":3}\n';
   const pg1 = await mk(); await pg1.window.__resonance.loadText(sch1, "schema 1", false);
   pg1.window.__resonance.seek(pg1.window.__resonance.state().tEnd); pg1.window.__resonance.render();
-  check(storeys(pg1).filter((x) => x === "local").length === 1 && /floor assumed/.test(doc(pg1).querySelector("#bvLab1 .l2").textContent) && !outDmg(pg1) && amp(pg1) > 5, "schema 1 log (no floors): sensors drawn at assumed floors 5 / 10 and labelled so, local event shown, strong sway for r 7.4");
+  check(storeys(pg1).filter((x) => x === "local").length === 1 && /floor assumed/.test(doc(pg1).querySelector("#bvLab1 .l3").textContent) && !outDmg(pg1) && amp(pg1) > 5, "schema 1 log (no floors): sensors drawn at assumed floors 5 / 10 and labelled so, local event shown, strong sway for r 7.4");
 
   // animation and reduced motion
   const pgM = await mk({ search: "?replay=demo_events_sim.jsonl&speed=30&at=sf118" });   // starts paused at sf 118 (before the sensor-1 impact)
@@ -379,6 +382,116 @@ async function viewChecks(check, text) {
   doc(pgE).getElementById("phoneBtn").click(); await sleep(300);
   check(!doc(pgE).getElementById("qrBox") && /serve_dashboard\.py/.test(doc(pgE).getElementById("phoneBody").textContent), "hostile /lan.json entries (javascript:, host names, https, no port) are ignored");
   console.log("--- end building / phone checks ---");
+}
+
+// Hardening of the twin panel / truth band against stale, stopped, malformed and hostile twin/state messages, and the other review fixes.
+async function twinViewChecks(check, text) {
+  console.log("--- twin panel hardening / building view fixes ---");
+  const mk = async (opts) => { const p = await openPage(opts); EXTRA_PAGES.push(p); return p; };
+  const doc = (p) => p.window.document;
+  const shown = (p, id) => !doc(p).getElementById(id).hasAttribute("hidden");
+  const btnsOff = (p) => Array.from(doc(p).querySelectorAll("button[data-tw]")).every((b) => b.disabled);
+  const btnsOn = (p) => Array.from(doc(p).querySelectorAll("button[data-tw]")).every((b) => !b.disabled);
+  const good = (extra) => Object.assign({ running: true, speed: 2, seed: 1, sf: 300, commissioned: true, commission_sf: 100, building: { f1_hz: 7.09, floors: [5, 10] }, damage: { storey: 7, loss: 0.3 },
+    f1_true_hz: 6.9, drop_true: 0.027, killed: [], truth: [[0, 0, 7.09], [250, 100000000, 6.9]], last_cmd: {}, log: ["a"], guard_sf: 4, updated_t: Date.now() / 1000, period_s: 5 }, extra || {});
+  // a page on an MQTT source that never reaches a broker (port 9): S.mq exists, messages are injected through the page's own handler
+  const join = async (site) => { const p = await mk({ search: "?mqtt=1&site=" + site + "&broker=ws://127.0.0.1:9/mqtt" }); await sleep(400); return p; };
+  const pg = await join("rsn-twin-a"), A = pg.window.__resonance, S = A.state();
+  A.feedMq("twin/state", JSON.stringify(good()), true); A.render();
+  check(!doc(pg).getElementById("twinCard").hidden && btnsOn(pg) && /running/.test(doc(pg).getElementById("twState").textContent), "fresh twin/state (retained, heartbeat now): panel shown, buttons enabled");
+  check(shown(pg, "bvBand") && doc(pg).getElementById("bvBand").getAttribute("data-truth") === "7", "alive twin with damage: truth band on storey 7");
+  // C: stopped
+  A.feedMq("twin/state", JSON.stringify(good({ running: false })), false); A.render();
+  check(!doc(pg).getElementById("twinCard").hidden && btnsOff(pg) && /twin stopped/.test(doc(pg).getElementById("twState").textContent) && !shown(pg, "bvBand"), "running:false (Ctrl+C): 'twin stopped', buttons disabled, truth band gone");
+  // C: stale retained heartbeat (a hard kill leaves it behind)
+  A.feedMq("twin/state", JSON.stringify(good({ updated_t: Date.now() / 1000 - 100 })), true); A.render();
+  check(btnsOff(pg) && /not responding/.test(doc(pg).getElementById("twState").textContent) && !shown(pg, "bvBand"), "retained state older than 3 x period_s: 'twin not responding', buttons disabled, no truth band");
+  A.feedMq("twin/state", JSON.stringify(good()), false); A.render();
+  check(btnsOn(pg) && shown(pg, "bvBand"), "a live state after a stale one: alive again");
+  const noHb = good(); delete noHb.updated_t; delete noHb.period_s;
+  A.feedMq("twin/state", JSON.stringify(noHb), true); A.render();
+  check(btnsOn(pg) && shown(pg, "bvBand"), "state without updated_t: the running flag alone decides (alive)");
+  // a state stream that goes silent while connected is noticed (local clock)
+  A.feedMq("twin/state", JSON.stringify(good()), false);
+  S.twinFreshAt = pg.window.performance.now() - 20000; A.render();
+  check(btnsOff(pg) && /not responding/.test(doc(pg).getElementById("twState").textContent) && !shown(pg, "bvBand"), "no state for more than 3 periods while connected: 'not responding', buttons disabled, no band");
+  // C: disconnect and file load hide the panel
+  A.feedMq("twin/state", JSON.stringify(good()), false); A.render();
+  check(!doc(pg).getElementById("twinCard").hidden, "(panel visible again after a live state)");
+  doc(pg).getElementById("mqBtn").click(); await sleep(100); A.render();
+  check(doc(pg).getElementById("twinCard").hidden && !shown(pg, "bvBand"), "after 'MQTT live: disconnect' the twin panel and the band are hidden");
+  const pg2 = await join("rsn-twin-b"), A2 = pg2.window.__resonance;
+  A2.feedMq("twin/state", JSON.stringify(good()), false); A2.render();
+  await A2.loadText(text, "file", false); A2.render();
+  check(doc(pg2).getElementById("twinCard").hidden && !shown(pg2, "bvBand") && A2.state().twin === null, "loading a file replaces the MQTT source: twin panel hidden");
+
+  // E: malformed / hostile twin states never break the live feed
+  const evil = {
+    "no building": { running: true }, "killed string": { running: true, commissioned: true, building: { f1_hz: 7 }, killed: "12", truth: [] }, "building null": { running: false, building: null },
+    "truth object": { running: true, building: { f1_hz: 7 }, truth: { length: 5 } },
+    "numbers as html": { running: true, speed: "<img src=x onerror=window.__pwned=1>", sf: "<b>", building: { f1_hz: "<i>" }, damage: { storey: "<i>", loss: "x" }, killed: ["<b>", 3, 1, 1], truth: [[0, "<b>", "<i>"]], log: ["<img src=x onerror=window.__pwned=2>", 5, null], drop_true: "x", f1_true_hz: { a: 1 } },
+    "out of range": { running: true, speed: 1e309, sf: -1, building: { f1_hz: -5 }, damage: { storey: 99, loss: 7 }, updated_t: "now", period_s: 0 },
+    "array": [1, 2], "string": "x", "null": null,
+    "huge truth": { running: true, commissioned: true, sf: 1, building: { f1_hz: 7 }, truth: Array.from({ length: 20000 }, (_, i) => [i, i * 1400000, 7 + (i % 7) * 0.01]) },
+  };
+  const sample = (sf, t) => JSON.stringify({ type: "sample", t_us: t, sf, class: "AMBIENT", slave: 0, degraded_alive: 0, r1: 1.0, r2: 1.1, alive: [true, true], age: [0, 0], commission_n: [20, 20], closed: sf });
+  const meta = JSON.stringify({ type: "meta", schema: 2, source: "netsim", rule: "b", T: 3, debounce: 1, commission_windows: 20, status_every_sf: 64, superframe_s: 1.4, floors: [5, 10], epoch: 1, samples: true });
+  const pgE = await join("rsn-twin-evil"), EA = pgE.window.__resonance, ES = EA.state();
+  EA.feedMq("meta", meta, false);
+  let n = 0, allOk = true; const details = [];
+  for (const [name, st] of Object.entries(evil)) {
+    pgE.window.__pwned = 0;
+    EA.feedMq("twin/state", typeof st === "string" ? st : JSON.stringify(st), true);
+    try { EA.render(); } catch (e) { allOk = false; details.push(name + ": render threw " + e.message); }
+    EA.feedMq("twin/log", "<img src=x onerror=window.__pwned=3>" + "y".repeat(500), false);
+    const before = ES.mqRecv, smBefore = ES.sm.length + ES.mqBuf.length;
+    n++; EA.feedMq("sample", sample(n, 1000000 + n * 1400000), false);
+    if (ES.mqRecv !== before + 1 || ES.sm.length + ES.mqBuf.length !== smBefore + 1) { allOk = false; details.push(name + ": feed stalled (recv " + before + " -> " + ES.mqRecv + ")"); }
+    if (pgE.window.__pwned || doc(pgE).querySelector("#twinCard img, #twinCard script, #twinCard b, #twinCard i")) { allOk = false; details.push(name + ": markup injected"); }
+    if (ES.twinLog.some((l) => l.length > 300)) { allOk = false; details.push(name + ": long log line kept"); }
+  }
+  check(allOk, "malformed / hostile twin/state payloads (" + Object.keys(evil).length + " kinds) never throw, never stop the live feed (every following sample was received) and inject nothing" + (details.length ? ": " + details.join("; ") : ""));
+  await sleep(3200);   // reorder hold 2.5 s: the samples fed between the bad states are released and parsed
+  check(ES.sm.length === n && ES.stats.bad === 0, "all " + n + " samples interleaved with the bad twin states were parsed (" + ES.sm.length + ", malformed " + ES.stats.bad + ")");
+  EA.feedMq("twin/state", JSON.stringify({ running: true, commissioned: true, speed: "<x>", building: { f1_hz: "7" }, killed: [1], damage: { storey: 2, loss: 0.3 }, updated_t: Date.now() / 1000, period_s: 5 }), false); EA.render();
+  const tx = doc(pgE).getElementById("twState").textContent;
+  check(!/<|NaN|undefined|null/.test(tx) && /dead sensor\(s\): 1/.test(tx) && /damage: storey 2 by 30 %/.test(tx), "twin state line shows only validated values: '" + tx + "'");
+  doc(pgE).getElementById("mqBtn").click();
+
+  // D: loss labels and accepted range
+  const pgD = await join("rsn-twin-d"), DA = pgD.window.__resonance;
+  const lbl = () => doc(pgD).getElementById("bvTruthT").textContent;
+  const withLoss = (l) => { DA.feedMq("twin/state", JSON.stringify(good({ damage: { storey: 4, loss: l } })), false); DA.render(); };
+  const rejected = [0.999, 0.004, 0.049, 0.51].map((l) => { withLoss(l); return shown(pgD, "bvBand"); });
+  check(rejected.every((x) => !x), "loss outside the twin's 5-50 % range (0.999, 0.004, 0.049, 0.51): no band, no '-100 %' / '-0 %' label");
+  const labels = [0.05, 0.5, 0.125, 0.3].map((l) => { withLoss(l); return lbl().replace("simulator truth: storey 4, ", ""); });
+  check(labels.join("|") === "−5 % stiffness|−50 % stiffness|−12.5 % stiffness|−30 % stiffness", "loss labels: 5 %, 50 %, one decimal only where needed (12.5 %), 30 %: " + labels.join(" | "));
+  doc(pgD).getElementById("mqBtn").click();
+
+  // F: floors outside the drawing, always 10 storeys
+  for (const fl of [[5, 50], [12, 3], [0, 10]]) {
+    const pf = await mk(); const FA = pf.window.__resonance;
+    await FA.loadText(text.replace('"floors":[5,10]', '"floors":' + JSON.stringify(fl)), "floors " + fl, false);
+    FA.seek(FA.state().tEnd); FA.render();
+    const outs = [0, 1].filter((k) => fl[k] < 1 || fl[k] > 10), note = doc(pf).getElementById("bNote").textContent;
+    const ok = doc(pf).querySelectorAll(".bv-st").length === 10 && !/count (40|12)/.test(note) &&
+      outs.every((k) => /outside the drawing/.test(doc(pf).querySelector("#bvLab" + (k + 1) + " .l3").textContent) && doc(pf).getElementById("bvIc" + (k + 1)).hasAttribute("hidden")) &&
+      [0, 1].filter((k) => !outs.includes(k)).every((k) => !doc(pf).getElementById("bvIc" + (k + 1)).hasAttribute("hidden")) && /outside the drawn 10 storeys/.test(note) && /always shows the simulator's 10 storeys/.test(note);
+    check(ok, "meta.floors " + JSON.stringify(fl) + ": always 10 storeys, a sensor outside 1..10 is labelled 'outside the drawing' (icon not drawn); caption: " + note.slice(0, 110));
+  }
+  // H: every building label fits the room right of the building
+  const pgH = await mk(); const HA = pgH.window.__resonance;
+  await HA.loadText(text.replace('"floors":[5,10]', '"floors":[5,50]'), "h", false); HA.seek(HA.state().tEnd); HA.render();
+  const long = Array.from(doc(pgH).querySelectorAll(".bv-lab text")).map((e) => e.textContent).filter((t) => t.length > 27);
+  const vb = doc(pgH).getElementById("bsvg").getAttribute("viewBox").split(" ").map(Number);
+  check(long.length === 0 && vb[0] + vb[2] >= 555, "building labels are at most 27 characters and the viewBox reaches x = " + (vb[0] + vb[2]));
+  // G / I / J: wording and palette
+  const src = fs.readFileSync(PAGE, "utf8");
+  await HA.loadText(text, "g", false); HA.seek(HA.state().tEnd); HA.render();
+  const dsub = doc(pgH).getElementById("dSub").textContent;
+  check(/cannot tell which storey/.test(dsub) && !/looks like this/.test(src), "DAMAGE banner: 'Natural-frequency tracking detects a stiffness loss but cannot tell which storey' (no storey hint)");
+  check(/class="legend-note"/.test(src) && !/R = master restart",4,H-1/.test(src) && /red bar = DAMAGE alarm/.test(doc(pgH).getElementById("legend").textContent), "timeline note is HTML (wraps on a phone), not a fixed canvas string");
+  check(/\.bv-st\[data-s="local"\]\{fill:var\(--local\)/.test(src) && /\.bv-st\[data-s="building"\]\{fill:var\(--building\)/.test(src), "building colours use the timeline palette (LOCAL = --local, BUILDING = --building)");
 }
 
 // B2: a retained damage_state left over from an EARLIER run must not be listed by a page that joins late in the next run. The retained topics are
