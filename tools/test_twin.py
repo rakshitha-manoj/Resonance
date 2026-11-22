@@ -3,6 +3,7 @@ Run: .venv\\Scripts\\python.exe tools\\test_twin.py"""
 import json
 import os
 import sys
+import time
 
 import numpy as np
 
@@ -132,6 +133,122 @@ def test_storey10(wd):
     check(find(core, "damage", state="BEGIN") == [], "storey 10 by 30 %: no DAMAGE alarm (f1 barely moves)")
 
 
+def test_parse_hostile():
+    cases = [b'{"cmd":"damage","storey":NaN,"loss":0.3}', b'{"cmd":"damage","storey":Infinity,"loss":0.3}', b'{"cmd":"kill","slave":-Infinity}',
+             b'{"cmd":"impact","floor":NaN}', b'{"cmd":"damage","storey":1,"loss":Infinity}', b'{"cmd":"damage","storey":1e400,"loss":0.3}',
+             b'{"cmd":"damage","storey":"1","loss":0.3}', b'{"cmd":"damage","storey":{"a":1},"loss":0.3}', b'{"cmd":"damage","storey":[1],"loss":[0.3]}',
+             b'{"cmd":"kill","slave":1.5}', b'[' * 200 + b']' * 200, b'{"cmd":"damage","storey":1,"loss":1e-400}',
+             b'{"cmd":"damage","storey":' + b"9" * 200 + b',"loss":0.3}', b'{"cmd":"damage","storey":1,"loss":' + b"9" * 200 + b'}', b'\x00', b'',
+             b'{"cmd":"kill","slave":true}', b'{"cmd":"damage","storey":2,"loss":-0.3}']
+    out = []
+    for c in cases:
+        try:
+            out.append(ts.parse_command(c))
+        except Exception as e:                      # noqa: BLE001
+            raise AssertionError("parse_command raised on %r: %r" % (c[:40], e))
+    check(all(o is None for o in out), "%d hostile payloads (NaN, Infinity, 1e400, huge ints, nesting, wrong types) all rejected, none raises" % len(cases))
+    ok = [ts.parse_command(b'{"cmd":"damage","storey":1.0,"loss":0.05}'), ts.parse_command(b'{"cmd":"damage","storey":10,"loss":0.5}'), ts.parse_command(b'{"cmd":"reset"}  ')]
+    check(all(ok), "boundary values (storey 1.0, loss 0.05 / 0.5, trailing blanks) are accepted")
+
+
+def test_spacing_and_noops(wd):
+    core = ts.TwinCore(workdir=wd)
+    pub_until(core, 110)
+    core.apply({"cmd": "kill", "slave": 2})
+    runs = core.runs
+    g = core.last_cmd["sf"]
+    m = core.apply({"cmd": "revive", "slave": 2})            # immediately: 0 superframes later
+    check("too soon" in m and core.changed is False and core.runs == runs and 2 in core.killed, "a command inside MIN_SPACING_SF is refused (no netsim run): " + m)
+    core.apply({"cmd": "kill", "slave": 2})
+    check(core.changed is False and core.runs == runs, "no-op command (kill of a dead sensor) causes no netsim run and no state change")
+    pub_until(core, g + ts.MIN_SPACING_SF)
+    m = core.apply({"cmd": "revive", "slave": 2})
+    check(core.changed is True and "revived" in m and core.last_cmd["sf"] - g >= ts.MIN_SPACING_SF, "after the spacing the command is applied (sf %d vs %d)" % (core.last_cmd["sf"], g))
+    pub_until(core, core.last_cmd["sf"] + 8)
+    check(any(o["slave"] == 2 and o["state"] == "DEAD" and g <= o["sf"] for o in find(core, "node")), "kill then revive with the spacing: the DEAD line is visible")
+    for _ in range(40):
+        core.cur_sf = 5
+        core.apply({"cmd": "shake"})
+    check(len(core.log) <= ts.MAX_LOG, "core log is capped (%d lines)" % len(core.log))
+
+
+def test_state_scaling(wd):
+    core = ts.TwinCore(workdir=wd)
+    pub_until(core, 110)
+    for i in range(ts.MAX_TRUTH + 50):
+        core.cur_sf = 200 + i * 10
+        core.last_g = -1
+        core.commission_sf = 0
+        core.apply({"cmd": "damage", "storey": 1 + i % 10, "loss": 0.1}, refresh=False)
+    st = core.state(2.0)
+    check(len(core.truth) <= ts.MAX_TRUTH and core.truth[0][0] == 0 and len(st["truth"]) <= ts.MAX_TRUTH, "truth history is capped (%d entries, first kept)" % len(st["truth"]))
+    check(core.sf_to_t_us(50) == ts.line_field(next(l for l in core.lines if ts.line_field(l, "sf") == 50 and ts.line_field(l, "type") == "sample"), "t_us"), "sf -> t_us comes from an index")
+
+
+class _Msg:
+    def __init__(self, topic, payload, retain=False):
+        self.topic, self.payload, self.retain = topic, payload, retain
+
+
+class _Stub:
+    class client:                                    # noqa: N801
+        published = []
+
+        @staticmethod
+        def publish(t, payload, qos=1, retain=False):
+            _Stub.client.published.append((t, payload, retain))
+
+    def __init__(self):
+        self.times = []
+        self.lines = []
+
+    def send_line(self, line):
+        self.times.append(time.monotonic())
+        self.lines.append(line)
+
+    def finish(self, offline=True):
+        pass
+
+
+def test_flood(wd):
+    """60 valid 'shake' commands at 20/s against a running server (speed 30, no broker): the stream must not stall, few are applied."""
+    import argparse
+    import threading
+    import tempfile
+    args = argparse.Namespace(site="twin-test", speed=30.0, seed=ts.DEFAULT_SEED, workdir=wd, netsim_exe=ts.DEFAULT_EXE, qos=1, host="x", port=1,
+                              transport="tcp", ws_path="/mqtt", tls=False, user=None, password=None)
+    srv = ts.TwinServer(args)
+    srv.pub = _Stub()
+    _Stub.client.published.clear()
+    srv.pub.client = _Stub.client
+    th = threading.Thread(target=srv.run, daemon=True)
+    th.start()
+    t0 = time.time()
+    while srv.core.cur_sf < 105 and time.time() - t0 < 60:
+        time.sleep(0.1)
+    check(srv.core.cur_sf >= 105, "server commissioned (sf %d)" % srv.core.cur_sf)
+    time.sleep(2.2)
+    sf0, n0 = srv.core.cur_sf, len(srv.pub.times)
+    cmd = ts.rm.topic("twin-test", "twin/cmd")
+    for i in range(60):
+        srv.on_message(None, None, _Msg(cmd, b'{"cmd":"shake"}'))
+        time.sleep(0.05)
+    srv.on_message(None, None, _Msg(cmd, b'{"cmd":"damage","storey":NaN,"loss":0.3}'))   # must not kill the server
+    time.sleep(10)
+    srv.stop = True
+    th.join(20)
+    times = srv.pub.times[n0:]
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    logs = [p.decode() for t, p, r in _Stub.client.published if t.endswith("twin/log")]
+    applied = sum("building-wide shake" in l for l in logs)
+    check(not th.is_alive(), "server thread survived the flood and the NaN command and stopped cleanly")
+    check(max(gaps) < 6.0 and srv.core.cur_sf > sf0 + 60, "stream never stalled: max gap between published lines %.1f s, sf %d -> %d" % (max(gaps), sf0, srv.core.cur_sf))
+    check(1 <= applied <= 4, "flood of 60 commands in 3 s: %d applied (rate limit at receive time, 1 pending)" % applied)
+    check(srv.core.warnings == [], "no prefix warnings during the flood")
+    states = [json.loads(p) for t, p, r in _Stub.client.published if t.endswith("twin/state")]
+    check(all("updated_t" in s and s["period_s"] == ts.STATE_PERIOD_S for s in states), "every twin/state carries updated_t and period_s")
+
+
 if __name__ == "__main__":
     import tempfile
     base = tempfile.mkdtemp(prefix="twintest_")
@@ -139,4 +256,8 @@ if __name__ == "__main__":
     test_timeline(base)
     test_scenario(os.path.join(base, "a"))
     test_storey10(os.path.join(base, "b"))
+    test_parse_hostile()
+    test_spacing_and_noops(os.path.join(base, "c"))
+    test_state_scaling(os.path.join(base, "d"))
+    test_flood(os.path.join(base, "e"))
     print("%d checks passed" % N)

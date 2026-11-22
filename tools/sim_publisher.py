@@ -205,12 +205,20 @@ class Publisher:
         self.by_topic[r.leaf] = self.by_topic.get(r.leaf, 0) + 1
 
     def finish(self, offline=True):
-        if offline:
-            self._pub_status(False)
-        for info in self.infos[-1000:]:
-            info.wait_for_publish(timeout=30)
-        self.client.loop_stop()
-        self.client.disconnect()
+        # shutdown must never raise (a broker that went away makes wait_for_publish / publish raise RuntimeError): best effort, bounded
+        try:
+            if offline:
+                self._pub_status(False)
+            deadline = time.time() + 15
+            for info in self.infos[-1000:]:
+                info.wait_for_publish(timeout=max(0.1, min(30, deadline - time.time())))
+        except (RuntimeError, ValueError, OSError) as e:
+            rm.log("finish: not all messages were delivered (%s)" % (e,))
+        try:
+            self.client.loop_stop()
+            self.client.disconnect()
+        except (RuntimeError, ValueError, OSError):
+            pass
 
 
 def run(args):

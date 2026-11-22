@@ -17,8 +17,17 @@ Topics (resonance/<site>/...): the usual line topics (meta, sample, begin, chang
         {"cmd":"damage","storey":1..10,"loss":0.05..0.5}   {"cmd":"repair"}   {"cmd":"impact","floor":5|10}   {"cmd":"shake"}
         {"cmd":"kill","slave":1|2}   {"cmd":"revive","slave":1|2}   {"cmd":"reset"}
 Anybody who knows the (random) site id on a public broker can send commands: acceptable for a simulated demo, never for a real plant.
-Commands are validated strictly, rate limited (1 per 2 s), ignored while the system commissions, and take effect GUARD superframes after
-the one being published (the already published past never changes: the netsim output is deterministic and the published prefix is verified).
+Commands are validated strictly (non-finite numbers, wrong types, extra keys, > 256 bytes: ignored), rate limited AT RECEIVE TIME (1 per 2 s,
+the first command of a window wins and at most ONE command is pending, so a flood costs nothing), refused while the system commissions,
+and spaced at least MIN_SPACING_SF = 6 superframes apart in simulated time (otherwise two quick clicks, e.g. kill then revive, would land
+in adjacent superframes and the first effect would never be visible). A command takes effect GUARD superframes after the one being
+published (the already published past never changes: the netsim output is deterministic and the published prefix is verified). The
+netsim re-run after a command blocks publishing for about 1-3 s (longer late in a long session); with the limits above that is at
+most one such pause per 2 s of wall time, and the pacer then catches up, so the stream is never frozen for more than a few seconds.
+A retained message published to twin/cmd IS applied once when it arrives live (the broker delivers a live publish with retain=0); only
+the replay of a retained message on a (re)subscribe, which has retain=1, is ignored.
+twin/state carries `updated_t` (wall-clock seconds) and `period_s` (republished every period_s): a reader should treat a state older than
+about 3 x period_s as a dead twin (a killed server cannot publish running:false; Ctrl+C, SIGTERM and Ctrl+Break do).
 """
 import argparse
 import dataclasses
@@ -26,6 +35,8 @@ import json
 import math
 import os
 import queue
+import re
+import signal
 import random
 import subprocess
 import sys
@@ -58,33 +69,58 @@ SHAKE_EXC = 16                # exc ids of gen_traces.py known to give a clean e
 IMPACT_EXC = {5: 2, 10: 2}
 PLAIN_EXC0 = 1000             # ambient pieces use fresh exc ids from here (disjoint from the scripted ones)
 RATE_LIMIT_S = 2.0
+MIN_SPACING_SF = 6            # applied commands are at least this many superframes apart (simulated time)
+STATE_PERIOD_S = 5.0          # twin/state republish period (heartbeat: updated_t)
+MAX_LOG = 12
+MAX_TRUTH = 200               # truth history kept (the first entry and the last MAX_TRUTH-1)
 MAX_CMD_BYTES = 256
 LOSS_MIN, LOSS_MAX = 0.05, 0.5
 
 CMD_FIELDS = {"damage": {"storey", "loss"}, "repair": set(), "impact": {"floor"}, "shake": set(), "kill": {"slave"}, "revive": {"slave"}, "reset": set()}
 
 
+def _num(v):
+    """Finite JSON number -> float/int, else None (bool, str, NaN, +-inf, huge ints are not numbers here)."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    try:
+        return v if math.isfinite(v) else None
+    except OverflowError:                      # an int too large for a float
+        return None
+
+
 def _int_in(v, lo, hi=None, allowed=None):
-    if isinstance(v, bool) or not isinstance(v, int):
-        if isinstance(v, float) and v == int(v) and math.isfinite(v):
-            v = int(v)
-        else:
+    v = _num(v)
+    if v is None:
+        return None
+    if isinstance(v, float):
+        if not v.is_integer():
             return None
+        v = int(v)
     if allowed is not None:
         return v if v in allowed else None
     return v if lo <= v <= hi else None
 
 
+def _no_const(name):
+    raise ValueError("non-finite constant " + name)
+
+
 def parse_command(payload):
-    """bytes/str -> validated command dict {"cmd":..., fields...} or None (anything wrong, unknown, oversized, extra keys, bad types)."""
+    """bytes/str -> validated command dict {"cmd":..., fields...} or None (anything wrong, unknown, oversized, non-finite, extra keys, bad
+    types). Never raises."""
+    try:
+        return _parse_command(payload)
+    except Exception:                          # a hostile payload must never take the server down
+        return None
+
+
+def _parse_command(payload):
     if isinstance(payload, str):
         payload = payload.encode("utf-8", "replace")
     if not isinstance(payload, (bytes, bytearray)) or len(payload) > MAX_CMD_BYTES:
         return None
-    try:
-        o = json.loads(payload.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError):
-        return None
+    o = json.loads(payload.decode("utf-8"), parse_constant=_no_const)
     if not isinstance(o, dict):
         return None
     c = o.get("cmd")
@@ -92,8 +128,8 @@ def parse_command(payload):
         return None
     if c == "damage":
         s = _int_in(o["storey"], 1, 10)
-        l = o["loss"]
-        if s is None or isinstance(l, bool) or not isinstance(l, (int, float)) or not math.isfinite(l) or not (LOSS_MIN - 1e-9 <= l <= LOSS_MAX + 1e-9):
+        l = _num(o["loss"])
+        if s is None or l is None or not (LOSS_MIN - 1e-9 <= l <= LOSS_MAX + 1e-9):
             return None
         return {"cmd": c, "storey": s, "loss": round(float(l), 4)}
     if c == "impact":
@@ -219,6 +255,9 @@ def line_field(line, key):
         return None
 
 
+SAMPLE_RE = re.compile(r'^\{"type":"sample","t_us":(\d+),"sf":(\d+)')
+
+
 class TwinCore:
     """The twin without MQTT and without real-time pacing: state, timeline, netsim runs, prefix verification."""
 
@@ -240,6 +279,8 @@ class TwinCore:
         self.pub_head = []                         # published lines (kept for verification)
         self.log = []
         self.last_cmd = None
+        self.changed = False
+        self.sf_t = {}
         self.warnings = []
         self.warn = warn or (lambda m: print("twin warning: " + m, file=sys.stderr, flush=True))
         self.workdir = os.path.abspath(workdir or tempfile.mkdtemp(prefix="twin_"))
@@ -259,10 +300,18 @@ class TwinCore:
         return (self.f1_healthy - self.f1_true_now()) / self.f1_healthy
 
     def sf_to_t_us(self, sf):
+        return self.sf_t.get(sf)
+
+    def _index_t(self):
+        self.sf_t = {}
         for ln in self.lines:
-            if line_field(ln, "sf") == sf and line_field(ln, "type") == "sample":
-                return line_field(ln, "t_us")
-        return None
+            m = SAMPLE_RE.match(ln)
+            if m:
+                self.sf_t[int(m.group(2))] = int(m.group(1))
+
+    def _logadd(self, m):
+        self.log.append(m)
+        del self.log[:-MAX_LOG]
 
     # ---- netsim ----
     def _netsim(self, n_sf):
@@ -304,7 +353,12 @@ class TwinCore:
                 self.n_pub = k
             self.pub_head = new[:self.n_pub]
         self.lines = new
+        self._index_t()
         return ok
+
+    def peek(self):
+        """The next unpublished line or None."""
+        return self.lines[self.n_pub] if self.n_pub < len(self.lines) else None
 
     def next_lines(self):
         """Unpublished lines (list), without marking them."""
@@ -330,8 +384,7 @@ class TwinCore:
 
     def _msg(self, g, text):
         m = "sf %d: %s" % (g, text)
-        self.log.append(m)
-        del self.log[:-12]
+        self._logadd(m)
         return m
 
     def _set_truth(self, g):
@@ -340,16 +393,29 @@ class TwinCore:
             self.truth[-1] = (g, f)
         else:
             self.truth.append((g, f))
+            if len(self.truth) > MAX_TRUTH:
+                del self.truth[1]
 
     def apply(self, c, refresh=True):
         """Apply a VALIDATED command; returns the log line. Rebuilds the future; with refresh=False the caller must call refresh()
         (netsim re-run, about a second) before publishing further lines, so it can send the log line first."""
+        self.changed = False
+        cmd = c["cmd"]
         if not self.commissioned():
-            m = "sf %d: command '%s' ignored: the system is still commissioning (f1 needs about %d superframes, %.0f s at 1x)" % (self.cur_sf, c["cmd"], self.commission_sf, self.commission_sf * SF_S)
-            self.log.append(m)
+            m = "sf %d: command '%s' ignored: the system is still commissioning (f1 needs about %d superframes, %.0f s at 1x)" % (self.cur_sf, cmd, self.commission_sf, self.commission_sf * SF_S)
+            self._logadd(m)
+            return m
+        if (cmd == "kill" and c["slave"] in self.killed) or (cmd == "revive" and c["slave"] not in self.killed):
+            m = "sf %d: sensor %d is %s, nothing done" % (self.cur_sf, c["slave"], "already dead" if cmd == "kill" else "not dead")
+            self._logadd(m)
+            return m
+        if self.last_g >= 0 and self.cur_sf + self.guard < self.last_g + MIN_SPACING_SF:
+            wait = self.last_g + MIN_SPACING_SF - self.cur_sf - self.guard
+            m = "sf %d: command '%s' ignored: too soon after the previous one (applied at sf %d); wait %d more superframes (about %.0f s at 1x)" % (self.cur_sf, cmd, self.last_g, wait, wait * SF_S)
+            self._logadd(m)
             return m
         g = self._g()
-        cmd = c["cmd"]
+        self.changed = True
         before = self.f1_true_now()
         pct = lambda a, b: 100.0 * (a - b) / a
         if cmd == "damage":
@@ -371,15 +437,11 @@ class TwinCore:
             msg = "building-wide shake (%.0fx) for %d superframes" % (SHAKE_AMP, TRANSIENT_WINDOWS)
         elif cmd == "kill":
             s = c["slave"]
-            if s in self.killed:
-                return self._msg(g, "sensor %d is already dead, nothing done" % s)
             self.killed.add(s)
             self.kills.append((s, g))
             msg = "sensor %d killed (power loss); DEAD after 3 missed superframes, then degraded mode" % s
         elif cmd == "revive":
             s = c["slave"]
-            if s not in self.killed:
-                return self._msg(g, "sensor %d is not dead, nothing done" % s)
             self.killed.discard(s)
             self.revives.append((s, g))
             msg = "sensor %d revived; it recommissions its autoencoder and f1 (about 2 min) on the CURRENT structure" % s
@@ -427,8 +489,9 @@ class TwinServer:
         self.core = TwinCore(seed=args.seed, workdir=args.workdir, exe=args.netsim_exe)
         self.pub = sp.Publisher(args)
         self.pacer = sp.Pacer(args.speed)
-        self.cmds = queue.Queue(maxsize=50)
-        self.limiter = RateLimiter()
+        self.cmds = queue.Queue(maxsize=1)        # at most ONE pending command; the first one of a rate-limit window wins
+        self.notices = queue.Queue(maxsize=4)     # rate-limit / busy notices from the MQTT thread, logged by the main loop
+        self.limiter = RateLimiter()              # applied at RECEIVE time (on_message), not when the command is dequeued
         self.reject_limiter = RateLimiter()
         self.cmd_topic = rm.topic(args.site, "twin/cmd")
         self.stop = False
@@ -441,7 +504,10 @@ class TwinServer:
         self.pub.client.publish(t, payload, qos=1, retain=retain)
 
     def publish_state(self, running=True):
-        self._publish("twin/state", json.dumps(self.core.state(self.speed, running), separators=(",", ":")), True)
+        st = self.core.state(self.speed, running)
+        st["updated_t"] = round(time.time(), 1)     # heartbeat: a reader treats a state older than ~3 x period_s as a dead twin
+        st["period_s"] = STATE_PERIOD_S
+        self._publish("twin/state", json.dumps(st, separators=(",", ":")), True)
         self.last_state = time.monotonic()
 
     def publish_log(self, text):
@@ -449,12 +515,30 @@ class TwinServer:
         self._publish("twin/log", text, False)
 
     def on_message(self, client, ud, msg):
-        if msg.topic != self.cmd_topic or msg.retain:     # a retained command would replay on every reconnect: never
-            return
         try:
-            self.cmds.put_nowait((time.monotonic(), bytes(msg.payload)))
-        except queue.Full:
-            pass
+            # a retained message REPLAYED on (re)subscribe (retain=1) is never applied; a live publish arrives with retain=0 even if the
+            # sender set the retain flag, and is applied like any other command
+            if msg.topic != self.cmd_topic or msg.retain:
+                return
+            c = parse_command(bytes(msg.payload))
+            if c is None:
+                return                                    # unknown / malformed: ignored silently
+            if not self.limiter.allow():
+                self._notice("command '%s' ignored: rate limit (1 per %.0f s)" % (c["cmd"], RATE_LIMIT_S))
+                return
+            try:
+                self.cmds.put_nowait(c)
+            except queue.Full:
+                self._notice("command '%s' ignored: busy with the previous command" % c["cmd"])
+        except Exception as e:                            # never raise into paho's thread
+            rm.log("on_message error: %r" % (e,))
+
+    def _notice(self, text):
+        if self.reject_limiter.allow():
+            try:
+                self.notices.put_nowait(text)
+            except queue.Full:
+                pass
 
     def start(self):
         self.pub.connect()
@@ -469,34 +553,40 @@ class TwinServer:
         c.subscribe(self.cmd_topic, qos=1)
         self.publish_state()
 
-    def handle(self, t_rx, payload):
-        c = parse_command(payload)
-        if c is None:
-            return                                           # unknown / malformed: ignored silently
-        if not self.limiter.allow():
-            if self.reject_limiter.allow():
-                self.publish_log("sf %d: command '%s' ignored: rate limit (1 per %.0f s)" % (self.core.cur_sf, c["cmd"], RATE_LIMIT_S))
-            return
-        msg = self.core.apply(c, refresh=False)
-        self.publish_log(msg)          # the log line goes out before the (slower) netsim re-run
-        self.core.refresh()
-        self.publish_state()
+    def handle(self, c):
+        try:
+            msg = self.core.apply(c, refresh=False)
+            self.publish_log(msg)          # the log line goes out before the (slower) netsim re-run
+            if self.core.changed:          # refused / no-op commands cost no netsim run
+                self.core.refresh()
+            self.publish_state()
+        except Exception as e:
+            rm.log("command %r failed: %r" % (c, e))
+            try:
+                self.publish_log("sf %d: internal error while applying '%s'; the twin keeps running" % (self.core.cur_sf, c.get("cmd")))
+            except Exception:
+                pass
 
     def run(self):
         core = self.core
         was_comm = False
         while not self.stop:
             try:
-                while True:
-                    t_rx, payload = self.cmds.get_nowait()
-                    self.handle(t_rx, payload)
+                self.publish_log("sf %d: %s" % (core.cur_sf, self.notices.get_nowait()))
+            except queue.Empty:
+                pass
+            try:
+                self.handle(self.cmds.get_nowait())       # one command per loop pass, then the stream continues
             except queue.Empty:
                 pass
             if core.need_extend():
-                core.refresh()
-            nxt = core.next_lines()
-            if nxt:
-                line = nxt[0]
+                try:
+                    core.refresh()
+                except Exception as e:
+                    rm.log("timeline extension failed: %r" % (e,))
+                    time.sleep(1.0)
+            line = core.peek()
+            if line is not None:
                 w = self.pacer.due(rm_t_us(line))
                 if w > 0:
                     time.sleep(min(w, 0.03))
@@ -510,14 +600,18 @@ class TwinServer:
                         self.publish_log("sf %d: commissioning complete, commands enabled" % core.cur_sf)
             else:
                 time.sleep(0.03)
-            if time.monotonic() - self.last_state > 5.0:
+            if time.monotonic() - self.last_state > STATE_PERIOD_S:
                 self.publish_state()
 
     def shutdown(self):
         try:
             self.publish_state(running=False)
-        finally:
+        except Exception as e:
+            rm.log("final state not published: %r" % (e,))
+        try:
             self.pub.finish()
+        except Exception as e:
+            rm.log("shutdown: %r" % (e,))
 
 
 def rm_t_us(line):
@@ -533,9 +627,10 @@ def main():
     ap.add_argument("--qos", type=int, choices=(0, 1), default=1)
     ap.add_argument("--netsim-exe", default=DEFAULT_EXE)
     ap.add_argument("--workdir", default=None, help="scratch folder (default .cache/twin/<site>)")
+    ap.set_defaults(site=None)          # None = not given (also for --site=foo): then env RESONANCE_SITE, else a NEW random id
     args = ap.parse_args()
-    if "--site" not in sys.argv and not os.environ.get("RESONANCE_SITE"):
-        args.site = "twin-" + "".join(random.choice("0123456789abcdef") for _ in range(8))   # a NEW random id: never mixes with another demo
+    if args.site is None:
+        args.site = os.environ.get("RESONANCE_SITE") or "twin-" + "".join(random.choice("0123456789abcdef") for _ in range(8))   # never the default demo site
     if not rm.site_ok(args.site):
         ap.error("bad --site (a-z 0-9 - _, max 32)")
     if not (0.1 <= args.speed <= 200):
@@ -548,6 +643,14 @@ def main():
     rm.log("digital twin running: site %s, speed %gx, building f1 %.2f Hz. Dashboard: MQTT live with site '%s'. Commissioning takes about %.0f s of wall time; Ctrl+C to stop."
            % (args.site, args.speed, srv.core.f1_healthy, args.site, COMMISSION_SF * SF_S / args.speed))
     print("SITE=" + args.site, flush=True)
+    def _stop(signum, frame):
+        srv.stop = True
+    for name in ("SIGTERM", "SIGBREAK"):    # SIGBREAK = Ctrl+Break on Windows
+        if hasattr(signal, name):
+            try:
+                signal.signal(getattr(signal, name), _stop)
+            except (ValueError, OSError):
+                pass
     try:
         srv.run()
     except KeyboardInterrupt:
