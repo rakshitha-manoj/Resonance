@@ -21,26 +21,26 @@ Reading order: sections 1 and 2 for the picture, 7 for demo day, 8 when somethin
 
 ## 1. In one minute
 
-**What it does.** Two sensor nodes (ESP32 + MPU6050 accelerometer) sit on two floors of a building. Each node analyses the vibration itself, on the chip, and sends a 56-byte report every 1.4 s to a third ESP32, the master. The master decides: nothing special (AMBIENT), something happened at one floor (LOCAL), something shook the whole building (BUILDING), or the structure has become less stiff (DAMAGE). The master publishes its decisions over MQTT to a browser dashboard, to phones and to Telegram.
+**What it does (the design).** Two sensor nodes (ESP32 + MPU6050 accelerometer) sit on two floors of a building. Each node is designed to analyse the vibration itself, on the chip, and send a 56-byte report every 1.4 s to a third ESP32, the master. **Status: so far this firmware has run only in PC simulation** (the same C++ compiled for Windows); it is built for the ESP32 but has not run on a board, and the final node pipeline has not run in the Wokwi emulator either (see the honesty statement below). The master decides: nothing special (AMBIENT), something happened at one floor (LOCAL), something shook the whole building (BUILDING), or the structure has become less stiff (DAMAGE). The master publishes its decisions over MQTT to a browser dashboard, to phones and to Telegram.
 
 **Three headline features**
 
-1. **TinyML anomaly detection on every sensor node.** A 110-byte decision tree and an int8 autoencoder (574 parameters, 942 B of weights, trained on healthy data only) run on each node. The master fuses the nodes with **rule f**: raise an event if the vibration-level ratio says so (rule b) **OR** the autoencoder says so.
-2. **Natural-frequency DAMAGE alarm.** Each node tracks the first natural frequency f1 of the building. A lasting drop of the pooled f1 (2 % for 32 superframes, about 45 s) means the structure got softer: a coarse alarm for large damage in the lower storeys.
-3. **IoT layer.** MQTT (retained state, last will, TLS on the firmware path), a browser dashboard (replay, live, phone view with QR code), Telegram alerts, and an interactive **digital twin** where an examiner clicks "damage storey 1" and watches the real firmware logic react.
+1. **TinyML anomaly detection on every sensor node.** An int8 autoencoder (574 parameters, 942 B of weights, trained on healthy data only) is compiled into the node firmware and designed to run on each node (run so far in the PC simulation only). The master fuses the nodes with **rule f**: raise an event if the vibration-level ratio says so (rule b) **OR** the autoencoder says so. The earlier 110-byte decision tree is still computed and reported, but **the final rule does not use it**.
+2. **Natural-frequency DAMAGE alarm.** Each node is designed to track the first natural frequency f1 of the building (simulated). A lasting drop of the pooled f1 (2 % for 32 superframes, about 45 s) means the structure got softer: a coarse alarm for large damage in the lower storeys.
+3. **IoT layer.** MQTT (retained state, last will, TLS on the firmware path), a browser dashboard (replay, live, phone view with QR code), Telegram alerts, and an interactive **digital twin** where an examiner clicks "damage storey 1" and watches the real firmware logic (compiled for the PC) react.
 
 **Headline numbers** (all simulated; sources `models/selected/validation/fusion_eval_r3_test.md`, `freq_tracking.md`, `models/tinyml/ae_report.md`)
 
 | | Result |
 |---|---|
-| Decision tree | 11 nodes, 110 B, accuracy about 0.93 on synthetic data (resampling estimate) |
+| Decision tree | 11 nodes, 110 B, accuracy about 0.93 on synthetic data (resampling estimate); reported, **not used by the final rule** |
 | Autoencoder | 574 parameters, 942 B weights, C code bit-exact with TensorFlow Lite on the PC (0 mismatches on 10,000 vectors) |
 | Rule f on the fresh pre-registered test block (240 buildings, 28 h) | mean event recall **0.734** vs 0.622 for the vibration-ratio rule alone (paired +0.113) |
 | False onsets per hour | **1.64** [0.75, 2.79] (2.05 on healthy ambient alone): **the 1/h budget is NOT met** |
 | DAMAGE, 30 % stiffness loss | detected 1.00 / 1.00 / 0.91 at storeys 1 / 3 / 5; almost never at storeys 8-10 (physics); latency 1-2 min |
 | Slave firmware | 772,825 B flash, 72,788 B RAM (from `pio run -e slave1`) |
 
-**Honesty statement.** Everything was measured in simulation (a building simulator, PC test harnesses, the Wokwi emulator). No real board has run this firmware yet and nothing was measured on a real structure; the hardware bring-up plan is written ([docs/hardware_bringup.md](docs/hardware_bringup.md)).
+**Honesty statement.** Everything was measured in simulation (a building simulator and PC test harnesses). No ESP32 board has ever run this firmware and nothing was measured on a real structure; the hardware bring-up plan is written ([docs/hardware_bringup.md](docs/hardware_bringup.md)). The Wokwi emulator has only run the earlier single-node, tree-only firmware (Phase 4); the final node pipeline (autoencoder, f1 tracker), the master with rule f and the Wokwi cloud demo are built and host-tested but **have not been run in Wokwi**. "Bit-exact with TensorFlow Lite" was checked on the PC only. The demo scenario is curated (hand-picked events), and the simulator's `az` axis (lateral sway) does not match the planned mounting (`az` vertical): see section 9.
 
 ---
 
@@ -91,9 +91,9 @@ flowchart LR
 
 | Place | What runs | Real or simulated |
 |---|---|---|
-| Slave ESP32 | `net_main.cpp` + `slave_pipe.h` (sampling, features, tree, autoencoder, f1 tracker) | firmware written and built, **never run on a board** |
+| Slave ESP32 | `net_main.cpp` + `slave_pipe.h` (sampling, features, tree, autoencoder, f1 tracker) | firmware written and built, **never run on a board, and this pipeline not yet in Wokwi** |
 | Master ESP32 | `net_main.cpp` + `fusion.h`, `damage.h`, JSON formatter, MQTT task | same |
-| Wokwi | one board per project; the cloud project runs the real master code with two **virtual** slaves | emulator, not hardware |
+| Wokwi | one board per project; the cloud project is built to run the real master code with two **virtual** slaves | emulator, not hardware; only the earlier tree-only single node has actually been run there; the cloud project is host-tested (`pio test -e cloud_demo`), **not yet run in Wokwi** |
 | PC `netsim` | the same C++ state machines and fusion code compiled for Windows, a discrete-event network simulator | the engine behind the dashboard demos and the twin |
 | PC Python tools | `sim_publisher.py`, `twin_server.py`, `alerter.py`, `serve_dashboard.py` | helpers |
 | Browser | `dashboard/index.html` (single file, no server needed) | the display |
@@ -107,16 +107,16 @@ The vibration signals themselves come from `data/generator/building_sim.py`, a 1
 ### 3.1 Sensing and windows
 
 - MPU6050, accelerometer +-2 g, gyroscope +-250 deg/s, built-in low-pass filter (DLPF) at 42-44 Hz. The firmware reads the registers back at boot and refuses to run if they are wrong (`config fail`): the DLPF is a hard requirement because the models never saw wideband noise.
-- Sampling is a strict 100 Hz timer. A **window** is 128 non-overlapping samples (1.28 s, frequency resolution 0.78 Hz). Only the `az` and `gx` axes are used.
+- Sampling is a strict 100 Hz timer. A **window** is 128 non-overlapping samples (1.28 s, frequency resolution 0.78 Hz). Only the `az` and `gx` axes are used. Caution: the simulator puts the building's lateral sway on `az`, while the bring-up guide mounts `az` as the vertical (gravity) axis, which would see little sway; this is an open issue for hardware day (section 9).
 - **Noise gate**: a window whose `az` standard deviation is below 92.12 raw counts counts as "no real vibration". This value comes from synthetic data and is provisional. Without it the autoencoder rule fired 17.9 false onsets/h on the dev block.
 
 ### 3.2 Spectral front end
 
-One DFT of `az` (bins 1..64) feeds two things (`spectrum.h`): **16 band powers** (log of the sum of 4 bins plus 1) for the autoencoder, and a **Hann-windowed Goertzel "zoom"** of 181 frequencies from 3.0 to 12.0 Hz in 0.05 Hz steps, whose peak (refined by parabolic interpolation) is the f1 estimate. All builds use `-ffp-contract=off` so the ESP32's float rounding equals the PC's; that is what makes bit-exact comparison with Python possible.
+One DFT of `az` (bins 1..64) feeds two things (`spectrum.h`): **16 band powers** (log of the sum of 4 bins plus 1) for the autoencoder, and a **Hann-windowed Goertzel "zoom"** of 181 frequencies from 3.0 to 12.0 Hz in 0.05 Hz steps, whose peak (refined by parabolic interpolation) is the f1 estimate. All builds use `-ffp-contract=off` (no fused multiply-add) so that the ESP32 should round floats exactly like the PC; that is what makes bit-exact comparison with Python possible. The comparison itself was done on the PC only; equality on a real ESP32 is still to be checked on hardware day.
 
 ### 3.3 Decision tree (history) and int8 autoencoder (TinyML)
 
-- **Decision tree** (Phase 3): 11 nodes, 110 B, 5 features (`az` std, kurtosis, dominant frequency; `gx` std, dominant frequency), classes normal / abnormal / faulty, accuracy about 0.93 on synthetic data, selected as the smallest model with at least 0.90 cross-validated accuracy. It still runs on the slaves and its class is reported, **but the master's final rule no longer uses it** (under the false-alarm-per-hour criterion it was over budget).
+- **Decision tree** (Phase 3): 11 nodes, 110 B, 5 features (`az` std, kurtosis, dominant frequency; `gx` std, dominant frequency), classes normal / abnormal / faulty, accuracy about 0.93 on synthetic data, selected as the smallest model with at least 0.90 cross-validated accuracy. It is still computed in the slave firmware and its class is reported, **but the master's final rule no longer uses it** (under the false-alarm-per-hour criterion it was over budget).
 - **Autoencoder**: 20 inputs (16 band powers, `az` std and kurtosis, `gx` std and kurtosis), layers 20-12-2-12-20, 574 parameters. It is trained to reproduce **healthy** windows through a 2-neuron bottleneck; an unfamiliar window is reconstructed badly, and the error is the anomaly score. No fault examples are needed.
 - **Commissioning normalisation**: each slave learns on the spot from its first 20 windows after power-on the median and robust spread of every input and a reference score. The thresholded quantity is the **AE ratio** = score / reference score. One trained model therefore fits every node.
 - **int8**: post-training full-integer quantisation (int8 file 4,568 B, firmware tables 942 B, 528 int8 multiply-accumulates per window). Reconstruction error rises 4.2 % versus float.
@@ -169,7 +169,7 @@ A simulated building (the demo building, f1 7.09 Hz, sensors on floors 5 and 10)
 
 ### 3.10 LED and buzzer (Wokwi cloud demo)
 
-`include/annunciator.h` drives local outputs from the master itself, with no cloud: blue heartbeat LED (D2) pulses each superframe; yellow EVENT LED (D26) is on during a vibration event with one chirp; at DAMAGE BEGIN the red LED (D25) blinks 10 s and the buzzer (D27) beeps 3 times, then the red LED stays on with a reminder beep every 30 s; at END a low tone. Pins are off by default and set in the `master_wokwi_cloud` env.
+`include/annunciator.h` drives local outputs from the master itself, with no cloud: blue heartbeat LED (D2) pulses each superframe; yellow EVENT LED (D26) is on during a vibration event with one chirp; at DAMAGE BEGIN the red LED (D25) blinks 10 s and the buzzer (D27) beeps 3 times, then the red LED stays on with a reminder beep every 30 s; at END a low tone. Pins are off by default and set in the `master_wokwi_cloud` env. Verified by host tests (`test_annunciator`) only: the LEDs and buzzer have not yet been seen in a Wokwi run.
 
 ### 3.11 Phone view
 
@@ -191,12 +191,13 @@ Tags: **[generated]** = produced by a script, do not edit by hand; **[gitignored
 | `requirements-iot.txt` | `paho-mqtt` (+ optional `pyserial`) for the IoT tools |
 | `requirements-tinyml.txt` | TensorFlow environment `.venv-tinyml`, only for retraining the autoencoder |
 | `.claude/STRUCTURE.md` | the authoritative, very detailed repo and decision log (read for any "why" question) |
-| `.gitignore`, `.gitattributes` | ignores `.venv*`, `.cache/`, `data/processed/`; keeps `*.jsonl` LF |
+| `.gitignore`, `.gitattributes` | ignores `.venv/`, `.venv-tinyml/`, `.cache/`, `data/processed/`; keeps `*.jsonl` LF |
 
 ### `firmware/esp32/` (PlatformIO project; open this folder in VS Code)
 
 | File | What it does |
 |---|---|
+| `.gitignore` | ignores `.pio`, the generated headers `selftest_data.h` / `demo_traces.h`, `secrets.h`, `windows.bin`, `smooth.bin` |
 | `platformio.ini` | 14 envs: `esp32dev`, `selftest` (single-node), `master`, `slave1`, `slave2`, `slave1_wokwi`, `slave2_wokwi`, `master_mqtt`, `master_wokwi_cloud` (ESP32); `native`, `netsim`, `espnow_logic`, `mqtt_logic`, `cloud_demo` (PC) |
 | `src/net_main.cpp` | firmware of master and slaves (role from build flags) |
 | `src/netsim_main.cpp` | the PC network simulator program (`netsim` env) |
@@ -233,7 +234,7 @@ Tags: **[generated]** = produced by a script, do not edit by hand; **[gitignored
 | `wokwi/README.md` | Wokwi usage and wiring |
 | `wokwi/master/`, `slave1/`, `slave2/`, `master_cloud/` | one Wokwi project each (`wokwi.toml` + `diagram.json`) |
 | `wokwi/all_three/diagram.json` | wiring picture of all three boards, no `wokwi.toml` (cannot be simulated) |
-| `wokwi/single_node/`, `single_node_selftest/` | earlier single-board projects |
+| `wokwi/single_node/`, `single_node_selftest/` | earlier single-board projects (tree only); the only Wokwi projects that have actually been run |
 
 ### `models/`
 
@@ -252,6 +253,7 @@ Tags: **[generated]** = produced by a script, do not edit by hand; **[gitignored
 | `training/test_gates.py`, `test_frontend.py` | Python tests |
 | `selected/model_export.json`, `model.joblib`, `feature_spec.json`, `report.md/json` | the deployed tree, its export for C, feature spec, report |
 | `selected/validation/*.md/.json` | **result files, the source of every number in this guide**; `r3_test_preregistration.md` is the pre-registration |
+| `selected/validation/old_quantiser/` | the R3 dev tables before the autoencoder input quantiser was fixed (kept for the record; the selection did not change) |
 | `selected/comparison*` | tree vs alternatives |
 | `selected_building/` | retraining on building data, not deployed |
 | `tinyml/ae_int8.tflite`, `ae_float.keras`, `ae_norm.json` | the autoencoder, float and int8, and normalisation constants |
@@ -271,10 +273,10 @@ Tags: **[generated]** = produced by a script, do not edit by hand; **[gitignored
 |---|---|
 | `index.html` | the whole dashboard; edited directly. Contains an embedded copy of `demo_events_sim.jsonl` (updated with `tools/embed_sim.py`) |
 | `demo_events_sim.jsonl` | **[committed data]** simulator log of the damage scenario (335 lines); regenerate with netsim (command in `dashboard/README.md`) |
-| `demo_events_faults_sim.jsonl` | simulator log with a killed sensor and a master restart |
+| `demo_events_faults_sim.jsonl` | **[committed data]** simulator log with a killed sensor and a master restart (416 lines; command in `dashboard/README.md`) |
 | `sample_events.jsonl` | scripted synthetic demo (schema 2, not simulator output) |
 | `tools/validate_logs.py`, `test_validate_logs.py`, `embed_sim.py`, `test_mqtt_dom.js`, `short_reboot.jsonl` | log validator and its test, embedder, jsdom test of the page, a test log |
-| `vendor/mqtt.min.js`, `qrcode.js` (+ licences) | third-party libraries, do not edit |
+| `vendor/mqtt.min.js`, `qrcode.js` (+ licences, `vendor/README.md` with versions and sources) | third-party libraries (MQTT.js 5.10.4, qrcode-generator 1.4.4, MIT), do not edit |
 | `README.md` | dashboard details |
 
 ### `tools/` (repo root, Python)
@@ -403,15 +405,15 @@ $env:NODE_PATH="C:\path\to\scratch\node_modules"
 node dashboard/tools/test_mqtt_dom.js --offline        # 101 PASS lines, ends "SUMMARY OK", 26 s, no network
 ```
 
-Without `--offline` it also talks to the public broker (needs `--url ws://broker.hivemq.com:8000/mqtt`, already the default).
+Without `--offline` it also talks to the public broker (default `--url ws://broker.hivemq.com:8000/mqtt`).
 
 ### 6b. Offline dashboard replay (the safest demo)
 
 No network, no server.
 
 1. In Explorer double-click `D:\Resonance\dashboard\index.html` (Chrome or Edge), or paste `file:///D:/Resonance/dashboard/index.html` in the address bar.
-2. Click **Damage demo (simulated)**. It plays at 10x by itself (about 45 s for the 7.5-minute scenario); use the speed buttons for 1x, 10x or 60x, and the Play button toggles pause.
-3. A direct link, paused right after the alarm: `file:///D:/Resonance/dashboard/index.html?replay=demo_events_sim.jsonl&speed=20&at=sf236&play=0`. (`at=end`, `at=SECONDS` also work.)
+2. Click **Damage demo (simulated)**. It plays at 10x by itself (about 45 s for the 7.5-minute scenario); the **Speed** menu offers 1x, 10x or 60x, the Play button toggles pause, and **Step** jumps to the next event.
+3. A direct link, paused right after the alarm: `file:///D:/Resonance/dashboard/index.html?replay=demo_events_sim.jsonl&speed=20&at=sf236&play=0`. (`at=end`, `at=SECONDS` also work.) Checked in headless Edge: it opens paused at 5:30 with the red DAMAGE banner.
 4. The same through the local server (what a phone needs):
 
 ```powershell
@@ -445,8 +447,8 @@ $site = "demo48213"       # invent your own, lower case letters, digits, - or _,
 .venv\Scripts\python.exe tools\sim_publisher.py --site $site --speed 20 --transport websockets --port 8000
 ```
 
-- Publisher output: `connected to broker.hivemq.com:8000, site <site>` then `published 335 lines: begin=3, change=5, damage=1, meta=1, sample=320, status_line=5`. Run time **42 s at `--speed 20`** (measured). `--speed 5` is slower and easier to narrate; `--speed 1` is real time; add `--loop -1` to repeat forever.
-- Alerter (dry run) prints, in order: `The master is ONLINE`; `LOCAL vibration event at floor 5 (sensor 1) [sensor 1: AE 45.4 >= 6]`; `BUILDING-WIDE vibration event`; `LOCAL vibration event at floor 10 (sensor 2) [sensor 2: AE 6.2 >= 6]`; `DAMAGE ALARM: natural frequency down 4.3 % (f1 6.73/6.74 Hz vs 7.03/7.05 Hz at commissioning), sf 235`; and when the publisher ends `The master went OFFLINE (last will)`.
+- Publisher output: `connected to broker.hivemq.com:8000, site <site>` then `published 335 lines: begin=3, change=5, damage=1, meta=1, sample=320, status_line=5`. Run time **about 40 s at `--speed 20`** (measured 38 s and 42 s). `--speed 5` is slower and easier to narrate; `--speed 1` is real time; add `--loop -1` to repeat forever.
+- Alerter (dry run) prints, in order (each event line also ends with `[sf N, t=... s]`): `The master is ONLINE`; `LOCAL vibration event at floor 5 (sensor 1) [sensor 1: AE 45.4 >= 6]`; `BUILDING-WIDE vibration event [sensor 1: std 3.4 >= 3, AE 6.2 >= 6; sensor 2: std 3.5 >= 3]`; `LOCAL vibration event at floor 10 (sensor 2) [sensor 2: AE 6.2 >= 6]`; `DAMAGE ALARM: natural frequency down 4.3 % (f1 6.73/6.74 Hz vs 7.03/7.05 Hz at commissioning), sf 235`; and when the publisher ends `The master went OFFLINE (last will)`.
 - Dashboard: open `dashboard\index.html`, press **MQTT live**, broker `ws://broker.hivemq.com:8000/mqtt`, site = your `$site`, **MQTT live: connect** (or use the link `index.html?site=<site>&broker=ws://broker.hivemq.com:8000/mqtt&mqtt=1`). Start the dashboard before the publisher, or it catches up from the retained state.
 - The default broker URL of the page (`wss://...:8884`) is blocked here; the page falls back to `ws://...:8000` after 12 s, or press "Use ws:// (8000)" at once.
 
@@ -465,12 +467,12 @@ $env:TELEGRAM_BOT_TOKEN=$null; $env:TELEGRAM_CHAT_ID=$null
 .venv\Scripts\python.exe -u tools\twin_server.py --speed 2 --transport websockets --port 8000
 ```
 
-It prints `digital twin running: site twin-xxxxxxxx, speed 2x ...` (a **new random site every start**; `--site` fixes it) after about 5-10 s. Open `dashboard\index.html` > MQTT live > broker `ws://broker.hivemq.com:8000/mqtt`, site = the printed id > connect: the **Digital twin** panel appears at once. Do **not** run `sim_publisher.py` on the same site.
+It prints `digital twin running: site twin-xxxxxxxx, speed 2x ...` (a **new random site every start**; `--site` fixes it) after about 15-25 s (it simulates the building before it connects; measured 15 s and 23 s). Open `dashboard\index.html` > MQTT live > broker `ws://broker.hivemq.com:8000/mqtt`, site = the printed id > connect: the **Digital twin** panel appears at once. Do **not** run `sim_publisher.py` on the same site.
 
 - **Commissioning**: buttons are disabled until superframe 100 (the f1 reference needs it): 140 s at 1x, **70 s at `--speed 2`**, 7 s at `--speed 20`. The server prints `[twin] sf 100: commissioning complete, commands enabled`.
 - **Wait about 4 s between clicks at `--speed 2`.** Commands must be at least 6 superframes (8.4 s of simulated time = 4.2 s of wall time at `--speed 2`) apart, one command at a time, and at most one per 2 s: a quicker click gets a `too soon ... wait N more superframes` line in the twin log and is ignored. After a command the stream can pause 1-3 s while netsim is re-run: normal.
-- **Timings** (measured here, public broker, WebSocket 8000): at `--speed 20` a "damage storey 1, 30 %" command was logged as applied (`true f1 7.09 -> 6.82 Hz (-3.9 %)`) and DAMAGE BEGIN arrived 44 superframes later (about 3 s). At `--speed 2` that is about 41 s after the click (earlier measurement, `docs/demo_runbook.md`); kill sensor 2 shows DEAD after about 7 s. Use `--speed 4` if the audience is waiting.
-- **What to click**: impact floor 5 / 10 (LOCAL event), building shake (BUILDING), damage storey 10 by 30 % (truth moves 0.1 %, **no alarm**: the honest limitation), repair, damage storey 1 by 30 % (alarm after about 40 s), kill sensor 2 (DEAD, degraded mode, no BUILDING), revive, reset.
+- **Timings** (measured here, public broker, WebSocket 8000): at `--speed 20` a "damage storey 1, 30 %" command was logged as applied (`true f1 7.09 -> 6.82 Hz (-3.9 %)`) within about 1 s, and the DAMAGE BEGIN line arrived 4.6 s after the click (the earlier runbook measurement was 6.6 s); "kill sensor 2" gave the DEAD line 4.2 s after the click (most of it is the 1-3 s netsim re-run). At `--speed 2` (`docs/demo_runbook.md`, on the page): damage click to red DAMAGE about 30-45 s (measured 41 s), kill to DEAD about 4-7 s (measured 7.2 s, including the page's 2.5 s reorder hold). Use `--speed 4` if the audience is waiting.
+- **What to click**: impact floor 5 / 10 (LOCAL event), building shake (BUILDING), damage storey 10 by 30 % (truth moves 0.1 %, **no alarm**: the honest limitation), repair, damage storey 1 by 30 % (alarm after about 30-45 s), kill sensor 2 (DEAD, degraded mode, no BUILDING), revive, reset.
 - **Stop** with Ctrl+C (it publishes `running:false`). A killed window leaves a stale retained state; the dashboard shows "twin stopped / not responding" and disables the buttons.
 - Anybody who knows the site id on the public broker can press the buttons (also from phones that scanned the QR code): simulated data only.
 
@@ -492,13 +494,15 @@ It prints `digital twin running: site twin-xxxxxxxx, speed 2x ...` (a **new rand
 
 Open the folder `D:\Resonance\firmware\esp32` in VS Code. For each project: build the env, **Wokwi: Select Config File**, pick the `wokwi.toml`, **Wokwi: Start Simulator**.
 
-| Project (`wokwi/...`) | Build first | What you see |
+**Not yet run.** Only the builds below were checked here (no Wokwi CLI on this laptop). Apart from the old `single_node` projects, none of these projects has ever been run in Wokwi with the current firmware, so the "What you see" column is the **expected** output from the code, not an observation. Try them the night before (7.1) and drop Wokwi from the demo if they misbehave.
+
+| Project (`wokwi/...`) | Build first | What you should see (expected) |
 |---|---|---|
-| `slave1/`, `slave2/` | `pio run -e slave1_wokwi` (30 s) / `pio run -e slave2_wokwi` (30 s) | one sensor node, no radio, synthetic beacon every 1.4 s; one `W,` line per window with sample span, compute time, deadline misses, class; the MPU6050 on D21/D22 |
-| `master_cloud/` | `pio run -e master_wokwi_cloud` (9 s; flash 1,267,185 B = 96.7 % of the app partition, RAM 59,588 B) | the real master code with **two virtual slaves** replaying the demo scenario in a loop (448 s per lap), joins Wi-Fi `Wokwi-GUEST`, publishes to the public broker under site `rsn-822298ab` (the default in `mqtt_config.h`); serial shows `wifi: connected ssid=Wokwi-GUEST channel=6`, `mqtt: connected`, JSON lines, `S,mqtt,...`; LEDs and buzzer as in 3.10 |
+| `slave1/`, `slave2/` | `pio run -e slave1_wokwi` / `pio run -e slave2_wokwi` (8 s each when the toolchain is cached) | one sensor node, no radio, synthetic beacon every 1.4 s; one `W,` line per window with sample span, compute time, deadline misses, class; the MPU6050 on D21/D22 |
+| `master_cloud/` | `pio run -e master_wokwi_cloud` (9 s; flash 1,267,185 B = 96.7 % of the app partition, RAM 59,588 B; re-checked) | the real master code with **two virtual slaves** replaying the demo scenario in a loop (448 s per lap; the DAMAGE alarm comes about 5.5 min into each lap), joins Wi-Fi `Wokwi-GUEST`, publishes to the public broker under site `rsn-822298ab` (the default in `mqtt_config.h`); serial shows `wifi: connected ssid=Wokwi-GUEST channel=6`, `mqtt: connected`, JSON lines, `S,mqtt,...`; LEDs and buzzer as in 3.10 |
 | `master/` | `pio run -e master` (7 s) | real master firmware alone; with no slaves it declares both DEAD after about 4 s |
 | `all_three/diagram.json` | none | **wiring picture only**, no `wokwi.toml`; cannot be simulated |
-| `single_node/`, `single_node_selftest/` | `pio run -e esp32dev` / `-e selftest` | earlier single-board configs |
+| `single_node/`, `single_node_selftest/` | `pio run -e esp32dev` / `-e selftest` | earlier single-board configs; these ran in Wokwi in Phase 4 (tree only: self-test 606/606). The `selftest` firmware has since gained the full slave pipeline timing check (`pipeline us ... FITS / EXCEEDS the 45 ms budget`), which has not been run in Wokwi yet |
 
 **Why one board per project.** Wokwi cannot simulate several microcontrollers talking to each other in one project (open feature request wokwi/wokwi-features issue 186). The three-board network, with radio loss and dead nodes, is simulated on the PC by `netsim`; `master_cloud` shows the master with virtual slaves instead.
 
@@ -509,9 +513,9 @@ For `master_cloud`, watch it from a dashboard exactly as in 6c (site `rsn-822298
 Brief; the full procedure with pass criteria is `docs/hardware_bringup.md`. From `firmware\esp32`:
 
 ```powershell
-pio run -e master        # 7 s here, 746,897 B flash
-pio run -e slave1        # 32 s, 772,825 B flash, 72,788 B RAM  (slave2 identical apart from the id)
-pio run -e master_mqtt   # 7 s, master with the cloud uplink, 905,237 B flash
+pio run -e master        # 7-8 s here, 746,897 B flash, 44,808 B RAM
+pio run -e slave1        # 8-32 s, 772,825 B flash, 72,788 B RAM  (slave2 identical apart from the id)
+pio run -e master_mqtt   # 8 s, master with the cloud uplink, 905,237 B flash, 59,252 B RAM
 pio device list                                    # find COM ports (prints nothing without boards)
 pio run -e master -t upload --upload-port COM5     # flash (if it hangs at "Connecting...", hold BOOT)
 pio device monitor -p COM5 -b 115200
@@ -526,7 +530,7 @@ Not needed for the demo. All from `D:\Resonance`; caches live in `.cache/` (giti
 | Script | What | Runtime |
 |---|---|---|
 | `models\training\train.py` | tree selection | about 1 h |
-| `models\training\fusion_eval_r2b.py` | rule b selection (dev and test) | about 5 min per block when primed, then seconds |
+| `models\training\fusion_eval_r2b.py` | rule b selection (dev and test) | about 5 min per block to prime the cache (`--prime dev`, `--prime test`), then seconds |
 | `models\training\fusion_eval_r3.py` | rule f on the dev block (writes `fusion_eval_r3_dev.*`) | about 8 min cold |
 | `models\training\fusion_eval_r3.py --block test` | fresh test block, **scored once**: do not re-run to "improve" | about 9 min cold |
 | `models\training\freq_tracking_eval.py` | f1 tracking / DAMAGE | seconds with `.cache\freq_tracking_eval`, about 40 min without |
@@ -535,7 +539,7 @@ Not needed for the demo. All from `D:\Resonance`; caches live in `.cache/` (giti
 
 Not re-run for this guide (times are from `.claude/STRUCTURE.md`). Reproduction commands: `docs/project_report.md` Appendix A.
 
-**Not verified here:** Wokwi runs (no Wokwi CLI; the build and the host equivalent `pio test -e cloud_demo` were verified), anything on real boards, the real Telegram delivery (credentials deliberately not used), the phone connection through the Windows firewall (server and LAN URL checked from the laptop only), TLS 8883 from firmware (cannot be run without a board or Wokwi), and the time of a first-ever ESP32 toolchain download.
+**Not verified here:** any Wokwi run of the current firmware (no Wokwi CLI; only the builds and the host equivalent `pio test -e cloud_demo` were verified; the expected outputs in 6f come from the code), anything on real boards, the real Telegram delivery (credentials deliberately not used), the phone connection through the Windows firewall (server and LAN URL checked from the laptop only), TLS 8883 from firmware (cannot be run without a board or Wokwi), and the time of a first-ever ESP32 toolchain download.
 
 ---
 
@@ -550,7 +554,7 @@ Not re-run for this guide (times are from `.claude/STRUCTURE.md`). Reproduction 
 - [ ] Run 6c once with a fresh site, dashboard connected: lines arrive. Run 6d once.
 - [ ] Decide on Telegram: real (variables set) or dry run, and **test the phone gets a message** (`alerter.py --selftest-message`) if real.
 - [ ] Phone: charged, Telegram logged in, camera works for QR. Make sure a **hotspot** can be started on it (settings checked once).
-- [ ] Wokwi: open `master_cloud`, run it for a minute, confirm LEDs and the dashboard shows data; know that you may have to fall back.
+- [ ] Wokwi: open `master_cloud` and let it run for about 6 minutes: Wi-Fi and `mqtt: connected` on serial, data on the dashboard (site `rsn-822298ab`), and the red LED / buzzer at the DAMAGE alarm about 5.5 min in. **This will be its first ever Wokwi run**; if it does not work, drop it from the demo (cut order in 7.3).
 - [ ] Printed or on a USB stick: `docs/figures/dashboard_overview.png`, `dashboard_damage.png`, `docs/viva_prep.md`.
 - [ ] Pick your network profile decision (6e step 2) and do it once with the real phone.
 
@@ -560,7 +564,7 @@ Not re-run for this guide (times are from `.claude/STRUCTURE.md`). Reproduction 
 - [ ] Open tabs: (1) `dashboard\index.html` replay ready, (2) the same page for MQTT live, (3) `docs/figures` pictures as back-up, (4) VS Code with `master_cloud` selected.
 - [ ] Terminals ready in `D:\Resonance` with `$env:TELEGRAM_...` decided, the alias `pio` defined, and the **commands typed but not run**: the twin command (6d) and the phone server command (6e).
 - [ ] Start `serve_dashboard.py`, confirm the firewall prompt was answered and the phone opens the URL.
-- [ ] Start the twin at least 90 s before you need it (70 s commissioning at `--speed 2`).
+- [ ] Start the twin at least 2 minutes before you need it (15-25 s start-up, then 70 s commissioning at `--speed 2`).
 - [ ] Phone on silent except Telegram; laptop notifications off; zoom the browser to 110-125 % for the room.
 - [ ] Close anything that uses ports 8080 or Wokwi; note that sleep mode kills the twin and the publisher.
 
@@ -568,17 +572,17 @@ Not re-run for this guide (times are from `.claude/STRUCTURE.md`). Reproduction 
 
 | Min | Screen | Do | Say (one line) |
 |---|---|---|---|
-| 0:00 | slide or Mermaid diagram of section 2 | none | "Two sensor nodes, one master, a cloud; the analysis runs on the chip, and everything you will see is simulated." |
-| 1:00 | `dashboard/index.html` from `file://` | click Damage demo, speed 10x | "A simulated 10-storey building; sensors on floors 5 and 10. First each sensor learns its own normal." |
+| 0:00 | slide or Mermaid diagram of section 2 | none | "Two sensor nodes, one master, a cloud; the analysis is designed to run on the chip. Everything you will see is simulated: no board has run it yet." |
+| 1:00 | `dashboard/index.html` from `file://` | click Damage demo (10x). The whole log lasts only 45 s at 10x, so press Play to pause at each moment below while you talk, or pause and use **Step** to jump event to event | "A simulated 10-storey building; sensors on floors 5 and 10. First each sensor learns its own normal." |
 | 2:00 | grey then green banner, f1 band appears | point | "It learns its normal level and its natural frequency, about 7 Hz, on the spot." |
 | 2:30 | LOCAL event on floor 5, AE chart spike | pause on it | "An impact on floor 5: local, only that sensor reacts; the building view pulses that floor." |
 | 3:15 | BUILDING event, then LOCAL on floor 10 | point at the Detector column | "The shaking of the whole building is caught by the vibration ratio; the frequency shift on floor 10 only by the TinyML autoencoder; that is why the rule is the OR of both." |
-| 4:15 | f1 chart, DAMAGE banner turns red | let it run to the end | "A 30 % stiffness loss in storey 1: nothing visible to the eye, the building just gets slower; after 45 s of a steady 2 % drop the alarm fires." |
+| 4:15 | f1 chart, DAMAGE banner turns red | press Play and let it run to the end (alarm at 5:29 log time) | "A 30 % stiffness loss in storey 1: nothing visible to the eye, the building just gets slower; after 45 s of a steady 2 % drop the alarm fires." |
 | 5:00 | event window or `figures/detection_vs_damage.png` | show | "Honest limit: damage at the top storeys barely moves the frequency; this is physics, not a bug." |
 | 5:45 | MQTT live tab + Telegram on the phone (6c, `--speed 20` or 5) | start alerter then publisher | "The same data live through a cloud broker; Telegram pushes the alert to my phone." Show the phone at DAMAGE. |
 | 7:00 | Phone view: QR on laptop, examiner scans (6e) | press Phone view | "Any phone on the same Wi-Fi sees the same dashboard, no app, no hosting." |
-| 8:00 | digital twin panel (6d, already commissioned) | impact floor 5, then damage storey 10, then damage storey 1; one click per 4-5 s | "An examiner can break the building: storey 10 gives no alarm (physics), storey 1 gives it after about 40 s; every decision is the real firmware code." |
-| 10:00 | Wokwi `master_cloud` (if it runs) | show LEDs/buzzer, serial | "The real master firmware in an emulator raises a local alarm by itself, without the cloud." |
+| 8:00 | digital twin panel (6d, already commissioned) | impact floor 5, then damage storey 10, then damage storey 1; one click per 4-5 s | "An examiner can break the building: storey 10 gives no alarm (physics), storey 1 gives it after about 30-45 s; every decision is the real firmware code, compiled for the PC." |
+| 10:00 | Wokwi `master_cloud` (only if it worked the night before; start it at about 4:30 so that its DAMAGE alarm, about 5.5 min into the lap, is due now) | show LEDs/buzzer, serial | "The real master firmware in an emulator raises a local alarm by itself, without the cloud." |
 | 10:45 | slide 'what is not done' | none | "No hardware measurements yet; false alarms 1.64 per hour against a target of 1; top-storey damage invisible. The hardware plan is written." |
 | 11:30 | questions | `docs/viva_prep.md` | |
 
@@ -593,7 +597,7 @@ Cut order if short of time: Wokwi, then phone view, then twin; never cut the hon
 | Wokwi will not start or connect | use 6c (same dashboard, same data); show `docs/figures/dashboard_building_view.png`; say it was verified on the PC (`pio test -e cloud_demo`) |
 | Twin buttons disabled or silent | commissioning not done or server stopped; restart it (new site id!); else do the replay 6b |
 | Telegram not arriving | the alerter prints the same text in the terminal; show that |
-| `program.exe` missing | `pio run -e netsim`, or publish the stored log without the simulator: `.venv\Scripts\python.exe tools\sim_publisher.py --jsonl dashboard\demo_events_sim.jsonl --site <site> --speed 5 --transport websockets --port 8000` |
+| `program.exe` missing | `pio run -e netsim`, or publish the stored log without the simulator (with `$site` set as in 6c): `.venv\Scripts\python.exe tools\sim_publisher.py --jsonl dashboard\demo_events_sim.jsonl --site $site --speed 5 --transport websockets --port 8000` |
 | Dashboard misbehaves | reload with the `?replay=` link, or show `docs/figures/dashboard_overview.png` and `dashboard_damage.png` |
 
 Figures you can show (relative paths work in GitHub and VS Code preview):
@@ -636,6 +640,8 @@ Figures you can show (relative paths work in GitHub and VS Code preview):
 | Limitation | One-line answer |
 |---|---|
 | Simulation only | "Every number is from the project's building simulator and the PC test harness; nothing was measured on a board or a real structure. The hardware plan and pass criteria are written (`docs/hardware_bringup.md`)." |
+| Wokwi | "Wokwi ran only our earlier single-node tree firmware. The final node pipeline, the master with rule f and the cloud demo are built and tested on the PC, but not yet run in Wokwi." |
+| The decision tree | "The 110 B tree is still computed and reported, but the final rule does not use it: it was over the false-alarm budget." |
 | False-alarm budget not met | "Our target was 1 false onset per hour; the fresh test block gave 1.64 per hour (2.05 on healthy ambient alone), so we say it is not met and show the trade-off; the deployment decision followed a rule fixed in advance." |
 | DAMAGE misses the top storeys | "Physics: the first mode barely moves when the top storeys soften (0.09 % at storey 10 for a 30 % loss), so a frequency-based alarm cannot see it; it is a coarse alarm for large damage in the lower storeys." |
 | Small damage is not detected | "5-10 % stiffness loss: detection 0.01-0.03; 20 %: 0.36 (test block, all storeys pooled); 30 % at storeys 1 and 3: 1.00." |
