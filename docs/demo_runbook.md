@@ -4,7 +4,7 @@ Everything here is SIMULATED data (a simulated 10-storey building, sensors on fl
 
 The scenario is hand-picked: the excitation realisations of the building-wide event and the frequency shift (exc ids 16 and 18) were chosen by scanning for clean, unambiguous events. On the fresh test block the deployed rule's mean event recall (LOCAL and BUILDING recall averaged) is 0.734, about 73 %, at 1.64 false onsets per hour over healthy and noise-only hours, which does NOT meet the 1/h target (`models/selected/validation/fusion_eval_r3_test.md`, README). Do not present the demo as typical.
 
-**Telegram warning:** if `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` are already set permanently (User environment variables), `tools/alerter.py` and `--selftest-message` send REAL messages. Check with `echo $env:TELEGRAM_BOT_TOKEN` (do not paste it anywhere) and remove them from a window with `Remove-Item Env:TELEGRAM_BOT_TOKEN, Env:TELEGRAM_CHAT_ID` if you only want a dry run.
+**Telegram warning:** if `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` are already set permanently (User environment variables), `tools/alerter.py` and `--selftest-message` send REAL messages. Check without printing the secret: `if ($env:TELEGRAM_BOT_TOKEN -and $env:TELEGRAM_CHAT_ID) { "Telegram is ON in this window" } else { "dry run" }` (never `echo` the token in front of an audience) and remove them from a window with `Remove-Item Env:TELEGRAM_BOT_TOKEN, Env:TELEGRAM_CHAT_ID` if you only want a dry run.
 
 The demo story (about 7.5 minutes of log time; times are minutes:seconds into the demo):
 
