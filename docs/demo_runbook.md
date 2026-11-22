@@ -89,7 +89,7 @@ Needs internet. The broker is the free public HiveMQ one: anybody who knows the 
 An examiner clicks buttons and the live stream shows the consequence within seconds. A simulated building (the demo building, f1 7.09 Hz, sensors on floors 5 and 10) is monitored by the REAL firmware logic (netsim: master, two slaves, rule f, f1 tracker, DAMAGE); `tools/twin_server.py` only generates the vibration signals from the buttons and replays netsim's log. Every alarm, DEAD and degraded-mode decision comes from the firmware C++ code.
 
 1. Start (from `D:\Resonance`, `pio run -e netsim` must have been run once; this laptop: only the WebSocket port 8000 works):
-   `.venv\Scripts\python.exe tools	win_server.py --speed 2 --transport websockets --port 8000`
+   `.venv\Scripts\python.exe tools\twin_server.py --speed 2 --transport websockets --port 8000`
    It prints `SITE=twin-xxxxxxxx` (a NEW random site id every start, so it never mixes with another demo; `--site` fixes it). Do NOT start `sim_publisher.py` on the same site.
 2. Dashboard: open `dashboard/index.html`, broker `ws://broker.hivemq.com:8000/mqtt`, site = the printed id, "MQTT live: connect". The "Digital twin" panel appears at once; its buttons stay disabled while the system commissions (about 100 superframes = 2.3 min at 1x, 70 s at `--speed 2`; the f1 reference of both sensors needs that long). Optional: `.venv\Scripts\python.exe toolslerter.py --site <id> --transport websockets --port 8000` (with the Telegram variables set) for the phone alerts.
 3. Stop with Ctrl+C (retained status goes offline).
@@ -106,3 +106,21 @@ An examiner clicks buttons and the live stream shows the consequence within seco
 Facts to keep in mind: all of it is simulation; the dotted line is the simulator's ground truth, the solid lines the firmware's estimates; commands act from 4 superframes (5.6 s sim time) after the one being shown, never on the past; one command per 2 s; "Damage" replaces the current damage (one damaged storey at a time); a sensor revived while the structure is damaged recommissions ON the damaged state, so its own reference moves (known limitation: baselines are RAM-only). Storeys 8-10 and losses of 10 % in storey 1 stay below the 2 % threshold: no alarm is the correct answer. Anybody who knows the site id on the public broker can send commands (simulated demo only); commands are strictly validated and rate limited.
 
 Measured on this PC (public HiveMQ over WebSocket 8000, jsdom page): click to twin log line 0.6-0.8 s (the log goes out before netsim is re-run), kill click to sensor 2 DEAD 7.2 s at `--speed 2` (3 missed superframes plus the reorder hold of 2.5 s), damage click to DAMAGE BEGIN on the page 41 s at `--speed 2` (6.6 s at `--speed 20`), i.e. 82 s of simulated time = 4 superframes guard + about 43 superframes (f1 averaging ring + P = 32). Use `--speed 4` if the audience is waiting.
+
+## (g) Phone view over Wi-Fi
+
+Examiners (or you) can open the live dashboard on a phone without any internet hosting: this laptop serves the `dashboard/` folder on the local network and the page shows a QR code. Needs the laptop and the phone on the same Wi-Fi.
+
+1. From `D:\Resonance` (stop it with Ctrl+C when done):
+   `.venv\Scripts\python.exe tools\serve_dashboard.py`
+   It prints the addresses, e.g. `http://192.168.1.4:8080/` (one per network adapter; `--port 8081` if 8080 is busy). It serves only the `dashboard/` folder, read-only, no directory listing.
+2. **Firewall.** The first start makes Windows ask whether Python may communicate on the network: tick **Private networks** and click Allow. (If the prompt was dismissed: Windows Security > Firewall > Allow an app, tick Private for `python.exe` of `.venv`.) Check from another device: the printed URL must open the dashboard.
+3. **Hotspot fallback.** Campus and guest Wi-Fi often isolate devices from each other (the phone cannot reach the laptop even on the same network name). Then switch on a hotspot on a phone, join the laptop and the other phones to it, restart the script and use the newly printed address. Laptop and phones then talk directly.
+4. On the laptop open the printed `http://192.168.x.y:8080/` address (not `file://`), start what you want to show (for the live demo: broker `ws://broker.hivemq.com:8000/mqtt`, the site id, "MQTT live: connect", see (b) / (f); or the "Damage demo (simulated)" replay), then press **Phone view**. A QR code and the link appear. The link carries the current view: `?mqtt=1&site=<site>&broker=<url>` (the phone connects to the same MQTT site) or `?replay=demo_events_sim.jsonl&speed=<n>` (the phone plays the same replay). Scan it with the phone camera. If the laptop has several addresses, the other addresses are offered as buttons; pick the one on the network the phone is on.
+5. Opened from `file://` (or when `/lan.json` is missing) the Phone view window only explains: run `.venv\Scripts\python.exe tools\serve_dashboard.py` and open the printed URL, then use Phone view.
+
+What examiners see on the phone: the same dashboard in a single column (state banner, animated building, sensor health, the four charts, tables), connected live over the broker. The DAMAGE banner, the building outline and the notifications behave as on the laptop (notifications need a browser that allows them for an http page; they may not appear on every phone).
+
+With the digital twin (f) running on the site, the twin panel appears on the phone too, with its buttons: **anyone who has the site id (the QR code, or anyone on the public broker who guesses it) can press them**, from any number of phones (the twin allows 1 command per 2 s in total). Use it for simulator data only, and stop `twin_server.py` after the demo.
+
+The phone link uses plain `http://` on the local network (fine for demo data, nothing is encrypted and nothing leaves your network except the MQTT traffic to the broker). It does not work from the internet.

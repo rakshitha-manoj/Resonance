@@ -15,7 +15,8 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
-const { JSDOM, VirtualConsole } = require("jsdom");
+const jsdom = require("jsdom");
+const { JSDOM, VirtualConsole } = jsdom;
 
 const arg = (n, d) => { const i = process.argv.indexOf("--" + n); return i > 0 ? process.argv[i + 1] : d; };
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -26,10 +27,31 @@ const PY = arg("python", "python");
 const SPEED = arg("speed", "0");
 const PAGE = path.join(ROOT, "dashboard", "index.html");
 
-function canvasStub(window) {
+function canvasStub(window, reduced) {
   const ctx = new Proxy({}, { get: (t, k) => (k === "measureText" ? () => ({ width: 10 }) : k in t ? t[k] : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
   window.HTMLCanvasElement.prototype.getContext = () => ctx;
-  window.matchMedia = window.matchMedia || (() => ({ matches: false, addEventListener() {}, addListener() {} }));
+  window.matchMedia = (q) => ({ matches: !!reduced && /prefers-reduced-motion/.test(q), addEventListener() {}, addListener() {} });
+}
+
+// An http:// page (the dashboard as served by tools/serve_dashboard.py) whose files come from dashboard/ (no network needed).
+const HTTP_ORIGIN = "http://localhost:8765/";
+const MIME = { ".js": "application/javascript", ".html": "text/html", ".json": "application/json", ".jsonl": "text/plain" };
+function dashFile(url) {
+  if (!url.startsWith(HTTP_ORIGIN)) return null;
+  const f = path.join(ROOT, "dashboard", url.slice(HTTP_ORIGIN.length).split("?")[0] || "index.html");
+  return fs.existsSync(f) ? f : undefined;
+}
+function httpResources() {   // jsdom 29+: requestInterceptor; older jsdom: a ResourceLoader subclass
+  if (jsdom.requestInterceptor) {
+    return { interceptors: [jsdom.requestInterceptor((request) => {
+      const f = dashFile(request.url); if (f === null) return undefined;
+      return f ? new Response(fs.readFileSync(f), { headers: { "Content-Type": MIME[path.extname(f)] || "text/plain" } }) : new Response("not found", { status: 404 });
+    })] };
+  }
+  class DashLoader extends jsdom.ResourceLoader {
+    fetch(url, o) { const f = dashFile(url); return f === null ? super.fetch(url, o) : f ? Promise.resolve(fs.readFileSync(f)) : Promise.reject(new Error("404 " + url)); }
+  }
+  return new DashLoader();
 }
 
 function openPage(opts) {
@@ -39,10 +61,17 @@ function openPage(opts) {
   vc.on("error", (e) => errors.push(String(e)));
   const notes = [];
   return new Promise((resolve, reject) => {
+    const http = !!(opts && opts.http);
     const dom = new JSDOM(fs.readFileSync(PAGE, "utf8"), {
-      url: "file:///" + PAGE.replace(/\\/g, "/") + ((opts && opts.search) || ""), runScripts: "dangerously", resources: "usable", pretendToBeVisual: true, virtualConsole: vc,
+      url: (http ? HTTP_ORIGIN : "file:///" + PAGE.replace(/\\/g, "/")) + ((opts && opts.search) || ""), runScripts: "dangerously", resources: http ? httpResources() : "usable", pretendToBeVisual: true, virtualConsole: vc,
       beforeParse(window) {
-        canvasStub(window);
+        canvasStub(window, opts && opts.reduced);
+        if (opts && "lan" in opts) {   // stub of GET /lan.json: an object, or null for 404; any other URL fails like a dead network
+          window.fetch = async (u) => {
+            if (/lan\.json/.test(u)) return opts.lan === null ? { ok: false, status: 404, json: async () => ({}) } : { ok: true, status: 200, json: async () => opts.lan };
+            throw new Error("no network in the test");
+          };
+        }
         window.__MQTT_TIMER = "native";   // jsdom has no Web Workers / blob URLs (see the timerVariant note in index.html)
         window.Notification = function (title, o) { notes.push({ title, body: o && o.body }); };
         window.Notification.permission = "granted";
@@ -174,9 +203,182 @@ async function offlineChecks(check) {
   pgG.window.__resonance.seek(pgG.window.__resonance.state().tEnd); pgG.window.__resonance.render();
   check(qs(pgG.window, "dmgBanner").hidden && pgG.window.__resonance.state().ev.length === 3 && /std/.test(qs(pgG.window, "hist").innerHTML), "schema 1 log still replays (3 events, std detector tag, no damage panels)");
   // all pages: no script errors
-  const errs = [pgA, pgB, pgC, pgD, pgE, pgF, pgG, pgH, ...badPages].flatMap((p) => p.errors).filter((e) => !/Not implemented/.test(e));
+  await viewChecks(check, text);
+  const errs = [pgA, pgB, pgC, pgD, pgE, pgF, pgG, pgH, ...badPages, ...EXTRA_PAGES].flatMap((p) => p.errors).filter((e) => !/Not implemented/.test(e));
   check(errs.length === 0, "no script errors in any offline page" + (errs.length ? ": " + errs.slice(0, 3).join(" | ") : ""));
   console.log("--- end offline checks ---");
+}
+
+// Animated building view, parameter validation, auto-connect link, phone view (QR code).
+const EXTRA_PAGES = [];
+async function viewChecks(check, text) {
+  console.log("--- building view / launch parameters / phone view ---");
+  const mk = async (opts) => { const p = await openPage(opts); EXTRA_PAGES.push(p); return p; };
+  const doc = (p) => p.window.document;
+  const storeys = (p) => Array.from(doc(p).querySelectorAll(".bv-st")).map((e) => e.getAttribute("data-s"));
+  const amp = (p) => +doc(p).getElementById("bsvg").getAttribute("data-amp");
+  const outDmg = (p) => doc(p).getElementById("bvOut").getAttribute("data-dmg") === "1";
+  const shown = (p, id) => !doc(p).getElementById(id).hasAttribute("hidden");   // attribute, not .hidden: SVG elements have no such property
+  const pg = await mk();
+  const A = pg.window.__resonance;
+  await A.loadText(text, "damage demo", false);
+  const S = A.state();
+  const at = (sf) => { A.seek(S.sm.find((m) => m.sf >= sf).t); A.render(); };
+  const atT = (t) => { A.seek(t); A.render(); };
+
+  // layout and labels
+  at(150);
+  check(storeys(pg).length === 10 && doc(pg).querySelectorAll(".bv-ic").length === 2, "building view: 10 storeys drawn and 2 sensor icons");
+  const labs = Array.from(doc(pg).querySelectorAll(".bv-lab .l1")).map((e) => e.textContent);
+  check(labs.join("|") === "sensor 1, floor 5|sensor 2, floor 10", "sensor labels from meta.floors: " + labs.join(" | "));
+  check(/10-storey/.test(doc(pg).getElementById("bvCard").textContent) && /exaggerated and slowed down, not to scale/.test(doc(pg).getElementById("bvCap").textContent) && /not to scale/.test(doc(pg).getElementById("bsvgT").textContent), "storey count labelled (10) and the 'exaggerated, slowed, not to scale' caption / tooltip are present");
+  // geometry: first-mode shape, zero at the ground, proportional to sin(pi z / 2N), sensor icons on storeys 5 and 10
+  const pts = (id) => doc(pg).getElementById(id).getAttribute("points").split(" ").map((x) => x.split(",").map(Number));
+  const s1 = pts("bvS1"), s10 = pts("bvS10"), ghost = pts("bvGhost");
+  const dx = (p, i, gi) => p[i][0] - ghost[gi][0];
+  check(Math.abs(dx(s1, 0, 0)) < 1e-6 && Math.abs(dx(s1, 1, 1)) < 1e-6, "ground corners never move (sway 0 at z = 0)");
+  const roof = +doc(pg).getElementById("bsvg").getAttribute("data-roof-dx"), top = dx(s10, 2, 1), s5top = pts("bvS5")[2][0] - ghost[1][0];
+  check(Math.abs(top - roof) < 0.06 && Math.abs(s5top - roof * Math.sin(Math.PI / 2 * 5 / 10)) < 0.06, `displacement ~ sin(pi z / 2N): roof ${top.toFixed(2)} px, storey 5 top ${s5top.toFixed(2)} px (expected ${(roof * Math.sin(Math.PI / 4)).toFixed(2)})`);
+  const icy = (n) => +/translate\([\d.-]+,([\d.-]+)\)/.exec(doc(pg).getElementById("bvIc" + n).getAttribute("transform"))[1];
+  check(Math.abs(icy(1) - (340 - 4.5 * 30)) < 0.1 && Math.abs(icy(2) - (340 - 9.5 * 30)) < 0.1, "sensor icons sit in the middle of storeys 5 and 10");
+
+  // amplitude follows the vibration level
+  const lvl = (m) => [m.a1 && m.r1 !== null ? m.r1 : null, m.a2 && m.r2 !== null ? m.r2 : null].filter((x) => x !== null);
+  const mean = (m) => { const l = lvl(m); return l.reduce((a, b) => a + b, 0) / l.length; };
+  const amb = S.sm.filter((m) => m.cls === 1 && m.sf > 140 && m.sf < 160)[0], bld = S.sm.filter((m) => m.cls === 3).sort((a, b) => mean(b) - mean(a))[0];
+  atT(amb.t); const aAmb = amp(pg); atT(bld.t); const aBld = amp(pg);
+  check(aAmb > 0 && aAmb < 4 && aBld > aAmb * 3 && aBld <= 17.001, `sway amplitude follows r: ambient r ${mean(amb).toFixed(2)} -> ${aAmb} px, building event r ${mean(bld).toFixed(2)} -> ${aBld} px (clamped to 17)`);
+  at(5); check(amp(pg) < 1.5, "calibrating: almost no sway (" + amp(pg) + " px)");
+  // paused replay is static: no animation frame changes the picture
+  const dx0 = doc(pg).getElementById("bsvg").getAttribute("data-roof-dx"); await sleep(250);
+  check(doc(pg).getElementById("bsvg").getAttribute("data-roof-dx") === dx0 && A.state().playing === false, "paused replay: building static");
+
+  // states
+  const loc1 = S.sm.find((m) => m.cls === 2 && m.slave === 1 && m.a1), loc2 = S.sm.find((m) => m.cls === 2 && m.slave === 2 && m.a2);
+  atT(loc1.t); let st = storeys(pg);
+  check(st[4] === "local" && st.filter((x) => x === "local").length === 1 && st.filter((x) => x === "ambient").length === 9 && /pulse/.test(doc(pg).getElementById("bvS5").getAttribute("class")) && doc(pg).getElementById("bvIc1").getAttribute("data-s") === "local", "LOCAL on sensor 1: only storey 5 highlighted (pulsing yellow), the rest normal");
+  atT(loc2.t); st = storeys(pg);
+  check(st[9] === "local" && st.filter((x) => x === "local").length === 1 && doc(pg).getElementById("bvIc2").getAttribute("data-s") === "local", "LOCAL on sensor 2: only storey 10 highlighted");
+  atT(bld.t); st = storeys(pg);
+  check(st.every((x) => x === "building") && doc(pg).getElementById("bvIc1").getAttribute("data-s") === "building", "BUILDING event: the whole building is amber");
+  at(5); st = storeys(pg);
+  check(st.every((x) => x === "comm") && shown(pg, "bvCal") && /calibrating/.test(doc(pg).getElementById("bvCal").textContent), "COMMISSIONING: whole building grey with the 'calibrating' label");
+  atT(amb.t);   // a quiet moment before the alarm (sf 150 itself is inside a building-wide shake)
+  check(!outDmg(pg) && !shown(pg, "bvFlag") && !shown(pg, "bvBand") && storeys(pg).every((x) => x === "ambient"), "before the damage alarm: normal outline, no damage label, no storey mark (" + storeys(pg).join(",") + ", dmg " + outDmg(pg) + ", flag " + shown(pg, "bvFlag") + ")");
+  A.seek(S.tEnd); A.render();
+  const flag = doc(pg).getElementById("bvFlag").textContent;
+  check(outDmg(pg) && /bv-out dmg/.test(doc(pg).getElementById("bvOut").getAttribute("class")) && shown(pg, "bvFlag") && flag === "DAMAGE indicated — f1 tracking cannot locate the storey", "DAMAGE active: red outline + label '" + flag + "'");
+  check(!shown(pg, "bvBand") && !shown(pg, "bvTruthG") && !shown(pg, "bvTruthNote") && doc(pg).getElementById("bvBand").getAttribute("data-truth") === "" && !storeys(pg).includes("damage") && storeys(pg).every((x) => x === "ambient"), "outside twin mode NO storey is marked as damaged (no band, no truth label, storey fills unchanged)");
+  // twin truth (synthetic twin/state; the page only trusts it on an MQTT site)
+  const tw = (d) => ({ running: true, commissioned: true, speed: 2, sf: 300, damage: d, building: { f1_hz: 7.03 }, f1_true_hz: 6.8, drop_true: 0.039, killed: [], truth: [[0, 0, 7.03]], log: [] });
+  S.kind = "mqtt"; S.twin = tw({ storey: 3, loss: 0.3 }); A.render();
+  const lbl = doc(pg).getElementById("bvTruthT").textContent;
+  check(shown(pg, "bvBand") && doc(pg).getElementById("bvBand").getAttribute("data-truth") === "3" && lbl === "simulator truth: storey 3, −30 % stiffness" && shown(pg, "bvTruthG"), "twin mode: red hatched band on storey 3 labelled '" + lbl + "'");
+  const bandPts = pts("bvBand"), s3 = pts("bvS3");
+  check(JSON.stringify(bandPts) === JSON.stringify(s3) && !!doc(pg).getElementById("bvHatch") && /cannot locate/.test(doc(pg).getElementById("bvTruthNote").textContent) && /cannot locate/.test(doc(pg).getElementById("bvFlag").textContent), "twin mode: the band covers exactly storey 3 and the 'cannot locate the storey' note is kept for what the sensors know");
+  S.twin = tw(null); A.render(); check(!shown(pg, "bvBand"), "twin without damage: no band");
+  for (const bad of [{ storey: 11, loss: 0.3 }, { storey: 0, loss: 0.3 }, { storey: 2.5, loss: 0.3 }, { storey: 3, loss: 1.5 }, { storey: "3", loss: 0.3 }, { storey: 3, loss: -0.1 }]) { S.twin = tw(bad); A.render(); if (shown(pg, "bvBand")) check(false, "twin truth with invalid values " + JSON.stringify(bad) + " must not be drawn"); }
+  check(!shown(pg, "bvBand"), "twin truth with invalid values (storey 0 / 2.5 / 11 / '3', loss <= 0 or >= 1) is not drawn");
+  S.twin = tw({ storey: 3, loss: 0.3 }); S.kind = ""; A.render(); check(!shown(pg, "bvBand"), "a twin/state outside an MQTT source is ignored (no storey mark)");
+  S.twin = null; S.kind = "";
+
+  // dead sensor (faults log has node lines)
+  const pgF = await mk(); const FA = pgF.window.__resonance;
+  await FA.loadText(readLog("demo_events_faults_sim.jsonl"), "faults", false);
+  const FS_ = FA.state(), dead = FS_.nl.find((n) => !n.alive);
+  FA.seek(dead.t + 1); FA.render();
+  const ic = doc(pgF).getElementById("bvIc" + dead.slave);
+  check(ic.getAttribute("data-s") === "dead" && /offline/.test(doc(pgF).querySelector("#bvLab" + dead.slave + " .l2").textContent) && doc(pgF).getElementById("bvIc" + (3 - dead.slave)).getAttribute("data-s") !== "dead", "DEAD sensor " + dead.slave + ": grey icon with a cross (data-s=dead), label 'offline', the other sensor unaffected");
+  check(!!ic.querySelector(".cross"), "dead icon carries the cross element");
+
+  // schema 2 (no damage state) and schema 1 (no floors) logs
+  const pg2 = await mk(); await pg2.window.__resonance.loadText(readLog("sample_events.jsonl"), "schema 2", false);
+  pg2.window.__resonance.seek(pg2.window.__resonance.state().tEnd); pg2.window.__resonance.render();
+  check(!outDmg(pg2) && !shown(pg2, "bvFlag") && storeys(pg2).length === 10 && !shown(pg2, "bvBand") && amp(pg2) >= 0, "schema 2 log: building shows events and sway, never a damage mark");
+  const sch1 = '{"type":"meta","schema":1,"rule":"b","T":3,"use_raw":false,"commission_windows":20,"status_every_sf":64,"superframe_s":1.4}\n' +
+    '{"type":"begin","t_us":57000000,"sf":40,"class":"LOCAL","slave":1,"degraded_alive":0,"r1":7.4,"r2":1.4,"base1":75.2,"base2":102.6,"alive":[true,true],"closed":41,"events":3}\n';
+  const pg1 = await mk(); await pg1.window.__resonance.loadText(sch1, "schema 1", false);
+  pg1.window.__resonance.seek(pg1.window.__resonance.state().tEnd); pg1.window.__resonance.render();
+  check(storeys(pg1).filter((x) => x === "local").length === 1 && /floor assumed/.test(doc(pg1).querySelector("#bvLab1 .l2").textContent) && !outDmg(pg1) && amp(pg1) > 5, "schema 1 log (no floors): sensors drawn at assumed floors 5 / 10 and labelled so, local event shown, strong sway for r 7.4");
+
+  // animation and reduced motion
+  const pgM = await mk({ search: "?replay=demo_events_sim.jsonl&speed=30&at=sf118" });   // starts paused at sf 118 (before the sensor-1 impact)
+  await until(() => pgM.window.__resonance.state().sm.length === 320, 10000, "?replay= load (motion)");
+  const MA = pgM.window.__resonance; await sleep(200);
+  MA.play(false); MA.state().speed = 1; MA.seek(MA.state().sm.find((m) => m.sf >= 120).t);   // any stretch will do: the amplitude only has to be non-zero
+  MA.play(true); const xs = [];
+  for (let i = 0; i < 12; i++) { await sleep(150); xs.push(+doc(pgM).getElementById("bsvg").getAttribute("data-roof-dx")); }
+  MA.play(false); await sleep(250);
+  check(Math.max(...xs) - Math.min(...xs) > 0.5, "playing replay: the building sways (roof dx ranged " + Math.min(...xs).toFixed(2) + " .. " + Math.max(...xs).toFixed(2) + " px)");
+  const pgR = await mk({ reduced: true, search: "?replay=demo_events_sim.jsonl&speed=1&at=sf236&play=0" });
+  await until(() => pgR.window.__resonance.state().sm.length === 320, 10000, "?replay= load (reduced)");
+  const RA = pgR.window.__resonance; await sleep(200);
+  RA.play(true); const ys = [];
+  for (let i = 0; i < 8; i++) { await sleep(150); const sv = doc(pgR).getElementById("bsvg"); ys.push([+sv.getAttribute("data-roof-dx"), +sv.getAttribute("data-amp")]); }
+  check(RA.bvState().reduced && RA.state().playing && ys.every((y) => y[0] === y[1] && y[1] > 0), "prefers-reduced-motion: no animation even while playing, the building stays at its static deflection (roof dx = amplitude: " + JSON.stringify(ys.slice(0, 3)) + " ...)");
+  RA.play(false);
+
+  // launch parameter validation (pure) and page behaviour
+  const PL = pg.window.__resonance.parseLaunch;
+  const goodB = ["wss://broker.hivemq.com:8884/mqtt", "ws://broker.hivemq.com:8000/mqtt", "ws://192.168.1.5:9001", "wss://x.s1.eu.hivemq.cloud:8884/mqtt"];
+  const okAll = goodB.every((b) => { const o = PL("?mqtt=1&site=rsn-822298ab&broker=" + encodeURIComponent(b)); return o.mqtt && o.broker === b && o.site === "rsn-822298ab" && o.msgs.length === 0; });
+  check(okAll && PL("?mqtt=1&site=Twin_AB-12").site === "Twin_AB-12" && PL("?mqtt=1&site=" + "a".repeat(40)).mqtt, "launch parameters: valid site (letters, digits, _ -, up to 40) and ws(s) broker accepted, mqtt=1 requests the connection");
+  const badS = ["a b", "a".repeat(41), "../x", "a/b", "<script>", "x;y", "éa", "a.b", ""];
+  const badB = ["javascript:alert(1)", "http://broker.example/mqtt", "wss://", "wss://evil.example/p?x=1", "wss://a b/", "wss://u:p@host/mqtt", "wss://host:123456/mqtt", "ws:/host", "wss://host/%00", "wss://host/a b", "wss://" + "a".repeat(190) + ".com/mqtt"];
+  const rejS = badS.filter((x) => x !== "").every((x) => { const o = PL("?mqtt=1&site=" + encodeURIComponent(x)); return o.site === null && !o.mqtt && o.msgs.length === 2; }) && PL("?mqtt=1&site=").mqtt === false;
+  const rejB = badB.every((x) => { const o = PL("?mqtt=1&site=ok-1&broker=" + encodeURIComponent(x)); return o.broker === null && !o.mqtt && o.msgs.length === 2; });
+  check(rejS && rejB, `launch parameters: ${badS.length} bad site ids and ${badB.length} bad broker URLs are rejected with a message and MQTT is not started`);
+  check(!PL("?site=ok-1").mqtt && !PL("").mqtt && PL("?autoconnect=1&site=ok-1").mqtt, "no connection without mqtt=1 (the older autoconnect=1 still works)");
+  const pgBad = await mk({ search: "?mqtt=1&site=bad%20site&broker=javascript:alert(1)" }); await sleep(400);
+  check(pgBad.window.__resonance.state().mode === "none" && /ignored/.test(doc(pgBad).getElementById("msgs").textContent) && doc(pgBad).getElementById("mqSite").value !== "bad site" && !/javascript/.test(doc(pgBad).getElementById("mqUrl").value), "page with ?mqtt=1 and invalid site / broker: nothing connects, values not put in the fields, message shown");
+  const pgOk = await mk({ search: "?mqtt=1&site=rsn-link-test&broker=ws://127.0.0.1:9/mqtt" }); await sleep(500);
+  const so = pgOk.window.__resonance.state();
+  check(so.mode === "live" && so.kind === "mqtt" && so.mqSite === "rsn-link-test" && doc(pgOk).getElementById("mqUrl").value === "ws://127.0.0.1:9/mqtt" && /MQTT rsn-link-test/.test(doc(pgOk).getElementById("srcBadge").textContent), "?mqtt=1&site=...&broker=...: MQTT live starts on load with that site and broker (site " + so.mqSite + ")");
+  doc(pgOk).getElementById("mqBtn").click();
+
+  // phone view
+  const pgFile = await mk();   // file:// page, no lan.json
+  doc(pgFile).getElementById("phoneBtn").click(); await sleep(100);
+  const ft = doc(pgFile).getElementById("phoneBody").textContent;
+  check(shown(pgFile, "phoneModal") && ft.includes(".venv\\Scripts\\python.exe tools\\serve_dashboard.py") && /open the printed URL, then use Phone view/.test(ft) && !doc(pgFile).getElementById("qrBox"), "Phone view from file://: modal explains how to start tools\\serve_dashboard.py, no QR");
+  pgFile.window.document.dispatchEvent(new pgFile.window.KeyboardEvent("keydown", { key: "Escape" }));
+  check(!shown(pgFile, "phoneModal"), "Escape closes the modal");
+  const LAN = { port: 8080, urls: ["http://192.168.1.20:8080/", "http://10.0.0.5:8080/"] };
+  const qrlib = require(path.join(ROOT, "dashboard", "vendor", "qrcode.js"));
+  const darkCount = (u) => { const q = qrlib(0, "M"); q.addData(u); q.make(); let n = 0; for (let r = 0; r < q.getModuleCount(); r++) for (let c = 0; c < q.getModuleCount(); c++) if (q.isDark(r, c)) n++; return { n, m: q.getModuleCount() }; };
+  const pgH = await mk({ http: true, lan: LAN }); await sleep(300);
+  const HA = pgH.window.__resonance;
+  await HA.loadSim({ speed: 20, play: false }); HA.state().playing = false;
+  doc(pgH).getElementById("phoneBtn").click(); await until(() => !!doc(pgH).getElementById("phoneUrl"), 3000, "phone modal content");
+  let u = doc(pgH).getElementById("phoneUrl").textContent;
+  check(u === "http://192.168.1.20:8080/?replay=demo_events_sim.jsonl&speed=20", "Phone view in replay mode: URL from /lan.json (first address) + replay link: " + u);
+  let svg = doc(pgH).querySelector("#qrBox svg"), want = darkCount(u), got = (svg.querySelector("path").getAttribute("d").match(/M/g) || []).length;
+  check(svg && +svg.getAttribute("data-modules") === want.m && got === want.n, `QR code encodes exactly that URL (${want.m}x${want.m} modules, ${got} dark = ${want.n} from the reference encoder)`);
+  const alt = doc(pgH).querySelectorAll(".phone-alt button");
+  check(alt.length === 2, "two LAN addresses: both offered as alternatives");
+  alt[1].click(); u = doc(pgH).getElementById("phoneUrl").textContent;
+  check(u === "http://10.0.0.5:8080/?replay=demo_events_sim.jsonl&speed=20" && +doc(pgH).querySelector("#qrBox svg").getAttribute("data-modules") === darkCount(u).m, "choosing the second address rebuilds URL and QR: " + u);
+  doc(pgH).getElementById("phoneClose").click();
+  check(!shown(pgH, "phoneModal"), "Close button closes the modal");
+  // MQTT view link
+  doc(pgH).getElementById("mqSite").value = "twin-ab12cd34"; doc(pgH).getElementById("mqUrl").value = "ws://broker.hivemq.com:8000/mqtt";
+  HA.state().mode = "none"; HA.state().replayName = "";
+  doc(pgH).getElementById("phoneBtn").click(); await until(() => !!doc(pgH).getElementById("phoneUrl"), 3000, "phone modal content 2");
+  u = doc(pgH).getElementById("phoneUrl").textContent;
+  check(u === "http://192.168.1.20:8080/?mqtt=1&site=twin-ab12cd34&broker=ws://broker.hivemq.com:8000/mqtt", "Phone view for MQTT live: " + u);
+  const back = PL(new URL(u).search);
+  check(back.mqtt && back.site === "twin-ab12cd34" && back.broker === "ws://broker.hivemq.com:8000/mqtt" && back.msgs.length === 0, "the generated link round-trips through the page's own launch-parameter parser");
+  doc(pgH).getElementById("phoneClose").click();
+  doc(pgH).getElementById("mqSite").value = "bad site!"; doc(pgH).getElementById("phoneBtn").click();
+  await until(() => !!doc(pgH).getElementById("phoneUrl"), 3000, "phone modal content 3");
+  check(doc(pgH).getElementById("phoneUrl").textContent === "http://192.168.1.20:8080/" && /just opens the dashboard/.test(doc(pgH).getElementById("phoneBody").textContent), "an invalid site id in the field is never put into the link");
+  const pgN = await mk({ http: true, lan: null }); await sleep(200);
+  doc(pgN).getElementById("phoneBtn").click(); await sleep(300);
+  check(/serve_dashboard\.py/.test(doc(pgN).getElementById("phoneBody").textContent) && !doc(pgN).getElementById("qrBox"), "http page without /lan.json (404): same explanation, no QR");
+  const pgE = await mk({ http: true, lan: { port: 1, urls: ["javascript:alert(1)", "http://evil.example/", "https://192.168.1.2:8080/", "http://192.168.1.2/"] } }); await sleep(200);
+  doc(pgE).getElementById("phoneBtn").click(); await sleep(300);
+  check(!doc(pgE).getElementById("qrBox") && /serve_dashboard\.py/.test(doc(pgE).getElementById("phoneBody").textContent), "hostile /lan.json entries (javascript:, host names, https, no port) are ignored");
+  console.log("--- end building / phone checks ---");
 }
 
 // B2: a retained damage_state left over from an EARLIER run must not be listed by a page that joins late in the next run. The retained topics are

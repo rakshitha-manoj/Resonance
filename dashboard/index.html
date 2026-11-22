@@ -12,6 +12,7 @@
   --r1:#1f5fbf; --r2:#8a3a9e; --warn-bg:#fff4cc; --warn-text:#4a3600; --demo-bg:#ffe9a8; --demo-text:#3d2d00;
   --sim-bg:#d9ecff; --sim-text:#06284a;
   --dmg:#b71c1c; --dmg-text:#ffffff; --tint-dmg:#fbe0e0; --ae:#00695c; --f1c:#4527a0; --f2c:#ef6c00;
+  --bv-fill:#e4e9ef; --bv-line:#4a5665; --bv-local:#f5c400; --bv-build:#fb8c00; --bv-hatchbg:#fbe0e0; --bv-sensor:#0b5cad;
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){
@@ -22,6 +23,7 @@
     --r1:#7db4ff; --r2:#e0a0f5; --warn-bg:#3d3310; --warn-text:#ffe9a0; --demo-bg:#4a3a0a; --demo-text:#ffe9a0;
     --sim-bg:#12304d; --sim-text:#cfe6ff;
     --dmg:#ff6b6b; --dmg-text:#1a0505; --tint-dmg:#3d1e1e; --ae:#4db6ac; --f1c:#b39ddb; --f2c:#ffb74d;
+    --bv-fill:#27303a; --bv-line:#aab6c3; --bv-local:#ffd84a; --bv-build:#ffa726; --bv-hatchbg:#3d1e1e; --bv-sensor:#6db3ff;
     color-scheme:dark;
   }
 }
@@ -32,6 +34,7 @@
   --r1:#7db4ff; --r2:#e0a0f5; --warn-bg:#3d3310; --warn-text:#ffe9a0; --demo-bg:#4a3a0a; --demo-text:#ffe9a0;
   --sim-bg:#12304d; --sim-text:#cfe6ff;
   --dmg:#ff6b6b; --dmg-text:#1a0505; --tint-dmg:#3d1e1e; --ae:#4db6ac; --f1c:#b39ddb; --f2c:#ffb74d;
+  --bv-fill:#27303a; --bv-line:#aab6c3; --bv-local:#ffd84a; --bv-build:#ffa726; --bv-hatchbg:#3d1e1e; --bv-sensor:#6db3ff;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
@@ -80,8 +83,79 @@ progress{width:140px;height:14px;accent-color:var(--accent)}
 svg text{font-family:inherit;fill:var(--text)}
 svg text.m{fill:var(--muted)}
 [hidden]{display:none!important}
-#bsvg{width:100%;height:auto;max-height:340px;display:block}
-.floor{stroke-width:4}
+#bsvg{width:100%;height:auto;max-height:420px;display:block}
+.bv-st{fill:var(--bv-fill);stroke:var(--bv-line);stroke-width:1.2}
+.bv-st[data-s="building"]{fill:var(--bv-build)}
+.bv-st[data-s="local"]{fill:var(--bv-local);stroke-width:2.5}
+.bv-st[data-s="comm"]{fill:var(--tint-comm);stroke-dasharray:3 3}
+.bv-st[data-s="nodata"]{fill:var(--tint-nodata);stroke-dasharray:5 4}
+.bv-st[data-s="local"].pulse{animation:bvpulse 1.1s ease-in-out infinite}
+@keyframes bvpulse{0%,100%{fill-opacity:1}50%{fill-opacity:.35}}
+@media (prefers-reduced-motion:reduce){.bv-st[data-s="local"].pulse{animation:none}}
+.bv-no{fill:var(--muted);font-size:11px}
+.bv-out{fill:none;stroke:var(--bv-line);stroke-width:2.5;stroke-linejoin:round}
+.bv-out.dmg{stroke:var(--dmg);stroke-width:7}
+.bv-ghost{fill:none;stroke:var(--muted);stroke-width:1;stroke-dasharray:4 4;opacity:.7}
+.bv-band{fill:url(#bvHatch);stroke:var(--dmg);stroke-width:2}
+.bv-ic circle{stroke:var(--bv-line);stroke-width:2}
+.bv-ic .wave{fill:none;stroke:var(--card);stroke-width:2;stroke-linecap:round}
+.bv-ic .cross{stroke:var(--card);stroke-width:3;stroke-linecap:round}
+.bv-ic[data-s="ambient"] circle{fill:var(--ambient)}
+.bv-ic[data-s="local"] circle{fill:var(--bv-local)}
+.bv-ic[data-s="building"] circle{fill:var(--bv-build)}
+.bv-ic[data-s="comm"] circle,.bv-ic[data-s="none"] circle{fill:var(--comm)}
+.bv-ic[data-s="nodata"] circle,.bv-ic[data-s="dead"] circle{fill:#8a949f}
+.bv-ic[data-s="local"] .wave,.bv-ic[data-s="building"] .wave{stroke:#1a1f26}
+.bv-ic:not([data-s="dead"]) .cross{display:none}
+.bv-ic[data-s="dead"] .wave{display:none}
+.bv-ic text,.bv-lab text{font-size:14px}
+.bv-lab .l1{font-weight:700}
+.bv-lab .l2{font-size:13px;fill:var(--muted)}
+.bv-flag{background:var(--dmg);color:var(--dmg-text);border-radius:8px;padding:6px 10px;margin:6px 0 0;font-weight:700;font-size:.92rem}
+.bv-truth{border:2px dashed var(--dmg);border-radius:8px;padding:6px 10px;margin:6px 0 0;font-size:.9rem}
+.bv-cal{font-size:20px;font-weight:700;fill:var(--text);paint-order:stroke;stroke:var(--card);stroke-width:5px;stroke-linejoin:round}
+#phoneBtn{white-space:nowrap}
+#phoneModal{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60;display:flex;align-items:center;justify-content:center;padding:12px}
+#phoneModal .box{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:12px;max-width:460px;width:100%;max-height:100%;overflow:auto;padding:14px 16px}
+#phoneModal h2{margin-top:0}
+#qrBox{background:#fff;display:inline-block;padding:0;border-radius:6px;line-height:0;border:1px solid var(--line)}
+#qrBox svg{width:min(280px,70vw);height:auto;display:block}
+#phoneUrl{word-break:break-all;font-family:ui-monospace,Consolas,monospace;font-size:.85rem;background:var(--tint-comm);padding:6px 8px;border-radius:6px;margin:8px 0}
+.phone-alt{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+@media (max-width:600px){
+  body{font-size:15px}
+  .wrap{padding:10px 12px 32px}
+  h1{font-size:1.1rem}
+  header .badge{display:inline-block;max-width:100%;overflow-wrap:anywhere}
+  .grid>*{min-width:0}
+  .card{padding:10px 12px}
+  .row{gap:6px}
+  .row>button,.row>.btn{flex:1 1 calc(50% - 6px);min-height:44px}
+  .row>label{flex:1 1 100%;display:flex;flex-direction:column;gap:2px}
+  header .row{width:100%;flex-wrap:nowrap}
+  .transport>label{flex:1 1 100%;flex-direction:row;align-items:center;gap:8px}
+  .transport>label select{flex:1}
+  input[type=text],input[type=password],select{font-size:16px;min-height:44px;width:100%}
+  #mqttRow input[type=text]{width:100%}
+  #serBtn:disabled,.row>.badge{display:none}
+  .transport>button{flex:1 1 28%}
+  .transport input[type=range]{flex:1 1 100%;order:5;min-height:36px}
+  .transport .time{order:6;flex:1 1 100%;text-align:left}
+  #banner,#dmgBanner{gap:10px;padding:10px 12px}
+  #banner .glyph{font-size:1.8rem;min-width:2rem}
+  #banner .big{font-size:1.25rem}
+  #dmgBanner .big{font-size:1.1rem}
+  .cv{height:230px}
+  #twinCard button{min-height:46px;flex:1 1 calc(50% - 6px)}
+  #twinCard .row>label{flex:1 1 calc(50% - 6px)}
+  #twLog{max-height:7em}
+  .counters{gap:6px}
+  .stat b{font-size:1.15rem}
+  th,td{padding:5px 6px}
+  .time{min-width:0}
+  #phoneModal{align-items:flex-end;padding:0}
+  #phoneModal .box{border-radius:12px 12px 0 0}
+}
 .node{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
 .node:last-child{border-bottom:0}
 .node small{display:block;color:var(--muted)}
@@ -127,6 +201,7 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
 <header>
   <h1>Resonance Monitor <span class="badge" id="srcBadge">no data loaded</span></h1>
   <div class="row">
+    <button id="phoneBtn" type="button" title="Show a QR code that opens this dashboard on a phone (same Wi-Fi)">Phone view</button>
     <button id="themeBtn" type="button" aria-label="Toggle light or dark theme">Theme</button>
   </div>
 </header>
@@ -182,6 +257,7 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
       <li><b>Panels.</b> Std ratio r (vibration level / own baseline, threshold T) and AE ratio (int8 autoencoder reconstruction error / own baseline, threshold T_ae) are the two detectors of rule f (an event if EITHER fires, each smoothed 2-of-3). The natural-frequency panel shows each sensor's f1 estimate against its own commissioned f1_0 with a band of plus/minus the DAMAGE threshold; the DAMAGE banner turns red after the pooled f1 drop has stayed at or above the threshold for P superframes.</li>
       <li><b>Live over USB.</b> Chrome or Edge on a desktop only (Web Serial API), 115200 baud. Close any other program using the port first (PlatformIO or Arduino serial monitor). The master firmware prints the same JSON lines as the simulator; the page keeps lines that are JSON objects of the schema and ignores everything else, including the <code>R,</code> and <code>S,</code> CSV lines and <code>#</code> comments. If the master reboots, its clock starts again at 0; a <code>restart</code> line marks it and the page continues the timeline after the last line.</li>
       <li><b>MQTT live (cloud).</b> The master (or <code>tools/sim_publisher.py</code>, or the Wokwi cloud demo) publishes the same JSON lines to an MQTT broker under <code>resonance/&lt;site&gt;/&lt;type&gt;</code>; this page subscribes over MQTT-over-WebSocket (default: the free public HiveMQ broker, site id from the firmware config) and feeds each message through the same parser as the other sources. Anybody who knows the site id can read a public broker's topics, so use it for simulator or demo data only; a private broker with TLS and a password works by changing the URL and the options. The retained <code>meta</code> arrives at once, so a page that joins late still knows the floors. The counters show messages received and lines dropped (malformed or buffer full); lines the master or the broker dropped are only visible in the master's <code>S,mqtt</code> statistics. Cross-topic arrival order is not guaranteed by MQTT: the page re-sorts by time. Browser notifications (permission asked when you click "Enable notifications") fire for new <code>begin</code> events, sensors going offline and the DAMAGE alarm starting or clearing. Needs <code>vendor/mqtt.min.js</code> (MQTT.js, MIT); without it the rest of the page works as before.</li>
+      <li><b>Phone view.</b> <code>.venv\Scripts\python.exe tools\serve_dashboard.py</code> serves this folder on your Wi-Fi; open the printed address, press "Phone view" for a QR code. Links: <code>?mqtt=1&amp;site=&lt;site&gt;&amp;broker=ws://broker.hivemq.com:8000/mqtt</code> connects MQTT live on load (site and broker are validated), <code>?replay=demo_events_sim.jsonl&amp;speed=20</code> plays a replay.</li>
       <li><b>Demo.</b> A short scripted scenario written to follow schema 2 exactly. It is not hardware data and not simulator output.</li>
       <li><b>Not available:</b> r values between logged lines in schema 1 logs, and the age of a sensor's last report in schema 1 logs. These show as "not available".</li>
       <li><b>Limits.</b> Replay, demo and USB run entirely offline; nothing leaves your computer. Only the "MQTT live" source connects to a broker (and only when you click connect).</li>
@@ -235,20 +311,29 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
 </section>
 
 <div class="grid">
-  <section class="card c5"><h2>Building</h2>
-    <svg id="bsvg" viewBox="0 0 420 330" role="img" aria-labelledby="bsvgT"><title id="bsvgT">Building with two instrumented floors and the master</title>
-      <rect x="70" y="20" width="200" height="290" rx="4" fill="none" style="stroke:var(--line)" stroke-width="3"/>
-      <g id="unf"></g>
-      <g id="f2g"><rect id="f2" class="floor" x="80" y="40" width="180" height="68" rx="4"/><text id="f2t" x="170" y="68" text-anchor="middle" font-size="15" font-weight="700" ></text><text id="f2s" x="170" y="92" text-anchor="middle" font-size="13" ></text></g>
-      <g id="f1g"><rect id="f1" class="floor" x="80" y="200" width="180" height="68" rx="4"/><text id="f1t" x="170" y="228" text-anchor="middle" font-size="15" font-weight="700" ></text><text id="f1s" x="170" y="252" text-anchor="middle" font-size="13" ></text></g>
-      <text x="170" y="164" text-anchor="middle" font-size="12" class="m">other floors (no sensor)</text>
-      <line x1="270" y1="74" x2="330" y2="150" style="stroke:var(--muted)" stroke-width="2" stroke-dasharray="5 4"/>
-      <line x1="270" y1="234" x2="330" y2="170" style="stroke:var(--muted)" stroke-width="2" stroke-dasharray="5 4"/>
-      <rect x="320" y="130" width="90" height="60" rx="6" style="fill:var(--tint-comm);stroke:var(--text)" stroke-width="2"/>
-      <text x="365" y="157" text-anchor="middle" font-size="14" font-weight="700" >Master</text>
-      <text x="365" y="176" text-anchor="middle" font-size="11" class="m">no sensor</text>
+  <section class="card c5" id="bvCard"><h2>Building <span class="na" style="text-transform:none;letter-spacing:0;font-weight:400">10-storey drawing</span></h2>
+    <svg id="bsvg" viewBox="0 0 490 380" role="img" aria-labelledby="bsvgT bsvgD" data-amp="0" data-target="0">
+      <title id="bsvgT">Animated 10-storey building with two instrumented floors. Sway is exaggerated and slowed down, not to scale.</title>
+      <desc id="bsvgD">The building sways in its first-mode shape; the amplitude follows the latest vibration level. A local event makes that sensor's floor pulse yellow, a building-wide event turns the whole building amber, a dead sensor is grey with a cross, a DAMAGE indication gives a red outline.</desc>
+      <defs>
+        <pattern id="bvHatch" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="9" height="9" style="fill:var(--bv-hatchbg)"/><line x1="0" y1="0" x2="0" y2="9" style="stroke:var(--dmg)" stroke-width="4"/></pattern>
+      </defs>
+      <line id="bvGround" x1="20" y1="340" x2="470" y2="340" style="stroke:var(--bv-line)" stroke-width="3"/>
+      <text x="22" y="360" class="m" font-size="12">ground</text>
+      <g id="bvTicks" style="stroke:var(--muted)" stroke-width="1.5"></g>
+      <polygon id="bvGhost" class="bv-ghost" points=""/>
+      <g id="bvSt"><title>Sway is exaggerated and slowed down for visibility (the real first natural frequency is several Hz); not to scale.</title></g>
+      <polygon id="bvBand" class="bv-band" points="" hidden><title>Simulator truth, known only to the digital twin; the sensors cannot see it.</title></polygon>
+      <polygon id="bvOut" class="bv-out" points=""/>
+      <text id="bvCal" class="bv-cal" x="255" y="195" text-anchor="middle" hidden>calibrating</text>
+      <g id="bvIcs"></g>
+      <g id="bvLabs"></g>
+      <g id="bvTruthG" hidden><line id="bvTruthL" style="stroke:var(--dmg)" stroke-width="2" x1="0" y1="0" x2="0" y2="0"/><text id="bvTruthT" text-anchor="end" font-size="13" font-weight="700" x="152" y="0" style="fill:var(--dmg)"><tspan id="bvTruthA" x="152">simulator truth: </tspan><tspan id="bvTruthB" x="152" dy="15"></tspan><tspan id="bvTruthC" x="152" dy="15"></tspan></text></g>
     </svg>
-    <p class="na" id="bNote" style="margin:4px 0 0;font-size:.85rem"></p>
+    <div id="bvFlag" class="bv-flag" role="status" hidden></div>
+    <div id="bvTruthNote" class="bv-truth" hidden></div>
+    <p class="na" id="bNote" style="margin:6px 0 0;font-size:.85rem"></p>
+    <p class="na" id="bvCap" style="margin:4px 0 0;font-size:.85rem">Drawing of the 10-storey building of the simulator (the log does not carry the storey count). Sway: exaggerated and slowed down, not to scale; its size follows the latest std ratio r. Dashed outline = building at rest.</p>
   </section>
 
   <section class="card c7"><h2>Sensor health</h2>
@@ -301,6 +386,13 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
     <div id="histNote" class="na" style="font-size:.85rem;margin-top:4px"></div>
   </section>
 </div>
+</div>
+<div id="phoneModal" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="phoneT" tabindex="-1">
+    <h2 id="phoneT">Phone view over local Wi-Fi</h2>
+    <div id="phoneBody"></div>
+    <div class="row" style="margin-top:10px"><button id="phoneClose" type="button" class="primary">Close</button></div>
+  </div>
 </div>
 <div id="drop">Drop the JSONL file to replay it</div>
 
@@ -774,6 +866,7 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
 {"type":"status","t_us":447929995,"sf":319,"class":"AMBIENT","slave":0,"degraded_alive":0,"r1":0.7766185,"r2":0.6657837,"ae":[1.234747,0.8672715],"f1":[6.754239,6.776181],"drop":[0.0389443,0.0386228],"dmg":1,"base1":150.5301,"base2":225.3885,"alive":[true,true],"closed":320,"events":8,"commission_n":[20,20]}
 </script>
 <script src="vendor/mqtt.min.js"></script>
+<script src="vendor/qrcode.js"></script>
 <script>
 "use strict";
 (function(){
@@ -1118,6 +1211,7 @@ async function loadSim(opts){
     }
   }
   await loadText(text,"Simulated log ("+how+")",false);
+  S.replayName=name;   // lets "Phone view" build a ?replay= link for the same file
   if(opts.speed){ setSpeed(opts.speed) }
   if(opts.at!==undefined){ seekTo(opts.at) }
   togglePlay(opts.play!==false&&opts.at===undefined?true:!!opts.play);
@@ -1183,7 +1277,7 @@ function stopLive(){
 var MQ={holdMs:2500,resetUs:30e6,tickMs:250,seenMax:800,retainedStateMs:1500};
 var WSS_DEFAULT="wss://broker.hivemq.com:8884/mqtt", WS_FALLBACK="ws://broker.hivemq.com:8000/mqtt";
 var REBOOT_T_US=15e6;
-var SITE_RE=/^[a-z0-9_-]{1,32}$/;
+var SITE_RE=/^[A-Za-z0-9_-]{1,40}$/, BROKER_RE=/^wss?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?(\/[A-Za-z0-9._\/-]*)?$/;   // site ids are case-sensitive topic prefixes; BROKER_RE is for links (?broker=)
 function setMq(cls,text){ var e=$("mqState"); e.className="pill "+cls; e.textContent=text }
 function mqCountsText(){
   var s=S.stats, drop=s.bad+s.other+s.capped;
@@ -1368,9 +1462,9 @@ function connectMqtt(){
     warn("mqtt","The MQTT library (vendor/mqtt.min.js, next to this page) is not available, so MQTT live cannot be used. The page keeps working offline.");
     setMq("bad","MQTT library missing"); return;
   }
-  var url=$("mqUrl").value.trim(), site=$("mqSite").value.trim().toLowerCase();
+  var url=$("mqUrl").value.trim(), site=$("mqSite").value.trim();
   if(!/^wss?:\/\/[^\s]+$/.test(url)){ warn("mqtt","The broker URL must start with wss:// (or ws://) and be an MQTT-over-WebSocket endpoint, for example wss://broker.hivemq.com:8884/mqtt."); return }
-  if(!SITE_RE.test(site)){ warn("mqtt","The site id must be 1 to 32 characters of a-z, 0-9, - or _ (it is the topic prefix resonance/<site>/)."); return }
+  if(!SITE_RE.test(site)){ warn("mqtt","The site id must be 1 to 40 characters of letters, digits, - or _ (it is the topic prefix resonance/<site>/)."); return }
   try{ localStorage.setItem("resonance.mqtt.url",url); localStorage.setItem("resonance.mqtt.site",site) }catch(e){}
   startSource("live","Live: MQTT "+site,false,"mqtt");
   var my=S; my.mqSeen=new Set(); my.mqSite=site; my.lastArrival=performance.now();
@@ -1599,13 +1693,159 @@ var FS={
   local:{c:"--local",t:"Local event",g:"▲",fill:"var(--tint-local)",dash:""},
   ambient:{c:"--ambient",t:"Normal",g:"●",fill:"var(--tint-ambient)",dash:""}
 };
-// slot 1 = lower rectangle, slot 2 = upper rectangle; sensor i is drawn on the floor with the right number when the log says which
-function paintFloor(slot,v,i){
-  var st=FS[floorState(v,i)], r=$("f"+slot), f=floors();
-  r.style.fill=st.fill; r.style.stroke="var("+st.c+")"; r.setAttribute("stroke-dasharray",st.dash);
-  $("f"+slot+"t").textContent=st.g+" "+(f?("Floor "+f[i]+" · sensor "+(i+1)):("Sensor "+(i+1)));
-  $("f"+slot+"s").textContent=st.t;
+
+/* ---------- animated building view ----------
+   SVG drawing of the 10-storey simulator building. Each storey is a quadrilateral whose corners are displaced sideways by
+   d(z) = A * sin(pi/2 * z/N) (first-mode-like shape, z = height in storeys, N = storey count), A = amplitude * sin(phase).
+   Amplitude follows the latest vibration level (mean of the alive sensors' std ratios r), the phase advances at a slow, visual-only
+   frequency (BV_HZ, NOT the real f1). Paused replay / reduced motion: static pose at the peak of the swing. Never marks a damaged
+   storey unless the digital twin (S.twin.damage) says which one: that is simulator truth, not something the sensors know. */
+var BV_HZ=0.5, BV_AMAX=17, BV_X0=175, BV_X1=335, BV_YG=340, BV_H=300;
+var BV={n:0,amp:0,phase:Math.PI/2,last:0,raf:0,model:null,reduced:false,els:null};
+var SVGNS="http://www.w3.org/2000/svg";
+function svgEl(tag,attrs,parent){ var e=document.createElementNS(SVGNS,tag); for(var k in attrs) e.setAttribute(k,attrs[k]); if(parent) parent.appendChild(e); return e }
+function bvBuild(n){
+  var g=$("bvSt"), ts=$("bvTicks"), ic=$("bvIcs"), lb=$("bvLabs"), els={st:[],no:[],ic:[],lab:[],l1:[],l2:[],leader:[]};
+  while(g.children.length>1) g.removeChild(g.lastChild);   // keep the <title> tooltip
+  ts.textContent=""; ic.textContent=""; lb.textContent="";
+  for(var i=1;i<=n;i++){
+    els.st.push(svgEl("polygon",{"class":"bv-st",id:"bvS"+i,"data-n":i,"data-s":"ambient",points:""},g));
+    els.no.push(svgEl("text",{"class":"bv-no",id:"bvN"+i,x:0,y:0},g));
+    els.no[i-1].textContent=String(i);
+  }
+  for(var s=0;s<2;s++){
+    var ig=svgEl("g",{"class":"bv-ic",id:"bvIc"+(s+1),"data-s":"none"},ic);
+    svgEl("circle",{r:10,cx:0,cy:0},ig);
+    svgEl("path",{"class":"wave",d:"M-6 0 q3 -7 6 0 t6 0"},ig);
+    svgEl("path",{"class":"cross",d:"M-5 -5 L5 5 M5 -5 L-5 5"},ig);
+    els.ic.push(ig);
+    var lg=svgEl("g",{"class":"bv-lab",id:"bvLab"+(s+1)},lb);
+    els.leader.push(svgEl("line",{x1:0,y1:0,x2:0,y2:0,style:"stroke:var(--muted)","stroke-width":1.5,"stroke-dasharray":"3 3"},lg));
+    els.l1.push(svgEl("text",{"class":"l1",x:BV_X1+30,y:0},lg));
+    els.l2.push(svgEl("text",{"class":"l2",x:BV_X1+30,y:0},lg));
+  }
+  BV.els=els; BV.n=n;
+  var sh=BV_H/n;
+  for(var z=0;z<=n;z++){ var y=BV_YG-z*sh; svgEl("line",{x1:BV_X0-8,y1:y,x2:BV_X0-2,y2:y},ts) }   // storey ticks at rest
 }
+function bvD(z,n,A){ return A*Math.sin(Math.PI/2*z/n) }
+function bvDraw(){
+  var n=BV.n, E=BV.els; if(!E) return;
+  var sh=BV_H/n, A=BV.amp*Math.sin(BV.phase), svg=$("bsvg");
+  function P(x,z){ return (x+bvD(z,n,A)).toFixed(1)+","+(BV_YG-z*sh).toFixed(1) }
+  function quad(a,b){ return P(BV_X0,a)+" "+P(BV_X1,a)+" "+P(BV_X1,b)+" "+P(BV_X0,b) }
+  for(var i=1;i<=n;i++){
+    E.st[i-1].setAttribute("points",quad(i-1,i));
+    E.no[i-1].setAttribute("x",(BV_X0+6+bvD(i-0.5,n,A)).toFixed(1)); E.no[i-1].setAttribute("y",(BV_YG-(i-0.5)*sh+4+0).toFixed(1));
+  }
+  var L=[],R=[]; for(var z=0;z<=n;z++){ L.push(P(BV_X0,z)); R.unshift(P(BV_X1,z)) }
+  $("bvOut").setAttribute("points",L.concat(R).join(" "));
+  $("bvGhost").setAttribute("points",[BV_X0+","+BV_YG,BV_X1+","+BV_YG,BV_X1+","+(BV_YG-BV_H),BV_X0+","+(BV_YG-BV_H)].join(" "));
+  var m=BV.model;
+  if(m){
+    for(var s=0;s<2;s++){
+      var f=m.floors[s], zc=f-0.5, cx=BV_X1-22+bvD(zc,n,A), cy=BV_YG-zc*sh;
+      E.ic[s].setAttribute("transform","translate("+cx.toFixed(1)+","+cy.toFixed(1)+")");
+      E.leader[s].setAttribute("x1",(cx+12).toFixed(1)); E.leader[s].setAttribute("x2",BV_X1+26); E.leader[s].setAttribute("y1",cy.toFixed(1)); E.leader[s].setAttribute("y2",cy.toFixed(1));
+      E.l1[s].setAttribute("y",(cy-2).toFixed(1)); E.l2[s].setAttribute("y",(cy+13).toFixed(1));
+    }
+    if(m.truth){
+      var t=m.truth.storey, band=$("bvBand"); band.setAttribute("points",quad(t-1,t));
+      var cyT=BV_YG-(t-0.5)*sh;
+      $("bvTruthT").setAttribute("y",(cyT-12).toFixed(1)); $("bvTruthA").setAttribute("y",(cyT-12).toFixed(1));
+      var l=$("bvTruthL"); l.setAttribute("x1",156); l.setAttribute("x2",(BV_X0+bvD(t-0.5,n,A)).toFixed(1)); l.setAttribute("y1",cyT.toFixed(1)); l.setAttribute("y2",cyT.toFixed(1));
+    }
+  }
+  svg.setAttribute("data-amp",BV.amp.toFixed(2)); svg.setAttribute("data-roof-dx",A.toFixed(2));
+}
+function bvAnimating(){
+  if(BV.reduced||document.hidden||!BV.model) return false;
+  return (S.mode==="replay"&&S.playing)||(S.mode==="live"&&S.lastArrival&&performance.now()-S.lastArrival<10000);
+}
+function bvTick(now){
+  BV.raf=0;
+  var tgt=BV.model?BV.model.target*BV_AMAX:0, anim=bvAnimating();
+  if(anim){
+    var dt=BV.last?Math.min(0.1,(now-BV.last)/1000):0; BV.last=now;
+    BV.phase+=2*Math.PI*BV_HZ*dt;
+    BV.amp+=(tgt-BV.amp)*(1-Math.exp(-dt/0.35));
+  } else { BV.last=0; BV.phase=Math.PI/2; BV.amp=tgt }   // static: frozen at the peak of the swing, no easing
+  bvDraw();
+  if(anim) bvRequest();
+}
+function bvRequest(){ if(!BV.raf) BV.raf=requestAnimationFrame(bvTick) }
+function swayLevel(v){   // mean std ratio of the sensors that are alive and have a value; null if none
+  if(!v) return null;
+  var a=[]; if(v.a1&&v.r1!==null&&v.r1!==undefined) a.push(v.r1); if(v.a2&&v.r2!==null&&v.r2!==undefined) a.push(v.r2);
+  if(!a.length) return null;
+  return a.reduce(function(x,y){return x+y},0)/a.length;
+}
+function swayTarget(v){   // 0..1: ambient (r about 1) small, events (r of 3 and more) large, clamped
+  var L=swayLevel(v);
+  if(L===null) return v?0.04:0;
+  return 0.10+0.90*Math.max(0,Math.min(1,(L-1)/7));
+}
+function twinTruth(){   // the damaged storey as the SIMULATOR knows it (twin mode only), validated: it comes from a public broker
+  var t=S.kind==="mqtt"?S.twin:null, d=t&&t.damage;
+  if(!d||typeof d!=="object"||!isCount(d.storey)||d.storey<1||d.storey>10||!isNum(d.loss)||d.loss<=0||d.loss>=1) return null;
+  return {storey:d.storey,loss:d.loss};
+}
+function bvModel(v){
+  var f=floors(), known=!!f, fl=f?[f[0],f[1]]:[5,10], n=10, ok=true;
+  fl.forEach(function(x){ if(!isCount(x)||x<1) ok=false; else if(x>n) n=Math.min(40,x) });
+  if(!ok||fl[0]>n||fl[1]>n){ fl=[5,10]; known=false }
+  var tr=twinTruth(); if(tr&&tr.storey>n) tr=null;
+  var cls=v?v.cls:-1, sens=[floorState(v,0),floorState(v,1)];
+  var cur=curTime(), has3_=has3()||S.dl.length>0;
+  var dmg=!!(v&&has3_&&(v.dmg!==null&&v.dmg!==undefined?v.dmg===1:dmgActiveAt(cur)));
+  return {n:n,floors:fl,known:known,cls:cls,sens:sens,dmg:dmg,truth:tr,target:swayTarget(v),
+    building:!v?"none":cls===0?"comm":cls===4?"nodata":cls===3?"building":"ambient"};
+}
+function setHid(el,b){ if(b) el.setAttribute("hidden",""); else el.removeAttribute("hidden") }   // SVG elements have no .hidden property
+function renderBuilding(v){
+  if(!BV.els) bvBuild(10);
+  var m=bvModel(v);
+  if(m.n!==BV.n) bvBuild(m.n);
+  BV.model=m; var E=BV.els, i;
+  for(i=1;i<=m.n;i++){
+    var st=m.building==="ambient"?"ambient":m.building;   // whole building: amber / grey / dashed
+    var local=false;
+    for(var s=0;s<2;s++) if(m.floors[s]===i&&m.sens[s]==="local") local=true;
+    if(local) st="local";
+    var e=E.st[i-1]; e.setAttribute("data-s",st);
+    e.setAttribute("class","bv-st"+(local?" pulse":""));
+  }
+  $("bvOut").setAttribute("class","bv-out"+(m.dmg?" dmg":"")); $("bvOut").setAttribute("data-dmg",m.dmg?"1":"0");
+  setHid($("bvCal"),m.building!=="comm"&&m.building!=="nodata");
+  $("bvCal").textContent=m.building==="nodata"?"no data":"calibrating";
+  for(var s2=0;s2<2;s2++){
+    var key=m.sens[s2], fs=FS[key]||FS.none;
+    E.ic[s2].setAttribute("data-s",key);
+    var name="sensor "+(s2+1)+", floor "+m.floors[s2];
+    E.l1[s2].textContent=name; E.l2[s2].textContent=(key==="dead"?"offline (no reports)":fs.t)+(m.known?"":" · floor assumed");
+    E.ic[s2].setAttribute("aria-label",name+": "+fs.t);
+  }
+  var flag=$("bvFlag"); flag.hidden=!m.dmg;
+  flag.textContent=m.dmg?"DAMAGE indicated — f1 tracking cannot locate the storey":"";
+  var tn=$("bvTruthNote"), tg=$("bvTruthG"), band=$("bvBand");
+  setHid(band,!m.truth); setHid(tg,!m.truth); setHid(tn,!m.truth);
+  $("bsvg").setAttribute("viewBox",m.truth?"0 20 490 350":"140 20 350 350");   // the left margin is only needed for the truth label
+  band.setAttribute("data-truth",m.truth?String(m.truth.storey):"");
+  if(m.truth){
+    var lossTxt=Math.round(m.truth.loss*100);
+    $("bvTruthB").textContent="storey "+m.truth.storey+", ";
+    $("bvTruthC").textContent="−"+lossTxt+" % stiffness";
+    tn.textContent="Digital twin only: the simulator applied a "+lossTxt+" % stiffness loss to storey "+m.truth.storey+". The sensors cannot see which storey it is: "+(m.dmg?"they indicate DAMAGE from the natural frequency, but f1 tracking cannot locate the storey.":"they have not indicated damage (yet).");
+  }
+  $("bNote").textContent=(m.known?"Sensors on floors "+m.floors[0]+" and "+m.floors[1]+" (meta.floors of the log).":"The log does not say which floors the sensors are on (schema 1): drawn at floors 5 and 10 by assumption.")+" Storey "+(m.n===10?"count 10":"count "+m.n)+" is the simulator's building, not read from the log.";
+  $("bsvg").setAttribute("data-target",(m.target*BV_AMAX).toFixed(2));
+  if(bvAnimating()) bvRequest();
+  else { if(BV.raf){ cancelAnimationFrame(BV.raf); BV.raf=0 } bvTick(0) }
+}
+(function(){
+  try{ var mq=window.matchMedia("(prefers-reduced-motion: reduce)"); BV.reduced=!!mq.matches;
+    if(mq.addEventListener) mq.addEventListener("change",function(e){ BV.reduced=!!e.matches; dirty=true; schedule() }); }catch(e){}
+})();
 function renderBanner(v){
   var b=$("banner"), g=$("bGlyph"), t=$("bText"), s=$("bSub"), c=$("bChip");
   if(!v){
@@ -1995,11 +2235,7 @@ function render(now){
   if(!CSS)readColors();
   var live=S.mode==="live", k=live?S.ev.length:S.k, ks=live?S.sm.length:S.ks, v=applyNodes(view(k,ks));
   renderBanner(v);
-  // sensor i is drawn on the lower rectangle if it is the lower floor (sensor 1 when the log does not say)
-  var f=floors(), lower=(f&&f[0]>f[1])?1:0;
-  paintFloor(1,v,lower);paintFloor(2,v,1-lower);
-  $("bNote").textContent=f?("Floors come from the log (meta.floors): sensor 1 on floor "+f[0]+", sensor 2 on floor "+f[1]+"; the lower floor is drawn at the bottom."):
-    "The log does not say which physical floors the sensors are on (schema 1); sensor 1 is drawn on the lower instrumented floor by assumption.";
+  renderBuilding(v);
   renderNodes(v,k,now);
   renderCounters(k,now);
   renderSys();renderDmgBanner(v);
@@ -2038,7 +2274,97 @@ var HOVERS=[
   ["dropChart","dropInfo",function(e){var p=pooledOf(e);return "pooled drop = "+(p===null?"n/a":pct(p,2))+(e.dr1!==null&&e.dr1!==undefined?"; sensor 1 "+pct(e.dr1,2):"")+(e.dr2!==null&&e.dr2!==undefined?"; sensor 2 "+pct(e.dr2,2):"")+(e.dmg===1?"; DAMAGE active.":".")}]
 ];
 
+/* ---------- launch parameters (links and the phone QR code) ----------
+   ?mqtt=1&site=<site>&broker=<ws(s)://...>  connects MQTT live on load (also the older ?autoconnect=1);  ?replay=<file>.jsonl&speed=N  see loadSim.
+   Everything coming from a link is validated strictly; an invalid value is ignored with a message and nothing is connected. */
+function parseLaunch(search){
+  var q=new URLSearchParams(search), o={mqtt:false,site:null,broker:null,msgs:[]};
+  var s=q.get("site"), b=q.get("broker");
+  if(s!==null){ if(SITE_RE.test(s)) o.site=s; else o.msgs.push("The link's site id was ignored (it must be 1 to 40 characters of letters, digits, - or _): "+s.slice(0,40)) }
+  if(b!==null){ if(b.length<=200&&BROKER_RE.test(b)) o.broker=b; else o.msgs.push("The link's broker address was ignored (it must look like wss://host:port/path): "+b.slice(0,60)) }
+  var wantMq=q.get("mqtt")==="1"||q.get("autoconnect")==="1";
+  if(wantMq&&o.msgs.length){ o.msgs.push("MQTT live was NOT started automatically because the link has invalid values; press \"MQTT live: connect\" after checking the broker and site fields."); wantMq=false }
+  o.mqtt=wantMq;
+  return o;
+}
+function applyLaunch(search){
+  var o=parseLaunch(search);
+  if(o.broker) $("mqUrl").value=o.broker;
+  if(o.site) $("mqSite").value=o.site;
+  o.msgs.forEach(function(m,i){ warn("link"+i,m) });
+  if(o.mqtt) setTimeout(connectMqtt,0);
+  return o;
+}
+var LAN_RE=/^http:\/\/\d{1,3}(\.\d{1,3}){3}:\d{1,5}\/$/, phoneState={urls:null,idx:0,query:null};
+function qEnc(v){ return encodeURIComponent(v).replace(/%3A/gi,":").replace(/%2F/gi,"/") }
+function phoneQuery(){   // what the phone should open: the current replay file, or the MQTT live view of the connected / entered site
+  var site=$("mqSite").value.trim(), br=$("mqUrl").value.trim();
+  if(S.mode==="replay"&&S.replayName&&/^[A-Za-z0-9_.-]+\.jsonl$/.test(S.replayName))
+    return {kind:"replay",query:"?replay="+qEnc(S.replayName)+(S.speed>0?"&speed="+S.speed:""),note:"Opens the same replay (speed "+S.speed+"x) on the phone."};
+  if(SITE_RE.test(site)&&br.length<=200&&BROKER_RE.test(br)){
+    var live=S.mode==="live"&&S.kind==="mqtt";
+    return {kind:"mqtt",query:"?mqtt=1&site="+qEnc(site)+"&broker="+qEnc(br),
+      note:(live?"Opens the same live view":"The phone connects to MQTT live")+" (site "+site+" on "+br+")."+((S.mode==="replay"||S.mode==="live"&&!live)?" The current source ("+S.source+") cannot be opened from a link, so the phone shows the MQTT site instead; use the Damage demo (simulated) button for a replay link.":"")};
+  }
+  return {kind:"plain",query:"",note:"No valid MQTT broker / site is entered and no linkable replay is loaded, so the link just opens the dashboard."};
+}
+function qrSvg(text){
+  var q=qrcode(0,"M"); q.addData(text); q.make();
+  var n=q.getModuleCount(), m=4, d="";
+  for(var r=0;r<n;r++) for(var c=0;c<n;c++) if(q.isDark(r,c)) d+="M"+(c+m)+" "+(r+m)+"h1v1h-1z";
+  var w=n+2*m;
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+w+' '+w+'" shape-rendering="crispEdges" role="img" aria-label="QR code of the phone link" data-modules="'+n+'"><rect width="'+w+'" height="'+w+'" fill="#fff"/><path fill="#000" d="'+d+'"/></svg>';
+}
+function phoneFullUrl(base,query){
+  var p=location.pathname; if(!/^\/[A-Za-z0-9._\/-]*$/.test(p)) p="/";
+  return base.replace(/\/$/,"")+p+query;
+}
+function phoneShow(){
+  var body=$("phoneBody"), urls=phoneState.urls;
+  if(!urls||!urls.length){
+    body.innerHTML='<p>The phone link needs this page to be served from your computer, and it could not find your Wi-Fi address (the page is opened from <code>file://</code>, or the small server is not running).</p>'+
+      '<p>Run <code>.venv\\Scripts\\python.exe tools\\serve_dashboard.py</code> and open the printed URL, then use Phone view.</p>'+
+      '<p class="na">Laptop and phone must be on the same Wi-Fi (or the same phone hotspot). Nothing is hosted on the internet.</p>';
+    return;
+  }
+  var pq=phoneQuery(), url=phoneFullUrl(urls[phoneState.idx],pq.query);
+  phoneState.query=pq; phoneState.url=url;
+  var qr;
+  if(typeof qrcode==="function"){ try{ qr=qrSvg(url) }catch(e){ qr=null } }
+  var h=(qr?'<div id="qrBox" aria-live="polite">'+qr+'</div>':'<p class="warn">The QR library (vendor/qrcode.js, next to this page) is not available; use the link below.</p>')+
+    '<div id="phoneUrl">'+esc(url)+'</div>'+
+    '<p>Scan with the phone camera (phone on the same Wi-Fi or hotspot as this computer). '+esc(pq.note)+'</p>';
+  if(urls.length>1){
+    h+='<div class="na">This computer has several addresses; if the phone cannot open this one, try another:</div><div class="phone-alt">'+
+      urls.map(function(u,i){ return '<button type="button" data-i="'+i+'"'+(i===phoneState.idx?' class="primary"':'')+'>'+esc(u)+'</button>' }).join("")+'</div>';
+  }
+  h+='<p class="na" style="font-size:.85rem">The digital-twin panel works from the phone too (anyone who knows the site id can press its buttons: public broker, simulated data only). If the phone cannot connect, the Wi-Fi may isolate devices: use a phone hotspot for laptop and phones.</p>';
+  body.innerHTML=h;
+}
+var phoneReturn=null;
+async function phoneOpen(){
+  var m=$("phoneModal"); phoneReturn=document.activeElement;
+  m.hidden=false; $("phoneBody").innerHTML='<p class="na">Looking for this computer\'s Wi-Fi address...</p>';
+  try{ m.querySelector(".box").focus() }catch(e){}
+  phoneState.urls=null; phoneState.idx=0;
+  if(location.protocol==="http:"||location.protocol==="https:"){
+    try{
+      var r=await fetch("lan.json",{cache:"no-store"});
+      if(r.ok){ var j=await r.json(); if(j&&Array.isArray(j.urls)){ var u=j.urls.filter(function(x){return typeof x==="string"&&LAN_RE.test(x)}); if(u.length) phoneState.urls=u } }
+    }catch(e){}
+  }
+  if(!m.hidden) phoneShow();
+}
+function phoneClose(){ $("phoneModal").hidden=true; try{ if(phoneReturn&&phoneReturn.focus) phoneReturn.focus() }catch(e){} }
+
 /* ---------- wiring ---------- */
+$("phoneBtn").onclick=phoneOpen;
+$("phoneClose").onclick=phoneClose;
+$("phoneModal").addEventListener("click",function(e){
+  if(e.target===$("phoneModal")) phoneClose();
+  var b=e.target.closest&&e.target.closest("button[data-i]"); if(b){ phoneState.idx=+b.getAttribute("data-i"); phoneShow() }
+});
+document.addEventListener("keydown",function(e){ if(e.key==="Escape"&&!$("phoneModal").hidden) phoneClose() });
 $("demoBtn").onclick=loadDemo;
 $("simBtn").onclick=function(){loadSim()};
 $("file").onchange=function(e){loadFile(e.target.files[0]);e.target.value=""};
@@ -2079,9 +2405,7 @@ updNotifBtn();
   try{ var u=localStorage.getItem("resonance.mqtt.url"), s=localStorage.getItem("resonance.mqtt.site"); if(u)$("mqUrl").value=u; if(s)$("mqSite").value=s }catch(e){}
   try{
     var q=new URLSearchParams(location.search);
-    if(q.get("broker")) $("mqUrl").value=q.get("broker");
-    if(q.get("site")) $("mqSite").value=q.get("site");
-    if(q.get("autoconnect")==="1") setTimeout(connectMqtt,0);
+    applyLaunch(location.search);
     if(q.get("replay")){   // ?replay=demo_events_sim.jsonl&speed=20[&at=end|SECONDS|sfN][&play=0]
       var sp=+q.get("speed"), at=q.get("at"), pl=q.get("play");
       setTimeout(function(){ loadSim({url:q.get("replay"),speed:sp>0?sp:0,at:at===null?undefined:at,play:pl===null?undefined:pl!=="0"}) },0);
@@ -2103,7 +2427,7 @@ window.addEventListener("drop",function(e){e.preventDefault();dc=0;$("drop").cla
 renderLegend();
 readColors();
 dirty=true; schedule();
-window.__resonance={parseStatus:parseStatus,MQ:MQ,connectMqtt:connectMqtt,parseLine:parseLine,normalise:normalise,normaliseSample:normaliseSample,loadText:loadText,loadSim:loadSim,dmgIntervals:dmgIntervals,notifyLine:notifyLine,detectorOf:detectorOf,seek:setPlayhead,state:function(){return S},render:function(){render(0)}};
+window.__resonance={play:togglePlay,parseLaunch:parseLaunch,phoneQuery:phoneQuery,building:function(){return BV.model},bvState:function(){return {amp:BV.amp,reduced:BV.reduced,n:BV.n}},parseStatus:parseStatus,MQ:MQ,connectMqtt:connectMqtt,parseLine:parseLine,normalise:normalise,normaliseSample:normaliseSample,loadText:loadText,loadSim:loadSim,dmgIntervals:dmgIntervals,notifyLine:notifyLine,detectorOf:detectorOf,seek:setPlayhead,state:function(){return S},render:function(){render(0)}};
 })();
 </script>
 </body>
