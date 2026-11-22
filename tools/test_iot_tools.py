@@ -2,7 +2,6 @@
 import json
 import os
 import sys
-import urllib.error
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -58,7 +57,7 @@ def status_payload_epoch_and_stale_offline():
     assert rm.offline_is_stale("offline", 4, 5)                      # the will of an older boot
     assert not rm.offline_is_stale("offline", 5, 5) and not rm.offline_is_stale("offline", None, 5)
     assert not rm.offline_is_stale("offline", 4, None) and not rm.offline_is_stale("online", 4, 5)
-    a = al.Alerter(None, al.RateLimiter(0, 100), out=lambda x: None)
+    a = al.Alerter(al.RateLimiter(0, 100), out=lambda x: None)
     a.classify({"type": "meta", "epoch": 7, "floors": [1, 2]})
     assert a.status(rm.status_payload(False, 6), False) is None      # stale will from epoch 6 after the boot with epoch 7
     assert a.status(rm.status_payload(False, 7), False)[1].startswith("The master went OFFLINE")
@@ -68,7 +67,7 @@ def status_payload_epoch_and_stale_offline():
 
 @test
 def alerter_forgets_previous_event_on_new_meta_or_restart():
-    a = al.Alerter(None, al.RateLimiter(0, 100), out=lambda x: None)
+    a = al.Alerter(al.RateLimiter(0, 100), out=lambda x: None)
     ev = {"type": "begin", "class": "BUILDING", "slave": 0, "sf": 3}
     assert a.classify(ev) is not None
     assert a.classify(dict(ev, type="change")) is None               # same key again: nothing new
@@ -147,7 +146,7 @@ def rate_limiter_cooldown_and_hourly_budget():
 @test
 def alerts_from_the_fault_demo_log():
     out = []
-    a = al.Alerter(None, al.RateLimiter(0, 1000), out=out.append)
+    a = al.Alerter(al.RateLimiter(0, 1000), out=out.append)
     for ln in open(os.path.join(REPO, "dashboard", "demo_events_faults_sim.jsonl"), encoding="utf-8"):
         r = a.classify(json.loads(ln))
         if r:
@@ -158,13 +157,13 @@ def alerts_from_the_fault_demo_log():
     assert "LOCAL vibration event at floor 10 (sensor 2)" in text
     assert "Floor 10 (sensor 2) is OFFLINE" in text and "back ONLINE" in text, text
     assert "master restarted" in text
-    assert text.count("[dry run") == len(out)            # nothing sent without Telegram settings
+    assert text.count("ALERT  Resonance rsn-x:") == len(out)   # every alert is a printed line, nothing is sent anywhere
     assert a.printed == len(out) > 5
 
 
 @test
 def retained_and_ended_events_do_not_alert():
-    a = al.Alerter(None, al.RateLimiter(0, 100), out=lambda s: None)
+    a = al.Alerter(al.RateLimiter(0, 100), out=lambda s: None)
     assert a.classify({"type": "begin", "class": "BUILDING", "sf": 1}, retained=True) is None
     assert a.classify({"type": "change", "class": "AMBIENT", "slave": 0}) is None       # event ended
     assert a.classify({"type": "sample", "class": "BUILDING"}) is None
@@ -178,7 +177,7 @@ def retained_and_ended_events_do_not_alert():
 
 @test
 def alert_texts_for_damage_and_ae_driven_events():
-    a = al.Alerter(None, al.RateLimiter(0, 100), out=lambda s: None)
+    a = al.Alerter(al.RateLimiter(0, 100), out=lambda s: None)
     a.classify({"type": "meta", "T": 3, "T_ae": 6, "floors": [5, 10], "epoch": 1})
     # frequency shift: only the AE is over its threshold
     k, txt = a.classify({"type": "begin", "t_us": 239330094, "sf": 170, "class": "LOCAL", "slave": 2, "r1": 1.02, "r2": 1.97, "ae": [0.9, 9.51]})
@@ -191,56 +190,24 @@ def alert_texts_for_damage_and_ae_driven_events():
     k, txt = a.classify({"type": "damage", "sf": 310, "state": "BASELINE", "drop": None, "f1": [7.0, None], "f1_0": [7.0, None], "slave": 1})
     assert k == "damage:BASELINE:1" and txt.startswith("Note: floor 5 (sensor 1) re-commissioned") and "7.00" in txt, txt
     # no schema-3 fields (rule b log): no detector tag, same text as before
-    b = al.Alerter(None, al.RateLimiter(0, 100), out=lambda s: None)
+    b = al.Alerter(al.RateLimiter(0, 100), out=lambda s: None)
     assert b.classify({"type": "begin", "t_us": 0, "sf": 1, "class": "LOCAL", "slave": 1, "r1": 5.0, "r2": 1.0})[1].startswith("LOCAL vibration event at sensor 1 [sf 1")
 
 
 @test
-def telegram_token_never_printed():
-    token = "123456:SECRET-TOKEN-abc"
-    calls = []
-
-    class Resp:
-        status = 200
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-    def ok_opener(req, timeout=0):
-        calls.append((req.full_url, json.loads(req.data)))
-        return Resp()
-
-    out = []
-    a = al.Alerter(al.Telegram(token, "42", opener=ok_opener), al.RateLimiter(0, 10), out=out.append, secrets=[token])
-    assert a.emit("k", "BUILDING-WIDE vibration event", "rsn-x")
-    assert calls[0][0] == al.API % token and calls[0][1]["chat_id"] == "42" and "rsn-x" in calls[0][1]["text"]
-    assert all(token not in line for line in out), out
-
-    def failing(req, timeout=0):   # an error whose text contains the URL (and so the token)
-        raise urllib.error.URLError("failed to reach " + req.full_url)
-
-    out2 = []
-    a2 = al.Alerter(al.Telegram(token, "42", opener=failing), al.RateLimiter(0, 10), out=out2.append, secrets=[token])
-    assert not a2.emit("k", "x", "rsn-x")
-    assert a2.failed == 1 and out2 and all(token not in line for line in out2), out2
-    assert al.scrub("a %s b" % token, [token, None]) == "a *** b"
-
-    def http_err(req, timeout=0):
-        raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, None)
-
-    s = al.Telegram(token, "42", opener=http_err).send("x")
-    assert s == (False, "HTTP 401")
+def alerter_selftest_prints_only():
+    import subprocess
+    r = subprocess.run([sys.executable, os.path.join(HERE, "alerter.py"), "--selftest-message", "--site", "rsn-test0001"], capture_output=True, text=True)
+    assert r.returncode == 0 and "ALERT  Resonance rsn-test0001: test message" in r.stdout, (r.stdout, r.stderr)
 
 
 @test
-def telegram_without_env_prints(monkeypatch=None):
-    import subprocess
-    env = {k: v for k, v in os.environ.items() if not k.startswith("TELEGRAM_")}
-    r = subprocess.run([sys.executable, os.path.join(HERE, "alerter.py"), "--selftest-message", "--site", "rsn-test0001"], capture_output=True, text=True, env=env)
-    assert r.returncode == 0 and "[dry run" in r.stdout and "rsn-test0001" in r.stdout, (r.stdout, r.stderr)
+def alerter_has_no_messaging_service_code():
+    # The alerter only prints. It must not contain code that sends alerts to an external messaging service
+    # or reads credentials from the environment.
+    src = open(os.path.join(HERE, "alerter.py"), encoding="utf-8").read().lower()
+    for word in ("urllib", "requests", "os.environ", "getenv", "api.", "token"):
+        assert word not in src, word
 
 
 if __name__ == "__main__":

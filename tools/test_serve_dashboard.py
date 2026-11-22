@@ -148,7 +148,7 @@ def startup_hint_names_the_listening_binary_and_the_profile_advice():
     import subprocess
     import time
     s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
-    env = {k: v for k, v in os.environ.items() if not k.startswith("TELEGRAM_")}
+    env = dict(os.environ)
     pr = subprocess.Popen([sys.executable, "-u", os.path.join(HERE, "serve_dashboard.py"), "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True)
     try:
         out = ""

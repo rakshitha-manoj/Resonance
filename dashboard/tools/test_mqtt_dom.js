@@ -10,7 +10,7 @@
 //   NODE_PATH=<folder>/node_modules node dashboard/tools/test_mqtt_dom.js [--url ws://broker.hivemq.com:8000/mqtt]
 //        [--site rsn-822298ab] [--log dashboard/demo_events_faults_sim.jsonl] [--python <python>] [--speed 0]
 // Reboot case: --log dashboard/tools/short_reboot.jsonl --speed 2 (a burst can reorder a reboot's restart line across topics, see dashboard/README.md).
-// Defaults that work on this laptop: --url ws://broker.hivemq.com:8000/mqtt (the plain WebSocket port; wss :8884 and 1883 are blocked on some networks), --python = the repo's .venv python when it exists (else `python`). The twin run needs netsim built (`pio run -e netsim` in firmware/esp32) and strips TELEGRAM_* from the server's environment.
+// Defaults that work on this laptop: --url ws://broker.hivemq.com:8000/mqtt (the plain WebSocket port; wss :8884 and 1883 are blocked on some networks), --python = the repo's .venv python when it exists (else `python`). The twin run needs netsim built (`pio run -e netsim` in firmware/esp32).
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -548,7 +548,7 @@ async function twinChecks(check) {
   const site = "twin-" + Math.random().toString(16).slice(2, 10);
   const speed = arg("twin-speed", "20");
   const u = new (require("url").URL)(URL_.replace(/^ws/, "http"));
-  const env = Object.assign({}, process.env); delete env.TELEGRAM_BOT_TOKEN; delete env.TELEGRAM_CHAT_ID;
+  const env = Object.assign({}, process.env);
   const pg = await openPage();
   const w = pg.window, R = w.__resonance, S = () => R.state(), doc = w.document;
   doc.getElementById("mqUrl").value = URL_; doc.getElementById("mqSite").value = site; doc.getElementById("mqBtn").click();

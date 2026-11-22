@@ -1,17 +1,15 @@
 #!/usr/bin/env python
-"""Alerts for the Resonance MQTT feed: subscribes to resonance/<site>/ and sends Telegram messages for
+"""Console alert monitor for the Resonance MQTT feed: subscribes to resonance/<site>/ and prints one alert line for
   * begin events whose class is LOCAL or BUILDING (and a change INTO LOCAL / BUILDING from another event class),
   * node DEAD / ALIVE (a slave lost / came back), restart (the master rebooted), damage (schema 3 line: BEGIN / END / BASELINE),
   * the master device going offline (last-will message on .../status).
-Telegram is used when the environment variables TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set (Bot API sendMessage over
-HTTPS, urllib only); otherwise the alert text is just printed ("dry run"). Nothing secret is ever printed or logged: the token
-is read from the environment only and scrubbed from every message the tool prints.
-Rate limiting: the same alert key (kind + class + slave) is sent at most once per --cooldown seconds, and at most
---max-per-hour alerts per hour in total; suppressed alerts are counted and mentioned in the next message that does go out.
+Alerts are only printed in this terminal; nothing is sent anywhere else and no environment variables are read.
+(The dashboard's "Enable notifications" button gives the same alerts as browser notifications.)
+Rate limiting: the same alert key (kind + class + slave) is printed at most once per --cooldown seconds, and at most
+--max-per-hour alerts per hour in total; suppressed alerts are counted and mentioned in the next alert that is printed.
 
-    set TELEGRAM_BOT_TOKEN=...   set TELEGRAM_CHAT_ID=...        (see dashboard/README.md for creating a bot)
     python tools/alerter.py --site rsn-822298ab                  (same broker options as sim_publisher.py)
-    python tools/alerter.py --selftest-message                   (sends / prints one test message and exits)
+    python tools/alerter.py --selftest-message                   (prints one test alert and exits)
 """
 import argparse
 import collections
@@ -19,21 +17,9 @@ import json
 import os
 import sys
 import time
-import urllib.error
-import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import resonance_mqtt as rm  # noqa: E402
-
-API = "https://api.telegram.org/bot%s/sendMessage"
-
-
-def scrub(text, secrets):
-    """Removes every secret value from text (defence in depth: error strings might echo a URL)."""
-    for s in secrets:
-        if s:
-            text = text.replace(s, "***")
-    return text
 
 
 class RateLimiter:
@@ -63,36 +49,16 @@ class RateLimiter:
         return True, n
 
 
-class Telegram:
-    def __init__(self, token, chat_id, timeout=10, opener=None):
-        self.token, self.chat_id, self.timeout = token, chat_id, timeout
-        self.opener = opener or urllib.request.urlopen
-
-    def send(self, text):
-        body = json.dumps({"chat_id": self.chat_id, "text": text, "disable_web_page_preview": True}).encode("utf-8")
-        req = urllib.request.Request(API % self.token, data=body, headers={"Content-Type": "application/json"}, method="POST")
-        try:
-            with self.opener(req, timeout=self.timeout) as r:
-                ok = 200 <= r.status < 300
-            return ok, "" if ok else "HTTP %d" % r.status
-        except urllib.error.HTTPError as e:   # str(e) has no URL, but scrub anyway at the caller
-            return False, "HTTP %d" % e.code
-        except Exception as e:  # network down, DNS, timeout ...
-            return False, type(e).__name__
-
-
 class Alerter:
-    def __init__(self, sender=None, limiter=None, out=print, secrets=()):
-        self.sender = sender            # object with .send(text) -> (ok, err) or None (print only)
+    def __init__(self, limiter=None, out=print):
         self.limiter = limiter or RateLimiter()
         self.out = out
-        self.secrets = secrets
         self.floors = None
         self.T = self.T_ae = None
         self.prev_key = None
         self.meta_epoch = None
         self.alive = {}
-        self.sent = self.failed = self.printed = 0
+        self.printed = 0
 
     def floor(self, slave):
         if self.floors and slave in (1, 2):
@@ -179,19 +145,9 @@ class Alerter:
             return False
         if suppressed:
             text += "  (+%d similar alerts suppressed)" % suppressed
-        msg = "Resonance %s: %s" % (site, text)
-        if self.sender is None:
-            self.out("[dry run, no TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID] " + msg)
-            self.printed += 1
-            return True
-        good, err = self.sender.send(msg)
-        if good:
-            self.sent += 1
-            self.out("sent: " + scrub(msg, self.secrets))
-        else:
-            self.failed += 1
-            self.out("telegram send failed (%s): %s" % (scrub(err, self.secrets), scrub(msg, self.secrets)))
-        return good
+        self.out("ALERT  Resonance %s: %s" % (site, text))
+        self.printed += 1
+        return True
 
 
 def main():
@@ -199,13 +155,10 @@ def main():
     rm.add_connection_args(ap)
     ap.add_argument("--cooldown", type=float, default=60.0, help="seconds before the same alert key may be sent again (default 60)")
     ap.add_argument("--max-per-hour", type=int, default=30)
-    ap.add_argument("--selftest-message", action="store_true", help="send (or print) one test message and exit")
+    ap.add_argument("--selftest-message", action="store_true", help="print one test alert and exit")
     args = ap.parse_args()
-    token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
-    sender = Telegram(token, chat) if token and chat else None
-    secrets = [x for x in (token, args.password) if x]
-    al = Alerter(sender, RateLimiter(args.cooldown, args.max_per_hour), out=lambda s: print(s, flush=True), secrets=secrets)
-    rm.log("alerts: %s" % ("Telegram" if sender else "print only (set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to send)"))
+    al = Alerter(RateLimiter(args.cooldown, args.max_per_hour), out=lambda s: print(s, flush=True))
+    rm.log("alerts: printed in this terminal")
     if args.selftest_message:
         al.emit("selftest", "test message from tools/alerter.py", args.site)
         return
