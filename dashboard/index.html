@@ -211,6 +211,29 @@ td button{padding:0 6px;min-height:26px;border:0;background:none;color:var(--acc
   </div>
 </section>
 
+<section id="twinCard" class="card" aria-label="Digital twin controls" hidden>
+  <h2 style="margin-top:0">Digital twin (simulated building, firmware logic)</h2>
+  <div class="row" role="group" aria-label="Damage controls">
+    <label>Storey <select id="twStorey"></select></label>
+    <label>Stiffness loss <select id="twLoss"><option value="0.1">10 %</option><option value="0.2">20 %</option><option value="0.3" selected>30 %</option><option value="0.4">40 %</option></select></label>
+    <button id="twDamage" type="button" class="primary" data-tw="damage">Apply damage</button>
+    <button type="button" data-tw="repair">Repair</button>
+    <span class="na">Upper storeys barely change f1 &ndash; try storey 1 vs storey 10.</span>
+  </div>
+  <div class="row" style="margin-top:6px" role="group" aria-label="Event controls">
+    <button type="button" data-tw="impact" data-floor="5">Impact floor 5</button>
+    <button type="button" data-tw="impact" data-floor="10">Impact floor 10</button>
+    <button type="button" data-tw="shake">Building shake</button>
+    <button type="button" data-tw="kill" data-slave="1">Kill sensor 1</button>
+    <button type="button" data-tw="kill" data-slave="2">Kill sensor 2</button>
+    <button type="button" data-tw="revive" data-slave="1">Revive 1</button>
+    <button type="button" data-tw="revive" data-slave="2">Revive 2</button>
+    <button type="button" data-tw="reset">Reset</button>
+  </div>
+  <div id="twState" class="na" style="margin-top:6px" aria-live="polite"></div>
+  <pre id="twLog" class="na" style="margin:6px 0 0;white-space:pre-wrap;font-size:.85rem;max-height:9em;overflow:auto" aria-label="Twin log"></pre>
+</section>
+
 <div class="grid">
   <section class="card c5"><h2>Building</h2>
     <svg id="bsvg" viewBox="0 0 420 330" role="img" aria-labelledby="bsvgT"><title id="bsvgT">Building with two instrumented floors and the master</title>
@@ -770,7 +793,7 @@ function fresh(){
     stats:{ok:0,bad:0,ignored:0,other:0,outOfOrder:0,capped:0,samples:0,restarts:0,nodes:0,damage:0},warns:{},
     eLines:[],t0:0,tEnd:0,playhead:0,k:0,ks:0,playing:false,speed:10,
     lastArrival:0,raw:[],port:null,reader:null,
-    kind:"",mq:null,mqRecv:0,mqDup:0,mqSeen:null,mqSeenQ:[],mqBuf:[],mqSeq:0,mqMax:null,mqTimer:null,mqMaster:"",mqSite:"",mqEver:false,mqEpoch:null,mqStatus:null,mqClosed:null,mqBreak:false,bootEpoch:null,feedRetained:false};
+    kind:"",mq:null,mqRecv:0,mqDup:0,mqSeen:null,mqSeenQ:[],mqBuf:[],mqSeq:0,mqMax:null,mqTimer:null,mqMaster:"",mqSite:"",mqEver:false,mqEpoch:null,mqStatus:null,mqClosed:null,mqBreak:false,bootEpoch:null,feedRetained:false,twin:null,twinLog:[],twinSentAt:0};
 }
 S=fresh();
 var dirty=true, rafOn=false, lastFrame=0, lastTableK=-1, lastTableN=-1, lastTableT=0;
@@ -1259,6 +1282,7 @@ function onMqMessage(my,base,topic,payload,packet){
   text=text.replace(/[\r\n]+$/,"");
   my.mqRecv++;
   var retained=!!(packet&&packet.retain);
+  if(leaf==="twin/state"||leaf==="twin/log"){ onTwin(my,leaf,text); return }
   if(leaf==="status"){   // retained {"state":"online"|"offline","epoch":E} of the master; "offline" = its last will
     my.mqStatus=parseStatus(text);
     mqMasterEval(my);
@@ -1290,6 +1314,54 @@ function onMqMessage(my,base,topic,payload,packet){
   }
   if(!retained) notifyLine(text);
   mqPush(my,text,retained);
+}
+/* ---------- digital twin (tools/twin_server.py): control panel + ground-truth f1 ----------
+   Shown only when a twin/state message arrives on the connected site. Commands go to resonance/<site>/twin/cmd (not retained). */
+var TW_MAX_LOG=12;
+function onTwin(my,leaf,text){
+  if(leaf==="twin/log"){ my.twinLog.push(text); if(my.twinLog.length>TW_MAX_LOG) my.twinLog.shift(); my.twinLogAt=performance.now(); renderTwin(); return }
+  var o; try{ o=JSON.parse(text) }catch(e){ return }
+  if(!o||typeof o!=="object"||typeof o.running!=="boolean") return;
+  my.twin=o;
+  if(!my.twinLog.length&&Array.isArray(o.log)) my.twinLog=o.log.filter(function(x){return typeof x==="string"}).slice(-TW_MAX_LOG);
+  renderTwin(); dirty=true; schedule();
+}
+function renderTwin(){
+  var card=$("twinCard"), t=S.twin;
+  card.hidden=!(S.kind==="mqtt"&&t);
+  if(card.hidden) return;
+  var d=t.damage, parts=[];
+  parts.push(t.running?(t.commissioned?"running":"commissioning (commands disabled until about sf "+t.commission_sf+")"):"twin stopped");
+  parts.push("speed "+t.speed+"x, sf "+t.sf);
+  parts.push("building f1 "+(+t.building.f1_hz).toFixed(2)+" Hz; true f1 now "+(+t.f1_true_hz).toFixed(3)+" Hz ("+(t.drop_true>=0?"-":"+")+Math.abs(t.drop_true*100).toFixed(1)+" %)");
+  parts.push(d?"damage: storey "+d.storey+" by "+Math.round(d.loss*100)+" %":"no damage");
+  if(t.killed&&t.killed.length) parts.push("dead sensor(s): "+t.killed.join(", "));
+  $("twState").textContent=parts.join(" · ");
+  $("twLog").textContent=S.twinLog.join("\n");
+  var off=!t.running||!t.commissioned;
+  var bs=card.querySelectorAll("button[data-tw]"); for(var i=0;i<bs.length;i++) bs[i].disabled=off;
+}
+function twinSend(cmd){
+  if(!S.mq||S.kind!=="mqtt"||!S.twin||!S.twin.running) return false;
+  S.twinSentAt=performance.now();
+  try{ S.mq.publish("resonance/"+S.mqSite+"/twin/cmd",JSON.stringify(cmd),{qos:1,retain:false}) }catch(e){ return false }
+  return true;
+}
+function twinClick(b){
+  var c=b.getAttribute("data-tw"), cmd={cmd:c};
+  if(c==="damage"){ cmd.storey=parseInt($("twStorey").value,10); cmd.loss=parseFloat($("twLoss").value) }
+  else if(c==="impact") cmd.floor=parseInt(b.getAttribute("data-floor"),10);
+  else if(c==="kill"||c==="revive") cmd.slave=parseInt(b.getAttribute("data-slave"),10);
+  return twinSend(cmd);
+}
+(function(){
+  var sel=document.getElementById("twStorey"); for(var i=1;i<=10;i++){ var o=document.createElement("option"); o.value=i; o.textContent=i+(i===1?" (bottom)":i===10?" (top)":""); sel.appendChild(o) }
+  document.getElementById("twinCard").addEventListener("click",function(e){ var b=e.target.closest&&e.target.closest("button[data-tw]"); if(b&&!b.disabled) twinClick(b) });
+})();
+function twinTruthSteps(){
+  var t=S.twin; if(!t||!Array.isArray(t.truth)||!t.truth.length) return null;
+  var pts=[]; t.truth.forEach(function(r){ if(Array.isArray(r)&&isNum(r[2])) pts.push([isNum(r[1])?r[1]:null,r[2],r[0]]) });
+  return pts.length?pts:null;
 }
 function connectMqtt(){
   if(typeof mqtt==="undefined"||!mqtt.connect){
@@ -1326,6 +1398,7 @@ function connectMqtt(){
     my.mqEver=true;
     setMq("ok","MQTT connected");
     c.subscribe(base+"+",{qos:1},function(err){ if(err&&S===my) warn("mqtt","Subscribe failed: "+(err.message||err)) });
+    c.subscribe([base+"twin/state",base+"twin/log"],{qos:1});
   });
   c.on("reconnect",function(){ if(S===my) setMq("unk","MQTT reconnecting...") });
   c.on("offline",function(){ if(S===my) setMq("bad","MQTT offline") });
@@ -1719,6 +1792,12 @@ function drawChart(id,o){
   (o.bands||[]).forEach(function(b){ var x0=xs(b.t0); ctx.fillStyle=b.col; ctx.globalAlpha=.16; ctx.fillRect(x0,ys(b.hi),W-R-x0,Math.max(1,ys(b.lo)-ys(b.hi))); ctx.globalAlpha=1 });
   for(var z=0;z<S.rs.length;z++){ if(S.rs[z].first) continue; var zx=xs(S.rs[z].t); ctx.strokeStyle=CSS.text;ctx.lineWidth=1;ctx.setLineDash([2,3]);ctx.beginPath();ctx.moveTo(zx+.5,Tp);ctx.lineTo(zx+.5,Tp+ph);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=CSS.text;ctx.fillText("restart",zx+3,Tp+ph-4)}
   (o.lines||[]).forEach(function(l){ ctx.strokeStyle=l.col;ctx.lineWidth=1.5;ctx.setLineDash([2,3]);ctx.beginPath();ctx.moveTo(xs(l.t0),ys(l.v)+.5);ctx.lineTo(W-R,ys(l.v)+.5);ctx.stroke();ctx.setLineDash([]) });
+  (o.steps||[]).forEach(function(st){   // dotted step line: value holds from its time on (twin ground truth)
+    ctx.strokeStyle=st.col;ctx.lineWidth=2;ctx.setLineDash([2,3]);ctx.beginPath();
+    var px=null,py=null;
+    st.pts.forEach(function(pt){ var x=Math.max(L,xs(pt[0])),y=ys(pt[1]); if(px===null){ctx.moveTo(L,y)} else {ctx.lineTo(x,py)} ctx.lineTo(x,y); px=x;py=y });
+    ctx.lineTo(W-R,py);ctx.stroke();ctx.setLineDash([]);
+  });
   (o.hl||[]).forEach(function(h){
     ctx.strokeStyle=h.col;ctx.lineWidth=2;ctx.setLineDash(h.dash||[7,4]);ctx.beginPath();ctx.moveTo(L,ys(h.v));ctx.lineTo(W-R,ys(h.v));ctx.stroke();ctx.setLineDash([]);
     if(h.label){ctx.fillStyle=h.col;ctx.font="bold 11px system-ui";ctx.fillText(h.label,L+6,ys(h.v)-4)}
@@ -1814,11 +1893,15 @@ function renderF1(){
     lines.push({v:last[j],col:cols[j],t0:first[j]});
     if(last[j]*(1-dd)<lo)lo=last[j]*(1-dd); if(last[j]*(1+dd)>hi)hi=last[j]*(1+dd);
   }
+  var tr=twinTruthSteps(), steps=[], tlegend=[];
+  if(tr){ var tp=tr.map(function(p){return [p[0]!==null?p[0]:S.t0,p[1]]}); tp[0][0]=S.t0;
+    tp.forEach(function(p){ if(p[1]<lo)lo=p[1]; if(p[1]>hi)hi=p[1] });
+    steps.push({pts:tp,col:CSS.text}); tlegend.push({col:CSS.text,sq:false,text:"true f1 (simulator ground truth)"}); }
   var emp=(lo===Infinity)?"No f1 estimate yet (a sensor needs 32 windows, about 45 s, then ~96 windows to commission f1_0)":null;
   var pad=(hi-lo)*.12||.1, ymin=lo-pad, ymax=hi+pad, tk=niceTicks(ymin,ymax,5), st=tk.length>1?tk[1]-tk[0]:1;
-  drawChart("f1Chart",{ymin:ymin,ymax:ymax,ticks:tk,tickText:function(v){return fmtTick(v,st)},bands:bands,lines:lines,empty:emp,
+  drawChart("f1Chart",{ymin:ymin,ymax:ymax,ticks:tk,tickText:function(v){return fmtTick(v,st)},bands:bands,lines:lines,steps:steps,empty:emp,
     series:[{get:function(e){return e.f1a===undefined?null:e.f1a},col:CSS.r1,sq:false},{get:function(e){return e.f1b===undefined?null:e.f1b},col:CSS.r2,sq:true}],
-    legend:[{col:CSS.r1,sq:false,text:"f1 "+lab(1)+" (Hz)"},{col:CSS.r2,sq:true,text:"f1 "+lab(2)+" (Hz)"}],aria:"Chart of the first natural frequency per sensor in Hz"});
+    legend:[{col:CSS.r1,sq:false,text:"f1 "+lab(1)+" (Hz)"},{col:CSS.r2,sq:true,text:"f1 "+lab(2)+" (Hz)"}].concat(tlegend),aria:"Chart of the first natural frequency per sensor in Hz"});
   // pooled drop in percent
   var dmin=0,dmax=Math.max(delta!==null?delta*250:5,2),have=false;
   for(i=0;i<k;i++){ var p=pooledOf(arr[i]); if(p!==null){ have=true; if(p*100>dmax)dmax=p*100*1.1; if(p*100<dmin)dmin=p*100*1.2 } }

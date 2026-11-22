@@ -6,7 +6,7 @@
 //      and checks the browser notifications that fired.
 // Phase C2b: an OFFLINE section runs first (no network): schema-3 parsing (ae, f1, drop, dmg, damage lines), the DAMAGE banner / system line /
 // detector tags / history rendered into the DOM, the embedded copy of demo_events_sim.jsonl, the ?replay= link, schema 1 and 2 logs.
-// `--offline` stops after it. Usage (jsdom is not a project dependency: install it anywhere, e.g. `npm i jsdom` in a scratch folder):
+// `--offline` stops after it; `--twin [--twin-speed N]` runs the digital-twin test (tools/twin_server.py, real broker) instead of the live comparison. Usage (jsdom is not a project dependency: install it anywhere, e.g. `npm i jsdom` in a scratch folder):
 //   NODE_PATH=<folder>/node_modules node dashboard/tools/test_mqtt_dom.js [--url ws://broker.hivemq.com:8000/mqtt]
 //        [--site rsn-822298ab] [--log dashboard/demo_events_faults_sim.jsonl] [--python <python>] [--speed 0]
 // Reboot case: --log dashboard/tools/short_reboot.jsonl --speed 2 (a burst can reorder a reboot's restart line across topics, see dashboard/README.md).
@@ -226,6 +226,56 @@ async function staleDamageState(check) {
   await setRetained(site, [["status", ""], ["meta", ""], ["state", ""], ["damage_state", ""]]);
 }
 
+// --twin: the interactive digital twin (tools/twin_server.py, real broker). Starts the server on a fresh random site at --twin-speed
+// (default 20), opens the page, clicks Apply damage (storey 1, 30 %) and Kill sensor 2 and checks the log line, DAMAGE BEGIN and node DEAD.
+async function twinChecks(check) {
+  console.log("--- digital twin (real broker) ---");
+  const site = "twin-" + Math.random().toString(16).slice(2, 10);
+  const speed = arg("twin-speed", "20");
+  const u = new (require("url").URL)(URL_.replace(/^ws/, "http"));
+  const env = Object.assign({}, process.env); delete env.TELEGRAM_BOT_TOKEN; delete env.TELEGRAM_CHAT_ID;
+  const pg = await openPage();
+  const w = pg.window, R = w.__resonance, S = () => R.state(), doc = w.document;
+  doc.getElementById("mqUrl").value = URL_; doc.getElementById("mqSite").value = site; doc.getElementById("mqBtn").click();
+  await until(() => doc.getElementById("mqState").textContent === "MQTT connected", 30000, "MQTT connected");
+  check(doc.getElementById("twinCard").hidden === true, "twin panel hidden while no twin/state exists on the site");
+  const child = spawn(PY, [path.join(ROOT, "tools", "twin_server.py"), "--site", site, "--speed", speed, "--host", u.hostname, "--port", u.port || "8000", "--transport", "websockets", "--ws-path", u.pathname], { stdio: ["ignore", "pipe", "pipe"], env });
+  let out = ""; child.stdout.on("data", (d) => (out += d)); child.stderr.on("data", (d) => (out += d));
+  try {
+    await until(() => !doc.getElementById("twinCard").hidden, 90000, "twin panel (retained twin/state)");
+    const btn = (sel) => doc.querySelector(sel);
+    const wasComm = S().twin && S().twin.commissioned === false;
+    if (wasComm) check(btn('button[data-tw="damage"]').disabled === true, "buttons are disabled while the twin commissions");
+    await until(() => S().twin && S().twin.commissioned === true && !btn('button[data-tw="damage"]').disabled, 120000, "commissioning complete (buttons enabled)");
+    check(true, "twin panel shown, commands enabled after commissioning (sf " + S().twin.sf + ", speed " + S().twin.speed + "x)");
+    doc.getElementById("twStorey").value = "1"; doc.getElementById("twLoss").value = "0.3";
+    const t0 = Date.now();
+    btn('button[data-tw="damage"]').click();
+    await until(() => S().twinLog.some((l) => /damage storey 1 by 30 % applied/.test(l)), 30000, "twin log line for the damage command");
+    const lat1 = (Date.now() - t0) / 1000;
+    check(true, `click -> twin log line "${S().twinLog.filter((l) => /damage storey 1/.test(l))[0]}" after ${lat1.toFixed(2)} s`);
+    await until(() => S().twin.damage && S().twin.truth.length >= 2, 15000, "twin/state with the new truth");
+    const tr = S().twin.truth, last = tr[tr.length - 1];
+    check(Math.abs(last[2] - 6.818) < 0.01 && Math.abs(S().twin.drop_true - 0.0389) < 0.002, "twin/state: true f1 " + last[2] + " Hz, expected drop " + (S().twin.drop_true * 100).toFixed(2) + " %");
+    await until(() => S().dl.some((d) => d.state === "BEGIN"), 150000, "DAMAGE BEGIN from the firmware logic");
+    const lat2 = (Date.now() - t0) / 1000;
+    check(true, `click -> DAMAGE BEGIN on the page after ${lat2.toFixed(1)} s wall (speed ${speed}x)`);
+    await sleep(2300);   // rate limit: 1 command per 2 s
+    const t1 = Date.now();
+    btn('button[data-tw="kill"][data-slave="2"]').click();
+    await until(() => S().twinLog.some((l) => /sensor 2 killed/.test(l)), 30000, "twin log line for the kill command");
+    const lat3 = (Date.now() - t1) / 1000;
+    await until(() => S().nl.some((n) => n.slave === 2 && n.alive === false), 90000, "node DEAD for sensor 2");
+    check(true, `click -> twin log ${lat3.toFixed(2)} s, -> sensor 2 DEAD on the page ${((Date.now() - t1) / 1000).toFixed(1)} s`);
+    check(/dead sensor/.test(doc.getElementById("twState").textContent) && pg.errors.length === 0, "twin state line shows the dead sensor; no script errors" + (pg.errors.length ? ": " + pg.errors.slice(0, 2).join(" | ") : ""));
+    doc.getElementById("mqBtn").click();
+  } finally {
+    child.kill();
+    await sleep(500);
+    if (!/SITE=/.test(out)) console.log("twin_server output: " + out.slice(-600));
+  }
+}
+
 (async () => {
   let ok = true;
   const check = (c, m) => { console.log((c ? "PASS  " : "FAIL  ") + m); ok = ok && !!c; };
@@ -241,6 +291,7 @@ async function staleDamageState(check) {
   const wantDead = rs.nl.filter((n) => !n.alive).length;
 
   await offlineChecks(check);
+  if (process.argv.includes("--twin")) { await twinChecks(check); console.log("SUMMARY " + (ok ? "OK" : "FAILED")); process.exit(ok ? 0 : 1); }
   if (process.argv.includes("--stale-damage")) { await staleDamageState(check); console.log("SUMMARY " + (ok ? "OK" : "FAILED")); process.exit(ok ? 0 : 1); }
   if (process.argv.includes("--offline")) { console.log("SUMMARY " + (ok ? "OK" : "FAILED")); process.exit(ok ? 0 : 1); }
 

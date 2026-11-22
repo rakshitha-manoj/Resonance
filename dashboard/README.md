@@ -102,6 +102,10 @@ The fault demo (sensor 2 killed at superframe 30 and revived at 42, master resta
 
 `dashboard/tools/validate_logs.py` checks the exact key set and types of every line type (meta, restart, sample, begin/change/status, node), enums and null rules, time order, sample/closed counters, sample-vs-event agreement, the restart epoch chain, and for `node` lines that DEAD / ALIVE alternate per slave and that the next sample's `alive` flag agrees. Exit code 1 if any file has an error. All three bundled logs pass.
 
+
+## Digital twin panel (interactive demo)
+
+With `tools/twin_server.py` running on the connected site (see `docs/demo_runbook.md` (f)), a retained `resonance/<site>/twin/state` arrives and the page shows a "Digital twin" panel: storey 1-10 and loss 10-40 % selectors, Apply damage, Repair, Impact floor 5 / 10, Building shake, Kill / Revive sensor 1 / 2 and Reset. The buttons publish JSON commands (not retained) to `twin/cmd`, are disabled while the system commissions, and the panel shows the twin state and the last log lines (`twin/log`). The f1 chart gets a dotted "true f1 (simulator ground truth)" step line from `twin/state.truth`, so the estimate can be compared with the truth. Without a twin the panel stays hidden and nothing else changes. Test: `node dashboard/tools/test_mqtt_dom.js --twin [--twin-speed N]` (real broker, starts the server on a fresh site).
 ## Limits
 
 - The page reads local files, one fetch of `demo_events_sim.jsonl`, a USB serial port, or an MQTT broker (only after you click connect). The public HiveMQ broker is for simulator/demo data only; MQTT live was tested headlessly in jsdom against it, not yet in a real browser; the browser notifications were tested with a stub `Notification` object, not on a real desktop.

@@ -83,3 +83,26 @@ Needs internet. The broker is the free public HiveMQ one: anybody who knows the 
 - **Wokwi will not connect**: use (b); same dashboard, same data.
 - **Dashboard misbehaves**: `docs/figures/dashboard_overview.png` and `dashboard_damage.png`, or reload with the `?replay=` link.
 - **`program.exe` missing**: `pio run -e netsim` in `firmware/esp32` (VS Code PlatformIO terminal, or `~\.platformio\penv\Scripts\pio.exe run -e netsim`); or publish the stored log without the simulator: `.venv\Scripts\python.exe tools/sim_publisher.py --jsonl dashboard/demo_events_sim.jsonl --speed 5 --transport websockets --port 8000`.
+
+## (f) Interactive digital twin
+
+An examiner clicks buttons and the live stream shows the consequence within seconds. A simulated building (the demo building, f1 7.09 Hz, sensors on floors 5 and 10) is monitored by the REAL firmware logic (netsim: master, two slaves, rule f, f1 tracker, DAMAGE); `tools/twin_server.py` only generates the vibration signals from the buttons and replays netsim's log. Every alarm, DEAD and degraded-mode decision comes from the firmware C++ code.
+
+1. Start (from `D:\Resonance`, `pio run -e netsim` must have been run once; this laptop: only the WebSocket port 8000 works):
+   `.venv\Scripts\python.exe tools	win_server.py --speed 2 --transport websockets --port 8000`
+   It prints `SITE=twin-xxxxxxxx` (a NEW random site id every start, so it never mixes with another demo; `--site` fixes it). Do NOT start `sim_publisher.py` on the same site.
+2. Dashboard: open `dashboard/index.html`, broker `ws://broker.hivemq.com:8000/mqtt`, site = the printed id, "MQTT live: connect". The "Digital twin" panel appears at once; its buttons stay disabled while the system commissions (about 100 superframes = 2.3 min at 1x, 70 s at `--speed 2`; the f1 reference of both sensors needs that long). Optional: `.venv\Scripts\python.exe toolslerter.py --site <id> --transport websockets --port 8000` (with the Telegram variables set) for the phone alerts.
+3. Stop with Ctrl+C (retained status goes offline).
+
+**Suggested 5-minute script** (speed 2: the numbers below are wall-clock seconds)
+1. Commissioning (about 70 s): "The two sensors learn their own normal level and natural frequency; until then the buttons are off, because DAMAGE needs a reference."
+2. Impact floor 5 (then 10): a LOCAL event at that sensor in about 10 s: "Local, not building-wide: only the sensor at that floor reacts."
+3. Building shake: BUILDING event: "Both sensors see it."
+4. Damage storey 10 by 30 %: the dotted ground-truth line moves by only 0.1 %; NO alarm. "Honest limitation: damage near the top barely changes f1, so a frequency-based alarm cannot see it. The twin log says so." Repair.
+5. Damage storey 1 by 30 %: truth drops 3.9 %, the sensors' estimates follow after about 20-30 s and the red DAMAGE alarm appears about 40 s after the click (Telegram message). "Storey-1 damage lowers f1 most; the alarm needs the drop for 32 superframes to avoid false alarms, that is the delay."
+6. Kill sensor 2: sensor 2 DEAD after about 7 s, the system continues in degraded mode (one-sensor decisions, no BUILDING). Revive 2: it recommissions for about 2 min on the current structure.
+7. Repair (DAMAGE ends after about 70 s) or Reset (healthy, all sensors alive).
+
+Facts to keep in mind: all of it is simulation; the dotted line is the simulator's ground truth, the solid lines the firmware's estimates; commands act from 4 superframes (5.6 s sim time) after the one being shown, never on the past; one command per 2 s; "Damage" replaces the current damage (one damaged storey at a time); a sensor revived while the structure is damaged recommissions ON the damaged state, so its own reference moves (known limitation: baselines are RAM-only). Storeys 8-10 and losses of 10 % in storey 1 stay below the 2 % threshold: no alarm is the correct answer. Anybody who knows the site id on the public broker can send commands (simulated demo only); commands are strictly validated and rate limited.
+
+Measured on this PC (public HiveMQ over WebSocket 8000, jsdom page): click to twin log line 0.6-0.8 s (the log goes out before netsim is re-run), kill click to sensor 2 DEAD 7.2 s at `--speed 2` (3 missed superframes plus the reorder hold of 2.5 s), damage click to DAMAGE BEGIN on the page 41 s at `--speed 2` (6.6 s at `--speed 20`), i.e. 82 s of simulated time = 4 superframes guard + about 43 superframes (f1 averaging ring + P = 32). Use `--speed 4` if the audience is waiting.
