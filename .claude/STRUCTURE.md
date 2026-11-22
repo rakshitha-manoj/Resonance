@@ -141,10 +141,9 @@ Master publishes the schema-2 JSON lines over MQTT; dashboard subscribes over MQ
 - `training/freq_tracking_eval.py` (Phase A, f1 tracking -> DAMAGE) – pre-registered selection of M/C/delta/P on dev (6,500,000 + 120, A_env 0.5%, primary pair, FA <= 1/24 h, max mean detection over 25 damage cells), TEST (6,600,000 + 120) scored once; also error vs eigen f1, physics curve, est vs true drop, coarse zoom grid study. `--small` (6,950,500 / 6,951,000 + 12), `--prime dev|test`, `--workers N`; chunk cache `.cache/freq_tracking_eval/cache` (per-window f1 estimates only). Writes `selected/validation/freq_tracking.json/.md`. `training/freq_tracking_figs.py` (run with `.venv-tinyml`) writes `docs/figures/{f1_drop_vs_damage,detection_vs_damage,f1_timeseries_example}.png`. `training/shm.py` – ctypes bridge to `shm_lib.c`.
 - `selected/` – deployed model = dt_d3 retrained on all 150 recordings: `model.joblib`, `model_export.json` (11 nodes, float32 thresholds, go left if x <= t), `feature_spec.json` (inputs, used features, formulas, MPU6050 ±2 g / ±250 °/s, exact 100 Hz timer sampling), `report.json`/`report.md` (headline ~0.93 broad resampling; selection history v1→v4), `comparison.md` (no alternative qualified; fallback rf_n50_d4).
 
-## Empty placeholders (not yet used)
-- `firmware/wokwi/`
-- `data/raw/` (gitignored)
-- `models/tflite/` (unused: deployment is hand-written C; the Phase B int8 model lives in `models/tinyml/` and is also run by hand-written C, not TFLite Micro)
+## Removed placeholders (cleanup 2026-11-22)
+- The empty folders `firmware/wokwi/`, `data/raw/` and `models/tflite/` were deleted. All Wokwi configs are in `firmware/esp32/wokwi/`; the int8 model is in `models/tinyml/` (run by hand-written C, not TFLite Micro).
+- The merged phase worktrees (`D:\Resonance-A/-B/-D`) and branches `phaseA-f1`, `phaseB-ae`, `phaseD-iot` were removed. The frequency-tracking simulation cache was moved to `.cache/freq_tracking_eval/` (re-running `freq_tracking_eval.py` from it takes seconds; without it about 40 min).
 
 ## docs/ and README
 - `docs/simulation_validation.md` – Phase 5 simulation validation report (results, what Wokwi can/cannot prove, Phase 6 carry-overs, reproduction commands).
