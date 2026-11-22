@@ -4,7 +4,7 @@ Companion to `project_report.md` (section numbers below refer to it). Golden rul
 
 ## One-page elevator pitch
 
-**What.** A three-tier IoT/TinyML system for structural health monitoring: two ESP32 + MPU6050 sensor nodes, an ESP32 master that fuses them, and a cloud layer (MQTT, dashboard, Telegram).
+**What.** A three-tier IoT/TinyML system for structural health monitoring: two ESP32 + MPU6050 sensor nodes, an ESP32 master that fuses them, and a cloud layer (MQTT, dashboard, alerts).
 
 **Why.** Raw vibration streaming is costly (8.64 MB/h for two nodes, simulated) and fails when the network fails. Doing the analysis on the node keeps the system working locally; the radio carries small reports (about 0.4 MB/h for the hierarchy) and an events-only uplink is about 10-14 kB/h (the default build also streams one sample line per superframe, about 0.7 MB/h, for the live dashboard).
 

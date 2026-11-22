@@ -11,7 +11,7 @@ Say "simulated" on every results slide. Figures are in `docs/figures/`.
 - Figure: none (or a simple building sketch).
 
 **3. System architecture.**
-- 2 sensor nodes (ESP32 + MPU6050), 1 master (ESP32), cloud (MQTT, dashboard, Telegram).
+- 2 sensor nodes (ESP32 + MPU6050), 1 master (ESP32), cloud (MQTT, dashboard, alerts).
 - ESP-NOW between boards, MQTT over TLS to the cloud.
 - Figure: the Mermaid diagram of report section 3.1.
 
@@ -57,7 +57,7 @@ Say "simulated" on every results slide. Figures are in `docs/figures/`.
 
 **12. Live demo / dashboard.**
 - Simulated 7.5-min scenario: impact, building-wide shaking, frequency shift (AE only), DAMAGE alarm at superframe 235.
-- MQTT live + Telegram message.
+- MQTT live + alert line in the alerter terminal / dashboard notification.
 - Figures: `dashboard_damage.png`, `f1_timeseries_example.png`. Runbook: `demo_runbook.md`.
 
 **13. Resources and limitations.**

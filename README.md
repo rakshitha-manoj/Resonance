@@ -1,6 +1,6 @@
 # Resonance
 
-Structural health monitoring with IoT and TinyML. Two ESP32 + MPU6050 sensor nodes each run a 110 B decision tree, an int8 autoencoder (942 B of weights, trained on healthy data only) and a natural-frequency tracker. An ESP32 master fuses the two nodes into AMBIENT / LOCAL / BUILDING events plus a DAMAGE alarm, and publishes over MQTT to a browser dashboard and Telegram alerts.
+Structural health monitoring with IoT and TinyML. Two ESP32 + MPU6050 sensor nodes each run a 110 B decision tree, an int8 autoencoder (942 B of weights, trained on healthy data only) and a natural-frequency tracker. An ESP32 master fuses the two nodes into AMBIENT / LOCAL / BUILDING events plus a DAMAGE alarm, and publishes over MQTT to a browser dashboard with console and browser-notification alerts.
 
 **Status: the simulation stage is complete; hardware bring-up is pending.** Every result is from the project's building simulator, a PC test harness or the Wokwi emulator. **Nothing has been measured on real boards or structures.**
 
@@ -24,7 +24,7 @@ Structural health monitoring with IoT and TinyML. Two ESP32 + MPU6050 sensor nod
 | DAMAGE (natural-frequency drop) | 30 % stiffness loss detected 1.00 / 1.00 / 0.91 at storeys 1 / 3 / 5, almost never at the top storeys (physics); coarse alarm only |
 | Hierarchy vs one node | same false-alarm rate; adds the second floor, event typing and dead-slave handling (rule b comparison) |
 | Storey localisation | failed its pre-stated gates, not claimed |
-| Cloud | MQTT (TLS, retained state, last will), dashboard, Telegram alerts; public broker is demo-only |
+| Cloud | MQTT (TLS, retained state, last will), dashboard, alerts (console monitor, browser notifications); public broker is demo-only |
 | Resources | slave build 772,825 B flash / 72,788 B RAM; ESP32 compute estimated 3-8 ms per window (not measured) |
 
 Older sections below describe the stage at which each part was built; where numbers differ, the report and the latest result files win.

@@ -8,7 +8,7 @@ How to read the numbers: every figure comes from a result file in the repository
 
 ## 1. Abstract
 
-We built a three-tier structural health monitoring (SHM) system: two ESP32 + MPU6050 sensor nodes, one ESP32 master that fuses their reports, and a cloud layer (MQTT, browser dashboard, Telegram alerts). Each sensor node runs a 110-byte decision tree, an int8 autoencoder (a TinyML anomaly detector, 942 B of weights) and a natural-frequency tracker on-device. The master decides AMBIENT / LOCAL / BUILDING events and a separate DAMAGE alarm. In simulation (fresh, pre-registered test block, 240 simulated buildings, 28 h): mean event recall rose from 0.622 to **0.734** by adding the autoencoder, at **1.64 false onsets per hour** (our 1/h budget was **not met**). Frequency tracking detects 30 % stiffness loss in storeys 1, 3 and 5 (1.00 / 1.00 / 0.91) but is nearly blind to damage in the top storeys. On the PC, the C inference code is bit-exact with TensorFlow Lite (0 mismatches on 10,000 vectors). The 110 B tree reaches about 93 % accuracy on synthetic data (resampling estimate). Everything is simulation; no hardware measurement exists yet.
+We built a three-tier structural health monitoring (SHM) system: two ESP32 + MPU6050 sensor nodes, one ESP32 master that fuses their reports, and a cloud layer (MQTT, browser dashboard, alerts). Each sensor node runs a 110-byte decision tree, an int8 autoencoder (a TinyML anomaly detector, 942 B of weights) and a natural-frequency tracker on-device. The master decides AMBIENT / LOCAL / BUILDING events and a separate DAMAGE alarm. In simulation (fresh, pre-registered test block, 240 simulated buildings, 28 h): mean event recall rose from 0.622 to **0.734** by adding the autoencoder, at **1.64 false onsets per hour** (our 1/h budget was **not met**). Frequency tracking detects 30 % stiffness loss in storeys 1, 3 and 5 (1.00 / 1.00 / 0.91) but is nearly blind to damage in the top storeys. On the PC, the C inference code is bit-exact with TensorFlow Lite (0 mismatches on 10,000 vectors). The 110 B tree reaches about 93 % accuracy on synthetic data (resampling estimate). Everything is simulation; no hardware measurement exists yet.
 
 ---
 
@@ -28,7 +28,7 @@ Streaming raw vibration to a server is expensive in power and bandwidth. In the 
 
 ### 2.3 Why IoT
 
-A building's sensors are rarely where the engineer is. The master therefore publishes its decisions over MQTT (a lightweight publish/subscribe protocol used widely in IoT) so that a dashboard on any device and a Telegram bot can show and push alerts.
+A building's sensors are rarely where the engineer is. The master therefore publishes its decisions over MQTT (a lightweight publish/subscribe protocol used widely in IoT) so that a dashboard on any device (with browser notifications) and a console alert monitor can show alerts.
 
 ### 2.4 Targets
 
@@ -69,7 +69,7 @@ flowchart TB
   subgraph cloud["Cloud / user"]
     B[("MQTT broker<br/>TLS 8883")]
     D["Browser dashboard"]
-    T["Telegram alerter"]
+    T["Console alerter"]
   end
   M -- "beacon / poll (ESP-NOW)" --> S1
   M -- "beacon / poll (ESP-NOW)" --> S2
@@ -84,7 +84,7 @@ flowchart TB
 |---|---|---|
 | Sensor node (x2) | ESP32 DevKit + MPU6050 (SDA 21, SCL 22) | Sample 100 Hz, per window compute features, tree class, int8 autoencoder ratio, f1 estimate and drop; reply when polled |
 | Master (x1) | ESP32, no sensor | Keep the 1.4 s clock, beacon, poll, commission baselines, fuse, run DAMAGE detector, write JSON, publish over MQTT |
-| Cloud | public or private MQTT broker, browser, Telegram | Distance viewing, history, push alerts |
+| Cloud | public or private MQTT broker, browser, console alerter | Distance viewing, history, alerts |
 
 The hierarchy was a mentor requirement. Two slaves are the smallest number that can compare two floors, i.e. separate "local" from "building-wide".
 
@@ -339,9 +339,9 @@ The master has one radio: its Wi-Fi station and ESP-NOW share a channel. The mas
 
 The demo (seed 5,990,011; 320 superframes = 7.5 min; one building with f1 7.09 Hz, sensors on floors 5 and 10) runs: commissioning, an impact on floor 5 (LOCAL, autoencoder fires first), 3x building-wide shaking (BUILDING, std), a frequency shift on floor 10 (LOCAL, **autoencoder only**: the std ratio stays about 1.9, below 3), then a permanent 30 % stiffness loss in storey 1 from superframe 192 with **DAMAGE BEGIN at superframe 235** (43 superframes later), pooled drop 4.3 % at the alarm, about 3.9 % afterwards (physics: 3.88 %). No DAMAGE before the onset (maximum pooled drop before superframe 190: 0.66 %). This is one scripted case, not a statistic.
 
-### 8.4 Telegram alerts
+### 8.4 Alerts
 
-`tools/alerter.py` subscribes to the topics and sends messages such as `LOCAL vibration event at floor 10 (sensor 2) [AE 6.2 >= 6]` and `DAMAGE ALARM: natural frequency down 4.3 % (f1 6.73/6.74 Hz vs 7.03/7.05 Hz at commissioning)`. It has a cooldown and an hourly budget, scrubs the bot token from all output, and prints instead of sending when no token is set.
+`tools/alerter.py` is a console alert monitor: it subscribes to the topics and prints one line per alert in its terminal (`ALERT  Resonance <site>: <text>`), for example `LOCAL vibration event at floor 10 (sensor 2) [AE 6.2 >= 6]` and `DAMAGE ALARM: natural frequency down 4.3 % (f1 6.73/6.74 Hz vs 7.03/7.05 Hz at commissioning)`. It has a cooldown and an hourly budget, sends nothing anywhere and reads no environment variables. The dashboard additionally offers browser notifications ("Enable notifications").
 
 ### 8.5 End-to-end test results (public broker, simulated data)
 
@@ -461,7 +461,7 @@ A cloud broker is free (public demo) or a small VPS/Raspberry Pi running a Mosqu
 
 ## 14. Conclusion
 
-We built and verified a three-tier edge SHM system: sensor nodes running a 110 B decision tree, a 942 B int8 autoencoder and a natural-frequency tracker; a master that fuses two nodes and runs a DAMAGE detector; and an MQTT / dashboard / Telegram cloud layer. In simulation, adding the autoencoder raised mean event recall from 0.622 to 0.734 on a fresh, pre-registered block, at +0.25 false onsets per hour; the absolute false-onset rate (1.64/h) did not meet our own 1/h budget. Frequency tracking gives a coarse damage alarm for large stiffness loss in the lower storeys and, by physics, cannot see damage at the top. The C code is bit-exact with the TensorFlow Lite reference. The project's strength is its method: pre-registered selection, fresh test blocks scored once, negative results kept, and every limitation stated. Its weakness is that it has not touched hardware: the next step is the measurements of section 13.
+We built and verified a three-tier edge SHM system: sensor nodes running a 110 B decision tree, a 942 B int8 autoencoder and a natural-frequency tracker; a master that fuses two nodes and runs a DAMAGE detector; and an MQTT / dashboard / alerts cloud layer. In simulation, adding the autoencoder raised mean event recall from 0.622 to 0.734 on a fresh, pre-registered block, at +0.25 false onsets per hour; the absolute false-onset rate (1.64/h) did not meet our own 1/h budget. Frequency tracking gives a coarse damage alarm for large stiffness loss in the lower storeys and, by physics, cannot see damage at the top. The C code is bit-exact with the TensorFlow Lite reference. The project's strength is its method: pre-registered selection, fresh test blocks scored once, negative results kept, and every limitation stated. Its weakness is that it has not touched hardware: the next step is the measurements of section 13.
 
 ---
 

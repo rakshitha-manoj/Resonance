@@ -21,13 +21,13 @@ Reading order: sections 1 and 2 for the picture, 7 for demo day, 8 when somethin
 
 ## 1. In one minute
 
-**What it does (the design).** Two sensor nodes (ESP32 + MPU6050 accelerometer) sit on two floors of a building. Each node is designed to analyse the vibration itself, on the chip, and send a 56-byte report every 1.4 s to a third ESP32, the master. **Status: so far this firmware has run only in PC simulation** (the same C++ compiled for Windows); it is built for the ESP32 but has not run on a board, and the final node pipeline has not run in the Wokwi emulator either (see the honesty statement below). The master decides: nothing special (AMBIENT), something happened at one floor (LOCAL), something shook the whole building (BUILDING), or the structure has become less stiff (DAMAGE). The master publishes its decisions over MQTT to a browser dashboard, to phones and to Telegram.
+**What it does (the design).** Two sensor nodes (ESP32 + MPU6050 accelerometer) sit on two floors of a building. Each node is designed to analyse the vibration itself, on the chip, and send a 56-byte report every 1.4 s to a third ESP32, the master. **Status: so far this firmware has run only in PC simulation** (the same C++ compiled for Windows); it is built for the ESP32 but has not run on a board, and the final node pipeline has not run in the Wokwi emulator either (see the honesty statement below). The master decides: nothing special (AMBIENT), something happened at one floor (LOCAL), something shook the whole building (BUILDING), or the structure has become less stiff (DAMAGE). The master publishes its decisions over MQTT to a browser dashboard, to phones (QR phone view) and to a console alert monitor.
 
 **Three headline features**
 
 1. **TinyML anomaly detection on every sensor node.** An int8 autoencoder (574 parameters, 942 B of weights, trained on healthy data only) is compiled into the node firmware and designed to run on each node (run so far in the PC simulation only). The master fuses the nodes with **rule f**: raise an event if the vibration-level ratio says so (rule b) **OR** the autoencoder says so. The earlier 110-byte decision tree is still computed and reported, but **the final rule does not use it**.
 2. **Natural-frequency DAMAGE alarm.** Each node is designed to track the first natural frequency f1 of the building (simulated). A lasting drop of the pooled f1 (2 % for 32 superframes, about 45 s) means the structure got softer: a coarse alarm for large damage in the lower storeys.
-3. **IoT layer.** MQTT (retained state, last will, TLS on the firmware path), a browser dashboard (replay, live, phone view with QR code), Telegram alerts, and an interactive **digital twin** where an examiner clicks "damage storey 1" and watches the real firmware logic (compiled for the PC) react.
+3. **IoT layer.** MQTT (retained state, last will, TLS on the firmware path), a browser dashboard (replay, live, phone view with QR code), alerts (console alert monitor and browser notifications), and an interactive **digital twin** where an examiner clicks "damage storey 1" and watches the real firmware logic (compiled for the PC) react.
 
 **Headline numbers** (all simulated; sources `models/selected/validation/fusion_eval_r3_test.md`, `freq_tracking.md`, `models/tinyml/ae_report.md`)
 
@@ -56,7 +56,7 @@ flowchart LR
   subgraph cloud["Cloud and users"]
     B[("MQTT broker<br/>public HiveMQ, demo data only")]
     D["Browser dashboard<br/>laptop and phone"]
-    A["Telegram alerter<br/>tools/alerter.py"]
+    A["Console alerter<br/>tools/alerter.py"]
   end
   M -- "beacon, poll (ESP-NOW)" --> S1
   M -- "beacon, poll (ESP-NOW)" --> S2
@@ -156,7 +156,7 @@ Where the gain comes from: sparse single impacts 0.20 vs 0.06 and frequency shif
 
 - **Topics** `resonance/<site>/...`: one topic per JSON line type (`meta`, `restart`, `sample`, `begin`, `change`, `node`, `damage`; the fusion `status` line goes to `status_line`). Retained: `state` (latest decision), `damage_state`, `meta`, and `status` = `{"state":"online"|"offline","epoch":E}`. `offline` is the **last will** the broker sends when the master vanishes.
 - **Transport**: the firmware connects with TLS on port 8883 (root CA committed; this build checks the certificate chain but not its dates). The PC tools and the browser use MQTT over WebSocket `ws://broker.hivemq.com:8000/mqtt`, unencrypted, because on this network 1883 and 8884 are blocked.
-- **Alerts**: `tools/alerter.py` subscribes and sends Telegram messages for LOCAL / BUILDING begins, sensor DEAD / ALIVE, master restart or offline, and DAMAGE BEGIN / END, with a cooldown and an hourly budget. Without the two environment variables it only prints the text ("dry run").
+- **Alerts**: `tools/alerter.py` subscribes and prints one alert line per event (`ALERT  Resonance <site>: <text>`) for LOCAL / BUILDING begins, sensor DEAD / ALIVE, master restart or offline, and DAMAGE BEGIN / END, with a cooldown and an hourly budget. It sends nothing anywhere and reads no environment variables; the dashboard's "Enable notifications" button adds browser notifications.
 - **Public broker**: anyone who knows the site id can read (and for the twin, command) the topics. Demo data only.
 
 ### 3.8 Dashboard panels (`dashboard/index.html`)
@@ -285,7 +285,7 @@ Tags: **[generated]** = produced by a script, do not edit by hand; **[gitignored
 |---|---|
 | `sim_publisher.py` | run netsim (or a `.jsonl`, or a serial port) and publish to MQTT |
 | `twin_server.py` | interactive digital twin |
-| `alerter.py` | Telegram alerts (dry run without credentials) |
+| `alerter.py` | Console alert monitor (prints alerts in its terminal) |
 | `serve_dashboard.py` | serve `dashboard/` on the LAN for phones |
 | `resonance_mqtt.py` | shared MQTT helpers (topic scheme, broker options) |
 | `e2e_mqtt_test.py` | end-to-end test against a real broker |
@@ -366,11 +366,7 @@ cd ..\..
 
 ## 6. How to run
 
-Every command was run on this laptop. Run them from `D:\Resonance` in PowerShell unless it says `firmware\esp32`. To keep Telegram out of tests, start each window with:
-
-```powershell
-$env:TELEGRAM_BOT_TOKEN=$null; $env:TELEGRAM_CHAT_ID=$null      # this window only; nothing is sent
-```
+Every command was run on this laptop. Run them from `D:\Resonance` in PowerShell unless it says `firmware\esp32`.
 
 ### 6a. All tests
 
@@ -439,7 +435,6 @@ It prints `Open on this computer: http://localhost:8080/` and the phone URL (her
 Needs internet. Use a **fresh private-looking site id** for every run so you do not mix with anybody else (the default `rsn-822298ab` is public and shared).
 
 ```powershell
-$env:TELEGRAM_BOT_TOKEN=$null; $env:TELEGRAM_CHAT_ID=$null        # dry run (no Telegram)
 $site = "demo48213"       # invent your own, lower case letters, digits, - or _, max 32 characters
 # window 1: the alerter (start first)
 .venv\Scripts\python.exe tools\alerter.py --site $site --transport websockets --port 8000 --cooldown 5
@@ -448,22 +443,15 @@ $site = "demo48213"       # invent your own, lower case letters, digits, - or _,
 ```
 
 - Publisher output: `connected to broker.hivemq.com:8000, site <site>` then `published 335 lines: begin=3, change=5, damage=1, meta=1, sample=320, status_line=5`. Run time **about 40 s at `--speed 20`** (measured 38 s and 42 s). `--speed 5` is slower and easier to narrate; `--speed 1` is real time; add `--loop -1` to repeat forever.
-- Alerter (dry run) prints, in order (each event line also ends with `[sf N, t=... s]`): `The master is ONLINE`; `LOCAL vibration event at floor 5 (sensor 1) [sensor 1: AE 45.4 >= 6]`; `BUILDING-WIDE vibration event [sensor 1: std 3.4 >= 3, AE 6.2 >= 6; sensor 2: std 3.5 >= 3]`; `LOCAL vibration event at floor 10 (sensor 2) [sensor 2: AE 6.2 >= 6]`; `DAMAGE ALARM: natural frequency down 4.3 % (f1 6.73/6.74 Hz vs 7.03/7.05 Hz at commissioning), sf 235`; and when the publisher ends `The master went OFFLINE (last will)`.
+- Alerter prints (startup line `alerts: printed in this terminal`), in order (each event line also ends with `[sf N, t=... s]`): `The master is ONLINE`; `LOCAL vibration event at floor 5 (sensor 1) [sensor 1: AE 45.4 >= 6]`; `BUILDING-WIDE vibration event [sensor 1: std 3.4 >= 3, AE 6.2 >= 6; sensor 2: std 3.5 >= 3]`; `LOCAL vibration event at floor 10 (sensor 2) [sensor 2: AE 6.2 >= 6]`; `DAMAGE ALARM: natural frequency down 4.3 % (f1 6.73/6.74 Hz vs 7.03/7.05 Hz at commissioning), sf 235`; and when the publisher ends `The master went OFFLINE (last will)`.
 - Dashboard: open `dashboard\index.html`, press **MQTT live**, broker `ws://broker.hivemq.com:8000/mqtt`, site = your `$site`, **MQTT live: connect** (or use the link `index.html?site=<site>&broker=ws://broker.hivemq.com:8000/mqtt&mqtt=1`). Start the dashboard before the publisher, or it catches up from the retained state.
 - The default broker URL of the page (`wss://...:8884`) is blocked here; the page falls back to `ws://...:8000` after 12 s, or press "Use ws:// (8000)" at once.
 
-**Real Telegram messages.** `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set permanently (User scope) on this laptop, so **a normal PowerShell window will send real messages** when the alerter runs. Check without printing the secret:
-
-```powershell
-if ($env:TELEGRAM_BOT_TOKEN -and $env:TELEGRAM_CHAT_ID) { "Telegram is ON in this window" } else { "dry run" }
-```
-
-For a dry run clear them in that window (first block above). For the real thing, leave them set, run the alerter with `--cooldown 5`, and show the phone when the DAMAGE message arrives. `alerter.py --selftest-message` sends (or prints) one test message and exits. Never paste the token anywhere; to set up a new bot see `docs/demo_runbook.md` (b) step 4.
+**Alerts.** The alerter only prints in its own terminal (`ALERT  Resonance <site>: <text>`); nothing is sent anywhere. `alerter.py --selftest-message` prints one test alert and exits. For alerts on screen or phone, press "Enable notifications" in the dashboard.
 
 ### 6d. Interactive digital twin
 
 ```powershell
-$env:TELEGRAM_BOT_TOKEN=$null; $env:TELEGRAM_CHAT_ID=$null
 .venv\Scripts\python.exe -u tools\twin_server.py --speed 2 --transport websockets --port 8000
 ```
 
@@ -539,7 +527,7 @@ Not needed for the demo. All from `D:\Resonance`; caches live in `.cache/` (giti
 
 Not re-run for this guide (times are from `.claude/STRUCTURE.md`). Reproduction commands: `docs/project_report.md` Appendix A.
 
-**Not verified here:** any Wokwi run of the current firmware (no Wokwi CLI; only the builds and the host equivalent `pio test -e cloud_demo` were verified; the expected outputs in 6f come from the code), anything on real boards, the real Telegram delivery (credentials deliberately not used), the phone connection through the Windows firewall (server and LAN URL checked from the laptop only), TLS 8883 from firmware (cannot be run without a board or Wokwi), and the time of a first-ever ESP32 toolchain download.
+**Not verified here:** any Wokwi run of the current firmware (no Wokwi CLI; only the builds and the host equivalent `pio test -e cloud_demo` were verified; the expected outputs in 6f come from the code), anything on real boards, the phone connection through the Windows firewall (server and LAN URL checked from the laptop only), TLS 8883 from firmware (cannot be run without a board or Wokwi), and the time of a first-ever ESP32 toolchain download.
 
 ---
 
@@ -552,8 +540,8 @@ Not re-run for this guide (times are from `.claude/STRUCTURE.md`). Reproduction 
 - [ ] `cd firmware\esp32; pio run -e netsim` (rebuild `program.exe` after the netsim test).
 - [ ] Open `dashboard\index.html` from `file://`, click **Damage demo (simulated)**: plays through to the red alarm. This is your safe path.
 - [ ] Run 6c once with a fresh site, dashboard connected: lines arrive. Run 6d once.
-- [ ] Decide on Telegram: real (variables set) or dry run, and **test the phone gets a message** (`alerter.py --selftest-message`) if real.
-- [ ] Phone: charged, Telegram logged in, camera works for QR. Make sure a **hotspot** can be started on it (settings checked once).
+- [ ] Alerts: run `alerter.py --selftest-message` once (prints one alert line) and test the dashboard "Enable notifications" button on the phone.
+- [ ] Phone: charged, camera works for QR. Make sure a **hotspot** can be started on it (settings checked once).
 - [ ] Wokwi: open `master_cloud` and let it run for about 6 minutes: Wi-Fi and `mqtt: connected` on serial, data on the dashboard (site `rsn-822298ab`), and the red LED / buzzer at the DAMAGE alarm about 5.5 min in. **This will be its first ever Wokwi run**; if it does not work, drop it from the demo (cut order in 7.3).
 - [ ] Printed or on a USB stick: `docs/figures/dashboard_overview.png`, `dashboard_damage.png`, `docs/viva_prep.md`.
 - [ ] Pick your network profile decision (6e step 2) and do it once with the real phone.
@@ -562,10 +550,10 @@ Not re-run for this guide (times are from `.claude/STRUCTURE.md`). Reproduction 
 
 - [ ] Join the venue network; test `ws://broker.hivemq.com:8000/mqtt` works: start `sim_publisher.py` (6c) for 10 s and see lines in the dashboard. If it does not, plan on the hotspot or the offline replay.
 - [ ] Open tabs: (1) `dashboard\index.html` replay ready, (2) the same page for MQTT live, (3) `docs/figures` pictures as back-up, (4) VS Code with `master_cloud` selected.
-- [ ] Terminals ready in `D:\Resonance` with `$env:TELEGRAM_...` decided, the alias `pio` defined, and the **commands typed but not run**: the twin command (6d) and the phone server command (6e).
+- [ ] Terminals ready in `D:\Resonance` with the alias `pio` defined, and the **commands typed but not run**: the twin command (6d) and the phone server command (6e).
 - [ ] Start `serve_dashboard.py`, confirm the firewall prompt was answered and the phone opens the URL.
 - [ ] Start the twin at least 2 minutes before you need it (15-25 s start-up, then 70 s commissioning at `--speed 2`).
-- [ ] Phone on silent except Telegram; laptop notifications off; zoom the browser to 110-125 % for the room.
+- [ ] Phone on silent; laptop notifications off; zoom the browser to 110-125 % for the room.
 - [ ] Close anything that uses ports 8080 or Wokwi; note that sleep mode kills the twin and the publisher.
 
 ### 7.3 A 10-12 minute demo script
@@ -579,7 +567,7 @@ Not re-run for this guide (times are from `.claude/STRUCTURE.md`). Reproduction 
 | 3:15 | BUILDING event, then LOCAL on floor 10 | point at the Detector column | "The shaking of the whole building is caught by the vibration ratio; the frequency shift on floor 10 only by the TinyML autoencoder; that is why the rule is the OR of both." |
 | 4:15 | f1 chart, DAMAGE banner turns red | press Play and let it run to the end (alarm at 5:29 log time) | "A 30 % stiffness loss in storey 1: nothing visible to the eye, the building just gets slower; after 45 s of a steady 2 % drop the alarm fires." |
 | 5:00 | event window or `figures/detection_vs_damage.png` | show | "Honest limit: damage at the top storeys barely moves the frequency; this is physics, not a bug." |
-| 5:45 | MQTT live tab + Telegram on the phone (6c, `--speed 20` or 5) | start alerter then publisher | "The same data live through a cloud broker; Telegram pushes the alert to my phone." Show the phone at DAMAGE. |
+| 5:45 | MQTT live tab + alerter terminal (6c, `--speed 20` or 5) | start alerter then publisher | "The same data live through a cloud broker; the alerter prints the alert and the dashboard can notify the browser." Point at the alerter line at DAMAGE. |
 | 7:00 | Phone view: QR on laptop, examiner scans (6e) | press Phone view | "Any phone on the same Wi-Fi sees the same dashboard, no app, no hosting." |
 | 8:00 | digital twin panel (6d, already commissioned) | impact floor 5, then damage storey 10, then damage storey 1; one click per 4-5 s | "An examiner can break the building: storey 10 gives no alarm (physics), storey 1 gives it after about 30-45 s; every decision is the real firmware code, compiled for the PC." |
 | 10:00 | Wokwi `master_cloud` (only if it worked the night before; start it at about 4:30 so that its DAMAGE alarm, about 5.5 min into the lap, is due now) | show LEDs/buzzer, serial | "The real master firmware in an emulator raises a local alarm by itself, without the cloud." |
@@ -596,7 +584,7 @@ Cut order if short of time: Wokwi, then phone view, then twin; never cut the hon
 | Venue Wi-Fi isolates devices, phone cannot open the QR link | phone hotspot for the laptop and phones (6e step 4); else show the phone view on the laptop in a narrow window or `docs/figures/dashboard_phone.png` |
 | Wokwi will not start or connect | use 6c (same dashboard, same data); show `docs/figures/dashboard_building_view.png`; say it was verified on the PC (`pio test -e cloud_demo`) |
 | Twin buttons disabled or silent | commissioning not done or server stopped; restart it (new site id!); else do the replay 6b |
-| Telegram not arriving | the alerter prints the same text in the terminal; show that |
+| Browser notification not appearing | the alerter prints the same text in the terminal; show that |
 | `program.exe` missing | `pio run -e netsim`, or publish the stored log without the simulator (with `$site` set as in 6c): `.venv\Scripts\python.exe tools\sim_publisher.py --jsonl dashboard\demo_events_sim.jsonl --site $site --speed 5 --transport websockets --port 8000` |
 | Dashboard misbehaves | reload with the `?replay=` link, or show `docs/figures/dashboard_overview.png` and `dashboard_damage.png` |
 
@@ -628,8 +616,6 @@ Figures you can show (relative paths work in GitHub and VS Code preview):
 | Wokwi: `mqtt` never connects, no CONNACK | plain port 1883 opens TCP but gets no answer through Wokwi's gateway | the firmware defaults to TLS 8883, use that; do not build with `-DMQTT_PUBLIC_TLS=0`; check the Wokwi licence and internet |
 | Wokwi: board does not start | firmware not built, or the wrong `wokwi.toml` selected | build the matching env first (table 6f), then "Wokwi: Select Config File" |
 | Replay button does nothing from `file://` (other `?replay=` file names) | browsers refuse to read other files from `file://` | the "Damage demo (simulated)" button uses the embedded copy and always works; other files via `serve_dashboard.py` or "Open JSONL file" |
-| Telegram not sending | `TELEGRAM_*` variables not set in that window, no internet, or the bot has no chat with you | check with the safe one-liner in 6c; send "hi" to the bot first; the alerter prints the text anyway |
-| Telegram sending when you did not want it | the variables are set permanently at User scope | `$env:TELEGRAM_BOT_TOKEN=$null; $env:TELEGRAM_CHAT_ID=$null` before starting any tool in that window |
 | `test_mqtt_dom.js` : `Cannot find module 'jsdom'` | jsdom is not a project dependency | install it in a scratch folder and set `NODE_PATH` (6a) |
 | Everything stops after a while | laptop went to sleep | disable sleep for the demo |
 

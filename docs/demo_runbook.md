@@ -4,8 +4,6 @@ Everything here is SIMULATED data (a simulated 10-storey building, sensors on fl
 
 The scenario is hand-picked: the excitation realisations of the building-wide event and the frequency shift (exc ids 16 and 18) were chosen by scanning for clean, unambiguous events. On the fresh test block the deployed rule's mean event recall (LOCAL and BUILDING recall averaged) is 0.734, about 73 %, at 1.64 false onsets per hour over healthy and noise-only hours, which does NOT meet the 1/h target (`models/selected/validation/fusion_eval_r3_test.md`, README). Do not present the demo as typical.
 
-**Telegram warning:** if `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` are already set permanently (User environment variables), `tools/alerter.py` and `--selftest-message` send REAL messages. Check without printing the secret: `if ($env:TELEGRAM_BOT_TOKEN -and $env:TELEGRAM_CHAT_ID) { "Telegram is ON in this window" } else { "dry run" }` (never `echo` the token in front of an audience) and remove them from a window with `Remove-Item Env:TELEGRAM_BOT_TOKEN, Env:TELEGRAM_CHAT_ID` if you only want a dry run.
-
 The demo story (about 7.5 minutes of log time; times are minutes:seconds into the demo):
 
 | Time | What happens | What you point at |
@@ -26,7 +24,7 @@ The demo story (about 7.5 minutes of log time; times are minutes:seconds into th
 3. Or use a link: `file:///D:/Resonance/dashboard/index.html?replay=demo_events_sim.jsonl&speed=20` (adjust the path). Add `&at=sf236&play=0` to open paused right after the alarm.
 4. Back-up: the same data as pictures, `docs/figures/dashboard_overview.png` (end state) and `docs/figures/dashboard_damage.png` (moment of the alarm).
 
-## (b) Live cloud demo (simulator -> MQTT -> dashboard -> Telegram)
+## (b) Live cloud demo (simulator -> MQTT -> dashboard -> alerts)
 
 Needs internet. The broker is the free public HiveMQ one: anybody who knows the site id can read the topics, which is fine for simulated data.
 
@@ -39,19 +37,14 @@ Needs internet. The broker is the free public HiveMQ one: anybody who knows the 
    `--speed 5` plays the 7.5 minutes in about 90 s (`--speed 1` = real time; `--loop -1` repeats forever). The websocket options are for networks that block port 1883 (`ws://broker.hivemq.com:8000/mqtt`); on a free network drop them.
 3. Dashboard on another laptop or phone: open **MQTT live**, broker `wss://broker.hivemq.com:8884/mqtt`, site `rsn-822298ab`, press "MQTT live: connect". The page falls back to `ws://...:8000` by itself if 8884 is blocked. A ready link (the page must be served over http for a phone: in `dashboard/` run `python -m http.server 8080`, then open `http://<your-laptop-ip>:8080/index.html?site=rsn-822298ab&broker=ws://broker.hivemq.com:8000/mqtt&autoconnect=1`).
    Start the dashboard BEFORE the publisher, or it still catches up from the retained meta and state.
-4. Telegram alerts (once, 5 minutes):
-   - In Telegram, open **@BotFather**, send `/newbot`, give a name and a username ending in `bot`. It replies with a **token** (looks like `123456:ABC...`). Treat it like a password and never commit it.
-   - Open a chat with your new bot and send it any message ("hi").
-   - Open `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser: find `"chat":{"id":<NUMBER>` = your **chat id**.
-   - In PowerShell, in the same window you start the alerter from:
-     ```
-     $env:TELEGRAM_BOT_TOKEN = "<TOKEN>"
-     $env:TELEGRAM_CHAT_ID = "<NUMBER>"
-     .venv\Scripts\python.exe tools/alerter.py --site rsn-822298ab --transport websockets --port 8000 --cooldown 5
-     ```
-   - Test it: `.venv\Scripts\python.exe tools/alerter.py --selftest-message`. Without the two variables it only prints what it would send ("dry run").
-   - Expect messages like `LOCAL vibration event at floor 10 (sensor 2) [AE 6.2 >= 6]` and `DAMAGE ALARM: natural frequency down 4.3 % (f1 6.73/6.74 Hz vs 7.03/7.05 Hz at commissioning)`.
-5. Start the alerter, then the publisher; show the phone when the DAMAGE message arrives.
+4. Alerts (no setup, no accounts): start the console alert monitor in its own window:
+   ```
+   .venv\Scripts\python.exe tools/alerter.py --site rsn-822298ab --transport websockets --port 8000 --cooldown 5
+   ```
+   - It prints `alerts: printed in this terminal`, then one line per alert, e.g. `ALERT  Resonance rsn-822298ab: LOCAL vibration event at floor 10 (sensor 2) [AE 6.2 >= 6]` and `ALERT  Resonance rsn-822298ab: DAMAGE ALARM: natural frequency down 4.3 % (f1 6.73/6.74 Hz vs 7.03/7.05 Hz at commissioning)`. It sends nothing anywhere.
+   - Test it: `.venv\Scripts\python.exe tools/alerter.py --selftest-message` prints one test alert and exits.
+   - For alerts on screen or phone use the dashboard's "Enable notifications" button (browser notifications).
+5. Start the alerter, then the publisher; point at the alerter terminal line (or the dashboard notification) when the DAMAGE alert arrives.
 
 ## (c) Wokwi cloud demo (the master firmware in a simulated ESP32)
 
@@ -73,13 +66,13 @@ Needs internet. The broker is the free public HiveMQ one: anybody who knows the 
 - **Pooled drop chart**: "Both sensors averaged; crossing 2 % for 32 superframes triggers DAMAGE."
 - **Event history, Detector column**: "Which detector fired: std, AE, or both."
 - **DAMAGE history**: "The alarm with its frequencies; BASELINE rows would mean a sensor re-commissioned its reference."
-- **MQTT live + Telegram**: "Same data, live, anywhere: the master publishes over MQTT, a second laptop or phone shows it and Telegram pushes the alert."
+- **MQTT live + alerts**: "Same data, live, anywhere: the master publishes over MQTT, a second laptop or phone shows it and the alerter / browser notification shows the alert."
 - Be ready to say: damage is detected for large losses in the lower storeys only (30 % at storey 1: yes; upper storeys and small losses: weak), and all numbers are simulation, not measured.
 
 ## (e) Fallbacks
 
 - **MQTT blocked** (page says "MQTT offline"/no data): use the port-8000 websocket options shown above on both sides, or a phone hotspot. Still nothing? Run (a): it needs no network.
-- **Telegram blocked**: the alerter prints the same messages in the terminal (dry run); show those.
+- **Browser notifications blocked or missing**: the alerter terminal prints the same alerts; show those.
 - **Wokwi will not connect**: use (b); same dashboard, same data.
 - **Dashboard misbehaves**: `docs/figures/dashboard_overview.png` and `dashboard_damage.png`, or reload with the `?replay=` link.
 - **`program.exe` missing**: `pio run -e netsim` in `firmware/esp32` (VS Code PlatformIO terminal, or `~\.platformio\penv\Scripts\pio.exe run -e netsim`); or publish the stored log without the simulator: `.venv\Scripts\python.exe tools/sim_publisher.py --jsonl dashboard/demo_events_sim.jsonl --speed 5 --transport websockets --port 8000`.
@@ -91,7 +84,7 @@ An examiner clicks buttons and the live stream shows the consequence within seco
 1. Start (from `D:\Resonance`, `pio run -e netsim` must have been run once; this laptop: only the WebSocket port 8000 works):
    `.venv\Scripts\python.exe tools\twin_server.py --speed 2 --transport websockets --port 8000`
    It prints `SITE=twin-xxxxxxxx` (a NEW random site id every start, so it never mixes with another demo; `--site` fixes it). Do NOT start `sim_publisher.py` on the same site.
-2. Dashboard: open `dashboard/index.html`, broker `ws://broker.hivemq.com:8000/mqtt`, site = the printed id, "MQTT live: connect". The "Digital twin" panel appears at once; its buttons stay disabled while the system commissions (about 100 superframes = 2.3 min at 1x, 70 s at `--speed 2`; the f1 reference of both sensors needs that long). Optional: `.venv\Scripts\python.exe tools\alerter.py --site <id> --transport websockets --port 8000` (with the Telegram variables set) for the phone alerts.
+2. Dashboard: open `dashboard/index.html`, broker `ws://broker.hivemq.com:8000/mqtt`, site = the printed id, "MQTT live: connect". The "Digital twin" panel appears at once; its buttons stay disabled while the system commissions (about 100 superframes = 2.3 min at 1x, 70 s at `--speed 2`; the f1 reference of both sensors needs that long). Optional: `.venv\Scripts\python.exe tools\alerter.py --site <id> --transport websockets --port 8000` for the alert lines in its terminal.
 3. Stop with Ctrl+C (it publishes `running:false`; SIGTERM / Ctrl+Break do too). A server that is KILLED (power loss, window closed hard) cannot say so and leaves a stale retained `twin/state`: the server republishes it every 5 s with a heartbeat (`updated_t`, `period_s`), and the dashboard treats a state older than 3 periods (or `running:false`) as a dead twin: it shows "twin stopped" / "twin not responding", disables the buttons and hides the "simulator truth" band. The panel is also hidden when the MQTT source is disconnected or a file is loaded.
 
 **Suggested 5-minute script** (speed 2: the numbers below are wall-clock seconds)
@@ -99,7 +92,7 @@ An examiner clicks buttons and the live stream shows the consequence within seco
 2. Impact floor 5 (then 10): a LOCAL event at that sensor in about 10 s: "Local, not building-wide: only the sensor at that floor reacts."
 3. Building shake: BUILDING event: "Both sensors see it."
 4. Damage storey 10 by 30 %: the dotted ground-truth line moves by only 0.1 %; NO alarm. "Honest limitation: damage near the top barely changes f1, so a frequency-based alarm cannot see it. The twin log says so." Repair.
-5. Damage storey 1 by 30 %: truth drops 3.9 %, the sensors' estimates follow after about 20-30 s and the red DAMAGE alarm appears about 40 s after the click (Telegram message). "Storey-1 damage lowers f1 most; the alarm needs the drop for 32 superframes to avoid false alarms, that is the delay."
+5. Damage storey 1 by 30 %: truth drops 3.9 %, the sensors' estimates follow after about 20-30 s and the red DAMAGE alarm appears about 40 s after the click (alert line in the alerter terminal / dashboard notification). "Storey-1 damage lowers f1 most; the alarm needs the drop for 32 superframes to avoid false alarms, that is the delay."
 6. Kill sensor 2: sensor 2 DEAD after about 7 s, the system continues in degraded mode (one-sensor decisions, no BUILDING). Revive 2: it recommissions for about 2 min on the current structure.
 7. Repair (DAMAGE ends after about 70 s) or Reset (healthy, all sensors alive).
 
