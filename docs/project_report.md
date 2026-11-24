@@ -355,7 +355,7 @@ The demo (seed 5,990,011; 320 superframes = 7.5 min; one building with f1 7.09 H
 
 | Layer | What | Count / result |
 |---|---|---|
-| Unit tests (firmware, host) | `pio test -e native` (windows, smoothing, front end, AE, tracker/detector) | 34 test cases (test_native 8, test_ae 9, test_shm 17) |
+| Unit tests (firmware, host) | `pio test -e native` (windows, smoothing, front end, AE, tracker/detector, LED/buzzer patterns) | 42 test cases (test_native 8, test_ae 9, test_shm 17, test_annunciator 8) |
 | | `pio test -e netsim` (protocol, state machines, simulator, fusion, JSON) | 115 (63 test_net + 52 test_fusion) |
 | | `espnow_logic` / `mqtt_logic` / `cloud_demo` | 26 / 34 / 6 |
 | Python tests | `test_iot_tools.py` / `test_validate_logs.py` / `test_gates.py` | 13 / 7 / 18 |
