@@ -4,6 +4,8 @@ Structural health monitoring with IoT and TinyML. Two ESP32 + MPU6050 sensor nod
 
 **Status: the simulation stage is complete; hardware bring-up is pending.** Every result is from the project's building simulator, a PC test harness or the Wokwi emulator. **Nothing has been measured on real boards or structures.**
 
+> **New to the project? Read [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md)**: the whole project in one document, from the problem to the results, in plain language.
+
 > **Start here: [PROJECT_GUIDE.md](PROJECT_GUIDE.md)** (one-minute summary, architecture, repository map, setup, every run command, demo-day checklist and script, troubleshooting, honest limitations, glossary).
 
 ## Documents
